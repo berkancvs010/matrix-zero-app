@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
-void main() => runApp(const MatrixZeroApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MatrixZeroApp());
+}
 
 class MatrixZeroApp extends StatelessWidget {
   const MatrixZeroApp({super.key});
@@ -11,84 +14,125 @@ class MatrixZeroApp extends StatelessWidget {
       title: 'Matrix Zero',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF000000),
-        primaryColor: const Color(0xFF00FF66),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00FF66),
-          surface: Color(0xFF0D0D0D),
+        scaffoldBackgroundColor: const Color(0xFF0A0A0A),
+        primaryColor: Colors.greenAccent,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.black,
+          elevation: 0,
         ),
       ),
-      home: const ChatScreen(),
+      home: const MainChatScreen(),
     );
   }
 }
 
-class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+class MainChatScreen extends StatefulWidget {
+  const MainChatScreen({super.key});
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  State<MainChatScreen> createState() => _MainChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _controller = TextEditingController();
+class _MainChatScreenState extends State<MainChatScreen> {
+  final TextEditingController _msgController = TextEditingController();
   final List<Map<String, String>> _messages = [];
-
-  void _sendMessage() {
-    if (_controller.text.trim().isEmpty) return;
-    setState(() {
-      _messages.add({
-        'sender': 'me',
-        'text': _controller.text.trim(),
-        'time': '${DateTime.now().hour}:${DateTime.now().minute}',
-      });
-    });
-    _controller.clear();
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A0A),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.security, color: Color(0xFF00FF66), size: 20),
-            SizedBox(width: 8),
-            Text(
-              "ZERO LOG CHAT",
+            Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                color: Colors.greenAccent,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'ZERO LOG CHAT',
               style: TextStyle(
+                color: Colors.greenAccent,
                 fontFamily: 'monospace',
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00FF66),
               ),
             ),
           ],
         ),
-        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call, color: Colors.greenAccent),
+            tooltip: 'Sesli Arama',
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Sesli arama sinyali gönderiliyor...'),
+                  backgroundColor: Colors.grey,
+                ),
+              );
+            },
+          ),
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.timer_outlined, color: Colors.greenAccent),
+            tooltip: 'Oto-Silme Süresi',
+            onSelected: (hours) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Mesajlar $hours saat sonra cihazdan silinecek.'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 1, child: Text('1 Saat Sonra Sil')),
+              const PopupMenuItem(value: 24, child: Text('24 Saat Sonra Sil')),
+              const PopupMenuItem(value: 168, child: Text('1 Hafta Sonra Sil')),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(12.0),
               itemCount: _messages.length,
               itemBuilder: (context, index) {
                 final msg = _messages[index];
+                final isMe = msg['sender'] == 'Ben';
                 return Align(
-                  alignment: Alignment.centerRight,
+                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    margin: const EdgeInsets.symmetric(vertical: 4.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF111111),
-                      border: Border.all(color: const Color(0xFF00FF66).withOpacity(0.3)),
-                      borderRadius: BorderRadius.circular(8),
+                      color: isMe ? Colors.greenAccent.withOpacity(0.15) : Colors.grey[900],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isMe ? Colors.greenAccent.withOpacity(0.4) : Colors.grey[800]!,
+                      ),
                     ),
-                    child: Text(
-                      msg['text']!,
-                      style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                    child: Column(
+                      crossAxisAlignment:
+                          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          msg['text'] ?? '',
+                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          msg['sender'] ?? '',
+                          style: TextStyle(
+                            color: isMe ? Colors.greenAccent : Colors.grey[500],
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -96,31 +140,39 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.all(10),
-            color: const Color(0xFF0A0A0A),
+            padding: const EdgeInsets.all(8.0),
+            color: Colors.black,
             child: Row(
               children: [
+                IconButton(
+                  icon: const Icon(Icons.attach_file, color: Colors.greenAccent),
+                  onPressed: () {},
+                ),
                 Expanded(
                   child: TextField(
-                    controller: _controller,
-                    style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                    controller: _msgController,
+                    style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: "Sıfır log mesaj yaz...",
-                      hintStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
-                      filled: true,
-                      fillColor: const Color(0xFF141414),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6),
-                        borderSide: BorderSide.none,
-                      ),
+                      hintText: 'Sıfır log mesaj yaz...',
+                      hintStyle: TextStyle(color: Colors.grey[600]),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.horizontal(12),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.send_rounded, color: Color(0xFF00FF66)),
-                  onPressed: _sendMessage,
+                  icon: const Icon(Icons.send, color: Colors.greenAccent),
+                  onPressed: () {
+                    if (_msgController.text.trim().isNotEmpty) {
+                      setState(() {
+                        _messages.add({
+                          'sender': 'Ben',
+                          'text': _msgController.text.trim(),
+                        });
+                        _msgController.clear();
+                      });
+                    }
+                  },
                 ),
               ],
             ),
