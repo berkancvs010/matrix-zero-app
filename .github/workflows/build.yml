@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
@@ -22,42 +22,164 @@ jobs:
         with:
           flutter-version: '3.19.x'
 
-      - name: Create Minimal Flutter Structure
+      - name: Create Complete Flutter Project
         run: |
-          mkdir -p android/app/src/main
+          rm -rf *
+          flutter create . --org com.matrixzero --platforms android
+          mkdir -p lib
           cat << 'EOF' > pubspec.yaml
           name: matrix_zero
+          description: "Matrix Zero App"
+          publish_to: 'none'
+          version: 1.0.0+1
           environment:
             sdk: '>=3.0.0 <4.0.0'
           dependencies:
             flutter:
               sdk: flutter
             http: ^1.2.0
+          dev_dependencies:
+            flutter_test:
+              sdk: flutter
           flutter:
             uses-material-design: true
           EOF
-          
-          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application
-                  android:label="Matrix Zero"
-                  android:icon="@mipmap/ic_launcher"
-                  android:usesCleartextTraffic="true">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:launchMode="singleTop"
-                      android:theme="@android:style/Theme.Black.NoTitleBar"
-                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-                      android:hardwareAccelerated="true"
-                      android:windowSoftInputMode="adjustResize">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
+
+      - name: Create main.dart
+        run: |
+          cat << 'EOF' > lib/main.dart
+          import 'package:flutter/material.dart';
+
+          void main() => runApp(const MatrixZeroApp());
+
+          class MatrixZeroApp extends StatelessWidget {
+            const MatrixZeroApp({super.key});
+
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                title: 'Matrix Zero',
+                debugShowCheckedModeBanner: false,
+                theme: ThemeData.dark().copyWith(
+                  scaffoldBackgroundColor: const Color(0xFF000000),
+                  primaryColor: const Color(0xFF00FF66),
+                  colorScheme: const ColorScheme.dark(
+                    primary: Color(0xFF00FF66),
+                    surface: Color(0xFF0D0D0D),
+                  ),
+                ),
+                home: const ChatScreen(),
+              );
+            }
+          }
+
+          class ChatScreen extends StatefulWidget {
+            const ChatScreen({super.key});
+
+            @override
+            State<ChatScreen> createState() => _ChatScreenState();
+          }
+
+          class _ChatScreenState extends State<ChatScreen> {
+            final TextEditingController _controller = TextEditingController();
+            final List<Map<String, String>> _messages = [];
+
+            void _sendMessage() {
+              if (_controller.text.trim().isEmpty) return;
+              setState(() {
+                _messages.add({
+                  'sender': 'me',
+                  'text': _controller.text.trim(),
+                  'time': '${DateTime.now().hour}:${DateTime.now().minute}',
+                });
+              });
+              _controller.clear();
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                appBar: AppBar(
+                  backgroundColor: const Color(0xFF0A0A0A),
+                  title: const Row(
+                    children: [
+                      Icon(Icons.security, color: Color(0xFF00FF66), size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        "ZERO LOG CHAT",
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF00FF66),
+                        ),
+                      ),
+                    ],
+                  ),
+                  elevation: 0,
+                ),
+                body: Column(
+                  children: [
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) {
+                          final msg = _messages[index];
+                          return Align(
+                            alignment: Alignment.centerRight,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF111111),
+                                border: Border.all(color: const Color(0xFF00FF66).withOpacity(0.3)),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                msg['text']!,
+                                style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      color: const Color(0xFF0A0A0A),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _controller,
+                              style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                              decoration: InputDecoration(
+                                hintText: "Sıfır log mesaj yaz...",
+                                hintStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
+                                filled: true,
+                                fillColor: const Color(0xFF141414),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(6),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.send_rounded, color: Color(0xFF00FF66)),
+                            onPressed: _sendMessage,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+          }
           EOF
 
       - name: Build APK
