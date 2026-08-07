@@ -1,0 +1,132 @@
+import 'package:flutter/material.dart';
+
+void main() => runApp(const MatrixZeroApp());
+
+class MatrixZeroApp extends StatelessWidget {
+  const MatrixZeroApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Matrix Zero',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF000000),
+        primaryColor: const Color(0xFF00FF66),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF00FF66),
+          surface: Color(0xFF0D0D0D),
+        ),
+      ),
+      home: const ChatScreen(),
+    );
+  }
+}
+
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _controller = TextEditingController();
+  final List<Map<String, String>> _messages = [];
+
+  void _sendMessage() {
+    if (_controller.text.trim().isEmpty) return;
+    setState(() {
+      _messages.add({
+        'sender': 'me',
+        'text': _controller.text.trim(),
+        'time': '${DateTime.now().hour}:${DateTime.now().minute}',
+      });
+    });
+    _controller.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0A0A0A),
+        title: const Row(
+          children: [
+            Icon(Icons.security, color: Color(0xFF00FF66), size: 20),
+            SizedBox(width: 8),
+            Text(
+              "ZERO LOG CHAT",
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF00FF66),
+              ),
+            ),
+          ],
+        ),
+        elevation: 0,
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+                final msg = _messages[index];
+                return Align(
+                  alignment: Alignment.centerRight,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF111111),
+                      border: Border.all(color: const Color(0xFF00FF66).withOpacity(0.3)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      msg['text']!,
+                      style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(10),
+            color: const Color(0xFF0A0A0A),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                    decoration: InputDecoration(
+                      hintText: "Sıfır log mesaj yaz...",
+                      hintStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
+                      filled: true,
+                      fillColor: const Color(0xFF141414),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.send_rounded, color: Color(0xFF00FF66)),
+                  onPressed: _sendMessage,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
