@@ -1,46 +1,27 @@
-name: Build Android APK
+name: matrix_zero
+description: "Sıfır Log, Oto-Silmeli, Hibrit Matrix Sohbet Uygulaması"
+publish_to: 'none'
+version: 1.0.0+1
 
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+environment:
+  sdk: '>=3.0.0 <4.0.0'
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+dependencies:
+  flutter:
+    sdk: flutter
+  matrix: ^0.23.0
+  sqflite: ^2.3.0
+  path_provider: ^2.1.2
+  flutter_webrtc: ^0.9.48
+  file_picker: ^8.0.0
+  shared_preferences: ^2.2.2
+  cupertino_icons: ^1.0.6
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Generate Flutter Project Structure
-        run: |
-          mkdir temp_app
-          cd temp_app
-          flutter create --org com.matrixzero --platforms android matrix_zero
-          cd matrix_zero
-          
-          # Depodaki main.dart dosyasını oluşturulan projeye kopyala
-          cp ../../lib/main.dart lib/main.dart
-
-          # APK Derlemesini Çalıştır
-          flutter build apk --release
-
-          # APK dosyasını kök dizine taşı
-          cp build/app/outputs/flutter-apk/app-release.apk ../../app-release.apk
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: MatrixZero-APK
-          path: app-release.apk
+flutter:
+  uses-material-design: true
+  
