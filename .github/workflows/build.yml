@@ -10,24 +10,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Repoyu Klonla
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Flutter SDK İndir ve Kur
-        run: |
-          git clone https://github.com/flutter/flutter.git -b stable --depth 1 _flutter
-          echo "$PWD/_flutter/bin" >> $GITHUB_PATH
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
 
-      - name: Flutter Sürümünü Kontrol Et
-        run: flutter --version
-
-      - name: Bağımlılıkları Al
+      - name: Install Dependencies
         run: flutter pub get
 
-      - name: Web Uygulamasını Derle
+      - name: Build Web App
         run: flutter build web --release --no-tree-shake-icons
 
-      - name: Çıktıyı Paketle
+      - name: Upload Web Artifact
         uses: actions/upload-artifact@v4
         with:
           name: matrix-zero-web-pwa
