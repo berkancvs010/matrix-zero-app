@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+void main() {
   runApp(const MatrixZeroApp());
 }
 
@@ -14,12 +13,8 @@ class MatrixZeroApp extends StatelessWidget {
       title: 'Matrix Zero',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0A0A0A),
+        scaffoldBackgroundColor: Colors.black,
         primaryColor: Colors.greenAccent,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.black,
-          elevation: 0,
-        ),
       ),
       home: const MainChatScreen(),
     );
@@ -35,63 +30,30 @@ class MainChatScreen extends StatefulWidget {
 
 class _MainChatScreenState extends State<MainChatScreen> {
   final TextEditingController _msgController = TextEditingController();
-  final List<Map<String, String>> _messages = [];
+  final List<String> _messages = [];
+
+  void _sendMessage() {
+    if (_msgController.text.trim().isNotEmpty) {
+      setState(() {
+        _messages.add(_msgController.text.trim());
+        _msgController.clear();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: const BoxDecoration(
-                color: Colors.greenAccent,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'ZERO LOG CHAT',
-              style: TextStyle(
-                color: Colors.greenAccent,
-                fontFamily: 'monospace',
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+        backgroundColor: Colors.grey[900],
+        title: const Text(
+          'ZERO LOG CHAT',
+          style: TextStyle(color: Colors.greenAccent, fontFamily: 'monospace'),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.call, color: Colors.greenAccent),
-            tooltip: 'Sesli Arama',
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Sesli arama sinyali gönderiliyor...'),
-                  backgroundColor: Colors.grey,
-                ),
-              );
-            },
-          ),
-          PopupMenuButton<int>(
-            icon: const Icon(Icons.timer_outlined, color: Colors.greenAccent),
-            tooltip: 'Oto-Silme Süresi',
-            onSelected: (hours) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Mesajlar $hours saat sonra cihazdan silinecek.'),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 1, child: Text('1 Saat Sonra Sil')),
-              const PopupMenuItem(value: 24, child: Text('24 Saat Sonra Sil')),
-              const PopupMenuItem(value: 168, child: Text('1 Hafta Sonra Sil')),
-            ],
+            icon: const Icon(Icons.delete_sweep, color: Colors.greenAccent),
+            onPressed: () => setState(() => _messages.clear()),
           ),
         ],
       ),
@@ -99,80 +61,46 @@ class _MainChatScreenState extends State<MainChatScreen> {
         children: [
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.all(12.0),
               itemCount: _messages.length,
               itemBuilder: (context, index) {
-                final msg = _messages[index];
-                final isMe = msg['sender'] == 'Ben';
                 return Align(
-                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment: Alignment.centerRight,
                   child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4.0),
-                    padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                    margin: const EdgeInsets.all(8.0),
+                    padding: const EdgeInsets.all(12.0),
                     decoration: BoxDecoration(
-                      color: isMe ? Colors.greenAccent.withOpacity(0.15) : Colors.grey[900],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isMe ? Colors.greenAccent.withOpacity(0.4) : Colors.grey[800]!,
-                      ),
+                      color: Colors.greenAccent.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Column(
-                      crossAxisAlignment:
-                          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          msg['text'] ?? '',
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          msg['sender'] ?? '',
-                          style: TextStyle(
-                            color: isMe ? Colors.greenAccent : Colors.grey[500],
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      _messages[index],
+                      style: const TextStyle(color: Colors.white),
                     ),
                   ),
                 );
               },
             ),
           ),
-          Container(
+          Padding(
             padding: const EdgeInsets.all(8.0),
-            color: Colors.black,
             child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file, color: Colors.greenAccent),
-                  onPressed: () {},
-                ),
                 Expanded(
                   child: TextField(
                     controller: _msgController,
                     style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Sıfır log mesaj yaz...',
-                      hintStyle: TextStyle(color: Colors.grey[600]),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.horizontal(12),
+                    decoration: const InputDecoration(
+                      hintText: 'Mesaj yaz...',
+                      hintStyle: TextStyle(color: Colors.grey),
+                      filled: true,
+                      fillColor: Colors.black54,
+                      border: OutlineInputBorder(),
                     ),
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.send, color: Colors.greenAccent),
-                  onPressed: () {
-                    if (_msgController.text.trim().isNotEmpty) {
-                      setState(() {
-                        _messages.add({
-                          'sender': 'Ben',
-                          'text': _msgController.text.trim(),
-                        });
-                        _msgController.clear();
-                      });
-                    }
-                  },
+                  onPressed: _sendMessage,
                 ),
               ],
             ),
