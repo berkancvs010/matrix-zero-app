@@ -13,18 +13,21 @@ jobs:
       - name: Repoyu Klonla
         uses: actions/checkout@v4
 
-      - name: Flutter SDK Kur
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
+      - name: Flutter SDK İndir ve Kur
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable --depth 1 _flutter
+          echo "$PWD/_flutter/bin" >> $GITHUB_PATH
 
-      - name: Bağımlılıkları Yükle
+      - name: Flutter Sürümünü Kontrol Et
+        run: flutter --version
+
+      - name: Bağımlılıkları Al
         run: flutter pub get
 
-      - name: Web / PWA Derle
+      - name: Web Uygulamasını Derle
         run: flutter build web --release --no-tree-shake-icons
 
-      - name: PWA Web Çıktısını Kaydet
+      - name: Çıktıyı Paketle
         uses: actions/upload-artifact@v4
         with:
           name: matrix-zero-web-pwa
