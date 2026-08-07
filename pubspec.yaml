@@ -1,5 +1,5 @@
 name: matrix_zero
-description: "Sıfır Log, Oto-Silmeli, Hibrit Matrix Sohbet Uygulaması"
+description: "Sıfır Log Matrix PWA Uygulaması"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,18 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  matrix: ^0.23.0
-  sqflite: ^2.3.0
-  path_provider: ^2.1.2
-  flutter_webrtc: ^0.9.48
-  file_picker: ^8.0.0
-  shared_preferences: ^2.2.2
   cupertino_icons: ^1.0.6
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
