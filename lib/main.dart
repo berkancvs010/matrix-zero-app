@@ -108,13 +108,18 @@ class _MainScreenState extends State<MainScreen> {
     _channel = WebSocketChannel.connect(
       Uri.parse('wss://zerolog.giize.com:8443'),
     );
-    _channel.stream.listen((message) {
-      final data = jsonDecode(message);
-      if (data['type'] == 'userList') {
-        setState(() {
-          _onlineUsers = List<String>.from(data['users'] ?? []);
-          _onlineUsers.remove(widget.nickname); // kendini gösterme
-        });
+    // Broadcast stream yap ki birden fazla ekran dinleyebilsin
+    _channel.stream.asBroadcastStream().listen((message) {
+      try {
+        final data = jsonDecode(message);
+        if (data['type'] == 'userList') {
+          setState(() {
+            _onlineUsers = List<String>.from(data['users'] ?? []);
+            _onlineUsers.remove(widget.nickname);
+          });
+        }
+      } catch (e) {
+        print('Hata: $e');
       }
     });
     // Sunucuya kaydol
@@ -148,6 +153,19 @@ class _MainScreenState extends State<MainScreen> {
         builder: (_) => PrivateChatScreen(
           myNick: widget.nickname,
           targetNick: targetNick,
+          channel: _channel,
+        ),
+      ),
+    );
+  }
+
+  void _startPrivateCall(String target) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PrivateCallScreen(
+          myNick: widget.nickname,
+          targetNick: target,
           channel: _channel,
         ),
       ),
@@ -210,10 +228,7 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.call, color: Colors.green),
-                          onPressed: () {
-                            // Özel arama başlat
-                            _startPrivateCall(user);
-                          },
+                          onPressed: () => _startPrivateCall(user),
                         ),
                       ],
                     ),
@@ -226,23 +241,9 @@ class _MainScreenState extends State<MainScreen> {
       ),
     );
   }
-
-  void _startPrivateCall(String target) {
-    // WebRTC özel arama ekranına yönlendir
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PrivateCallScreen(
-          myNick: widget.nickname,
-          targetNick: target,
-          channel: _channel,
-        ),
-      ),
-    );
-  }
 }
 
-// ----- ODA SOHBET EKRANI (Sadece mesaj, arama yok) -----
+// ----- ODA SOHBET EKRANI (Broadcast stream ile) -----
 class ChatRoomScreen extends StatefulWidget {
   final String nickname;
   final String roomName;
@@ -260,23 +261,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    widget.channel.stream.listen((message) {
-      final data = jsonDecode(message);
-      if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
-        setState(() {
-          _messages.add({
-            'sender': data['from'],
-            'text': data['text'],
+    // Broadcast stream'i dinle
+    widget.channel.stream.asBroadcastStream().listen((message) {
+      try {
+        final data = jsonDecode(message);
+        if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
+          setState(() {
+            _messages.add({ 'sender': data['from'], 'text': data['text'] });
           });
-        });
-      }
-      if (data['type'] == 'roomMessageSent' && data['room'] == widget.roomName) {
-        setState(() {
-          _messages.add({
-            'sender': widget.nickname,
-            'text': data['text'],
+        }
+        if (data['type'] == 'roomMessageSent' && data['room'] == widget.roomName) {
+          setState(() {
+            _messages.add({ 'sender': widget.nickname, 'text': data['text'] });
           });
-        });
+        }
+      } catch (e) {
+        print('Hata: $e');
       }
     });
   }
@@ -353,7 +353,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 }
 
-// ----- ÖZEL MESAJLAŞMA EKRANI (Mesaj + Arama) -----
+// ----- ÖZEL MESAJLAŞMA EKRANI (Broadcast stream ile) -----
 class PrivateChatScreen extends StatefulWidget {
   final String myNick;
   final String targetNick;
@@ -371,23 +371,21 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   @override
   void initState() {
     super.initState();
-    widget.channel.stream.listen((message) {
-      final data = jsonDecode(message);
-      if (data['type'] == 'privateMessage' && data['from'] == widget.targetNick) {
-        setState(() {
-          _messages.add({
-            'sender': data['from'],
-            'text': data['text'],
+    widget.channel.stream.asBroadcastStream().listen((message) {
+      try {
+        final data = jsonDecode(message);
+        if (data['type'] == 'privateMessage' && data['from'] == widget.targetNick) {
+          setState(() {
+            _messages.add({ 'sender': data['from'], 'text': data['text'] });
           });
-        });
-      }
-      if (data['type'] == 'privateMessageSent' && data['to'] == widget.targetNick) {
-        setState(() {
-          _messages.add({
-            'sender': widget.myNick,
-            'text': data['text'],
+        }
+        if (data['type'] == 'privateMessageSent' && data['to'] == widget.targetNick) {
+          setState(() {
+            _messages.add({ 'sender': widget.myNick, 'text': data['text'] });
           });
-        });
+        }
+      } catch (e) {
+        print('Hata: $e');
       }
     });
   }
@@ -503,10 +501,14 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   void initState() {
     super.initState();
     _initWebRTC();
-    widget.channel.stream.listen((message) {
-      final data = jsonDecode(message);
-      if (data['type'] == 'callSignal' && data['from'] == widget.targetNick) {
-        _handleSignal(data['signal']);
+    widget.channel.stream.asBroadcastStream().listen((message) {
+      try {
+        final data = jsonDecode(message);
+        if (data['type'] == 'callSignal' && data['from'] == widget.targetNick) {
+          _handleSignal(data['signal']);
+        }
+      } catch (e) {
+        print('Hata: $e');
       }
     });
   }
