@@ -103,13 +103,17 @@ class _MainScreenState extends State<MainScreen> {
     _channel = WebSocketChannel.connect(
       Uri.parse('wss://zerolog.giize.com:8443'),
     );
-    _channel.stream.listen((message) {
-      final data = jsonDecode(message);
-      if (data['type'] == 'userList') {
-        setState(() {
-          _onlineUsers = List<String>.from(data['users'] ?? []);
-          _onlineUsers.remove(widget.nickname);
-        });
+    _channel.stream.asBroadcastStream().listen((message) {
+      try {
+        final data = jsonDecode(message);
+        if (data['type'] == 'userList') {
+          setState(() {
+            _onlineUsers = List<String>.from(data['users'] ?? []);
+            _onlineUsers.remove(widget.nickname);
+          });
+        }
+      } catch (e) {
+        print('Hata: $e');
       }
     });
     _channel.sink.add(jsonEncode({ 'type': 'register', 'nick': widget.nickname }));
@@ -219,17 +223,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    widget.channel.stream.listen((message) {
-      final data = jsonDecode(message);
-      if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
-        setState(() {
-          _messages.add({ 'sender': data['from'], 'text': data['text'] });
-        });
-      }
-      if (data['type'] == 'roomMessageSent' && data['room'] == widget.roomName) {
-        setState(() {
-          _messages.add({ 'sender': widget.nickname, 'text': data['text'] });
-        });
+    widget.channel.stream.asBroadcastStream().listen((message) {
+      try {
+        final data = jsonDecode(message);
+        if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
+          setState(() {
+            _messages.add({ 'sender': data['from'], 'text': data['text'] });
+          });
+        }
+        if (data['type'] == 'roomMessageSent' && data['room'] == widget.roomName) {
+          setState(() {
+            _messages.add({ 'sender': widget.nickname, 'text': data['text'] });
+          });
+        }
+      } catch (e) {
+        print('Hata: $e');
       }
     });
   }
@@ -323,17 +331,21 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   @override
   void initState() {
     super.initState();
-    widget.channel.stream.listen((message) {
-      final data = jsonDecode(message);
-      if (data['type'] == 'privateMessage' && data['from'] == widget.targetNick) {
-        setState(() {
-          _messages.add({ 'sender': data['from'], 'text': data['text'] });
-        });
-      }
-      if (data['type'] == 'privateMessageSent' && data['to'] == widget.targetNick) {
-        setState(() {
-          _messages.add({ 'sender': widget.myNick, 'text': data['text'] });
-        });
+    widget.channel.stream.asBroadcastStream().listen((message) {
+      try {
+        final data = jsonDecode(message);
+        if (data['type'] == 'privateMessage' && data['from'] == widget.targetNick) {
+          setState(() {
+            _messages.add({ 'sender': data['from'], 'text': data['text'] });
+          });
+        }
+        if (data['type'] == 'privateMessageSent' && data['to'] == widget.targetNick) {
+          setState(() {
+            _messages.add({ 'sender': widget.myNick, 'text': data['text'] });
+          });
+        }
+      } catch (e) {
+        print('Hata: $e');
       }
     });
   }
