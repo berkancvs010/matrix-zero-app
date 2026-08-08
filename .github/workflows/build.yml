@@ -24,8 +24,9 @@ jobs:
           flutter-version: '3.19.0'
           channel: 'stable'
 
+      # 🔧 Proje adını açıkça belirterek Android platformunu ekle
       - name: Configure Android Platform
-        run: flutter create . --platforms android
+        run: flutter create . --project-name matrix_zero --platforms android
 
       - name: Add Permissions to AndroidManifest
         run: |
@@ -55,8 +56,9 @@ jobs:
           flutter-version: '3.19.0'
           channel: 'stable'
 
+      # 🔧 Proje adını açıkça belirterek Web platformunu ekle
       - name: Configure Web Platform
-        run: flutter create . --platforms web
+        run: flutter create . --project-name matrix_zero --platforms web
 
       - name: Install Dependencies
         run: flutter pub get
@@ -69,26 +71,3 @@ jobs:
         with:
           name: matrix-zero-web-build
           path: build/web/
-
-  # iOS build (şimdilik pasif, aktifleştirmek için yorum işaretlerini kaldır)
-  # build-ios:
-  #   runs-on: macos-latest
-  #   steps:
-  #     - name: Checkout Repository
-  #       uses: actions/checkout@v4
-  #     - name: Set up Flutter
-  #       uses: subosito/flutter-action@v2
-  #       with:
-  #         flutter-version: '3.19.0'
-  #         channel: 'stable'
-  #     - name: Configure iOS Platform
-  #       run: flutter create . --platforms ios
-  #     - name: Install Dependencies
-  #       run: flutter pub get
-  #     - name: Build iOS (IPA)
-  #       run: flutter build ios --release --no-codesign
-  #     - name: Upload iOS Build
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: matrix-zero-ios-build
-  #         path: build/ios/iphoneos/
