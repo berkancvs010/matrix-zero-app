@@ -1,5 +1,5 @@
 name: matrix_zero
-description: "Sıfır Log Matrix"
+description: "Matrix Zero Chat App"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,10 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  web_socket_channel: ^3.0.0
-  flutter_webrtc: ^0.12.0
-  permission_handler: ^11.3.0
+  web_socket_channel: ^2.4.0
+  flutter_webrtc: ^0.9.48
+  permission_handler: ^11.0.0
+  cupertino_icons: ^1.0.6
 
 dev_dependencies:
   flutter_test:
@@ -21,4 +21,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
