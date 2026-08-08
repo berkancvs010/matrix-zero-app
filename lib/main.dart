@@ -108,10 +108,11 @@ class _MainScreenState extends State<MainScreen> {
     _channel = WebSocketChannel.connect(
       Uri.parse('wss://zerolog.giize.com:8443'),
     );
-    // Broadcast stream yap ki birden fazla ekran dinleyebilsin
+    // Broadcast stream ile tüm ekranlar aynı kanalı dinler
     _channel.stream.asBroadcastStream().listen((message) {
       try {
         final data = jsonDecode(message);
+        print('Gelen mesaj (MainScreen): $data');
         if (data['type'] == 'userList') {
           setState(() {
             _onlineUsers = List<String>.from(data['users'] ?? []);
@@ -243,7 +244,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-// ----- ODA SOHBET EKRANI (Broadcast stream ile) -----
+// ----- ODA SOHBET EKRANI -----
 class ChatRoomScreen extends StatefulWidget {
   final String nickname;
   final String roomName;
@@ -261,10 +262,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    // Broadcast stream'i dinle
     widget.channel.stream.asBroadcastStream().listen((message) {
       try {
         final data = jsonDecode(message);
+        print('Oda mesajı: $data');
         if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
           setState(() {
             _messages.add({ 'sender': data['from'], 'text': data['text'] });
@@ -353,7 +354,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 }
 
-// ----- ÖZEL MESAJLAŞMA EKRANI (Broadcast stream ile) -----
+// ----- ÖZEL MESAJLAŞMA EKRANI -----
 class PrivateChatScreen extends StatefulWidget {
   final String myNick;
   final String targetNick;
@@ -374,6 +375,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     widget.channel.stream.asBroadcastStream().listen((message) {
       try {
         final data = jsonDecode(message);
+        print('Özel mesaj: $data');
         if (data['type'] == 'privateMessage' && data['from'] == widget.targetNick) {
           setState(() {
             _messages.add({ 'sender': data['from'], 'text': data['text'] });
@@ -504,6 +506,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     widget.channel.stream.asBroadcastStream().listen((message) {
       try {
         final data = jsonDecode(message);
+        print('Arama sinyali: $data');
         if (data['type'] == 'callSignal' && data['from'] == widget.targetNick) {
           _handleSignal(data['signal']);
         }
