@@ -31,13 +31,10 @@ jobs:
         run: |
           sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' android/app/src/main/AndroidManifest.xml
 
-      - name: Fix minSdkVersion (Kesin Çözüm)
+      - name: Fix minSdkVersion
         run: |
-          # Önce mevcut minSdkVersion satırını sil
           sed -i '/minSdkVersion/d' android/app/build.gradle
-          # defaultConfig bloğunun altına minSdkVersion 21 ekle
           sed -i '/defaultConfig {/a \    minSdkVersion 21' android/app/build.gradle
-          # Kontrol için dosyayı göster
           cat android/app/build.gradle
 
       - name: Install Dependencies
