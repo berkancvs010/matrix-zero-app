@@ -105,46 +105,58 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _connect() {
-    _channel = WebSocketChannel.connect(
-      Uri.parse('wss://zerolog.giize.com:8443'),
-    );
-    // Broadcast stream ile tüm ekranlar aynı kanalı dinler
-    _channel.stream.asBroadcastStream().listen((message) {
-      try {
-        final data = jsonDecode(message);
-        print('Gelen mesaj (MainScreen): $data');
-        if (data['type'] == 'userList') {
-          setState(() {
-            _onlineUsers = List<String>.from(data['users'] ?? []);
-            _onlineUsers.remove(widget.nickname);
-          });
+    try {
+      _channel = WebSocketChannel.connect(
+        Uri.parse('wss://zerolog.giize.com:8443'),
+      );
+      _channel.stream.asBroadcastStream().listen((message) {
+        try {
+          final data = jsonDecode(message);
+          print('MainScreen - Gelen mesaj: $data');
+          if (data['type'] == 'userList') {
+            setState(() {
+              _onlineUsers = List<String>.from(data['users'] ?? []);
+              _onlineUsers.remove(widget.nickname);
+            });
+          }
+        } catch (e) {
+          print('MainScreen - Hata: $e');
         }
-      } catch (e) {
-        print('Hata: $e');
-      }
-    });
-    // Sunucuya kaydol
-    _channel.sink.add(jsonEncode({
-      'type': 'register',
-      'nick': widget.nickname,
-    }));
+      });
+      _channel.sink.add(jsonEncode({
+        'type': 'register',
+        'nick': widget.nickname,
+      }));
+    } catch (e) {
+      print('MainScreen - Bağlantı hatası: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bağlantı hatası: $e')),
+      );
+    }
   }
 
   void _joinRoom(String room) {
-    _channel.sink.add(jsonEncode({
-      'type': 'joinRoom',
-      'room': room,
-    }));
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ChatRoomScreen(
-          nickname: widget.nickname,
-          roomName: room,
-          channel: _channel,
+    try {
+      _channel.sink.add(jsonEncode({
+        'type': 'joinRoom',
+        'room': room,
+      }));
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatRoomScreen(
+            nickname: widget.nickname,
+            roomName: room,
+            channel: _channel,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      print('joinRoom hatası: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Odaya giriş hatası: $e')),
+      );
+    }
   }
 
   void _startPrivateChat(String targetNick) {
@@ -195,7 +207,6 @@ class _MainScreenState extends State<MainScreen> {
         ),
         body: TabBarView(
           children: [
-            // Odalar
             ListView.builder(
               itemCount: _rooms.length,
               itemBuilder: (ctx, idx) {
@@ -210,7 +221,6 @@ class _MainScreenState extends State<MainScreen> {
                 );
               },
             ),
-            // Online Kullanıcılar
             ListView.builder(
               itemCount: _onlineUsers.length,
               itemBuilder: (ctx, idx) {
@@ -258,43 +268,124 @@ class ChatRoomScreen extends StatefulWidget {
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _controller = TextEditingController();
   final List<Map<String, String>> _messages = [];
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    widget.channel.stream.asBroadcastStream().listen((message) {
-      try {
-        final data = jsonDecode(message);
-        print('Oda mesajı: $data');
-        if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
-          setState(() {
-            _messages.add({ 'sender': data['from'], 'text': data['text'] });
-          });
-        }
-        if (data['type'] == 'roomMessageSent' && data['room'] == widget.roomName) {
-          setState(() {
-            _messages.add({ 'sender': widget.nickname, 'text': data['text'] });
-          });
-        }
-      } catch (e) {
-        print('Hata: $e');
+    _listenToChannel();
+  }
+
+  void _listenToChannel() {
+    try {
+      if (widget.channel == null) {
+        setState(() {
+          _errorMessage = 'Kanal bağlantısı yok!';
+          _isLoading = false;
+        });
+        return;
       }
-    });
+
+      widget.channel.stream.asBroadcastStream().listen((message) {
+        try {
+          final data = jsonDecode(message);
+          print('ChatRoomScreen - Gelen mesaj: $data');
+          if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
+            setState(() {
+              _messages.add({ 'sender': data['from'], 'text': data['text'] });
+            });
+          }
+          if (data['type'] == 'roomMessageSent' && data['room'] == widget.roomName) {
+            setState(() {
+              _messages.add({ 'sender': widget.nickname, 'text': data['text'] });
+            });
+          }
+          setState(() {
+            _isLoading = false;
+          });
+        } catch (e) {
+          print('ChatRoomScreen - Mesaj işleme hatası: $e');
+          setState(() {
+            _errorMessage = 'Mesaj işleme hatası: $e';
+            _isLoading = false;
+          });
+        }
+      }, onError: (error) {
+        print('ChatRoomScreen - Stream hatası: $error');
+        setState(() {
+          _errorMessage = 'Stream hatası: $error';
+          _isLoading = false;
+        });
+      });
+    } catch (e) {
+      print('ChatRoomScreen - Başlangıç hatası: $e');
+      setState(() {
+        _errorMessage = 'Başlangıç hatası: $e';
+        _isLoading = false;
+      });
+    }
   }
 
   void _send() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-    widget.channel.sink.add(jsonEncode({
-      'type': 'message',
-      'room': widget.roomName,
-      'text': text,
-    }));
-    _controller.clear();
+    try {
+      widget.channel.sink.add(jsonEncode({
+        'type': 'message',
+        'room': widget.roomName,
+        'text': text,
+      }));
+      _controller.clear();
+    } catch (e) {
+      print('Gönderme hatası: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Mesaj gönderme hatası: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text('Hata: ${widget.roomName}')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error, color: Colors.red, size: 60),
+                const SizedBox(height: 20),
+                Text(
+                  'Hata oluştu!',
+                  style: const TextStyle(color: Colors.red, fontSize: 20),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.white),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Geri Dön'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text('Oda: ${widget.roomName}')),
       body: Column(
@@ -375,7 +466,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     widget.channel.stream.asBroadcastStream().listen((message) {
       try {
         final data = jsonDecode(message);
-        print('Özel mesaj: $data');
         if (data['type'] == 'privateMessage' && data['from'] == widget.targetNick) {
           setState(() {
             _messages.add({ 'sender': data['from'], 'text': data['text'] });
@@ -387,7 +477,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           });
         }
       } catch (e) {
-        print('Hata: $e');
+        print('PrivateChat - Hata: $e');
       }
     });
   }
@@ -506,12 +596,11 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     widget.channel.stream.asBroadcastStream().listen((message) {
       try {
         final data = jsonDecode(message);
-        print('Arama sinyali: $data');
         if (data['type'] == 'callSignal' && data['from'] == widget.targetNick) {
           _handleSignal(data['signal']);
         }
       } catch (e) {
-        print('Hata: $e');
+        print('Call - Hata: $e');
       }
     });
   }
@@ -546,57 +635,4 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     if (signal['type'] == 'offer') {
       _pc!.setRemoteDescription(RTCSessionDescription(signal['sdp'], 'offer'));
       _pc!.createAnswer().then((answer) {
-        _pc!.setLocalDescription(answer);
-        widget.channel.sink.add(jsonEncode({
-          'type': 'callSignal',
-          'target': widget.targetNick,
-          'signal': {'type': 'answer', 'sdp': answer.sdp},
-        }));
-      });
-    } else if (signal['type'] == 'answer') {
-      _pc!.setRemoteDescription(RTCSessionDescription(signal['sdp'], 'answer'));
-    } else if (signal['type'] == 'candidate') {
-      _pc!.addCandidate(RTCIceCandidate(
-        signal['candidate']['candidate'],
-        signal['candidate']['sdpMid'],
-        signal['candidate']['sdpMLineIndex'],
-      ));
-    }
-  }
-
-  void _endCall() {
-    _localStream?.getTracks().forEach((t) => t.stop());
-    _localStream?.dispose();
-    _pc?.close();
-    setState(() => _inCall = false);
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('${widget.targetNick} ile arama')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.mic, size: 80, color: Colors.greenAccent),
-            const SizedBox(height: 20),
-            Text(_inCall ? 'Görüşme aktif' : 'Bağlanıyor...', style: const TextStyle(color: Colors.white, fontSize: 20)),
-            const SizedBox(height: 40),
-            FloatingActionButton(
-              backgroundColor: Colors.red,
-              child: const Icon(Icons.call_end, color: Colors.white),
-              onPressed: _endCall,
-            ),
-            if (!_inCall)
-              ElevatedButton(
-                onPressed: _startCall,
-                child: const Text('Aramayı Başlat'),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+        _p
