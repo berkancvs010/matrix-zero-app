@@ -30,7 +30,7 @@ class MatrixZeroApp extends StatelessWidget {
   }
 }
 
-// 1. Aşama: Rumuz Giriş Ekranı
+// 1. Rumuz Giriş Ekranı
 class NicknameScreen extends StatefulWidget {
   const NicknameScreen({Key? key}) : super(key: key);
 
@@ -44,7 +44,6 @@ class _NicknameScreenState extends State<NicknameScreen> {
   void _enterApp() {
     final nickname = _controller.text.trim();
     if (nickname.isEmpty) return;
-    
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -94,25 +93,18 @@ class _NicknameScreenState extends State<NicknameScreen> {
   }
 }
 
-// 2. Aşama: 10 Adet Rastgele İsimli Oda Seçim Ekranı
+// 2. 10 Adet Rastgele Oda Seçim Ekranı
 class RoomScreen extends StatelessWidget {
   final String nickname;
   const RoomScreen({Key? key, required this.nickname}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // 10 Adet Rastgele Oluşturulmuş Oda Ismi
     final List<String> rooms = [
-      '1p09aq66zx6Qr9',
-      '8k22bm91wx3Pt4',
-      '9x44cn18yv7Ls2',
-      '3z88dp52zu1Km8',
-      '7v11er39xt5Jn3',
-      '5m66fs84yq9Hb6',
-      '2q33gt71zp2Wv1',
-      '4w55hy03xr8Dc9',
-      '6j99jx25yv4Fg5',
-      '0n77kz46zt0Tq7',
+      '1p09aq66zx6Qr9', '8k22bm91wx3Pt4', '9x44cn18yv7Ls2',
+      '3z88dp52zu1Km8', '7v11er39xt5Jn3', '5m66fs84yq9Hb6',
+      '2q33gt71zp2Wv1', '4w55hy03xr8Dc9', '6j99jx25yv4Fg5',
+      '0n77kz46zt0Tq7'
     ];
 
     return Scaffold(
@@ -126,7 +118,7 @@ class RoomScreen extends StatelessWidget {
             child: ListTile(
               title: Text(
                 'Oda #${index + 1}: ${rooms[index]}',
-                style: const TextStyle(color: Colors.greenAccent, fontSize: 16, fontFamily: 'monospace'),
+                style: const TextStyle(color: Colors.greenAccent, fontSize: 16, fontWeight: FontWeight.bold),
               ),
               trailing: const Icon(Icons.arrow_forward_ios, color: Colors.green),
               onTap: () {
@@ -145,7 +137,7 @@ class RoomScreen extends StatelessWidget {
   }
 }
 
-// 3. Aşama: Canlı Mesajlaşma ve Sesli Arama Ekranı
+// 3. Canlı Mesajlaşma ve Sesli Arama Ekranı
 class ChatScreen extends StatefulWidget {
   final String roomName;
   final String nickname;
@@ -158,7 +150,6 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final List<Map<String, String>> _messages = [];
-
   late WebSocketChannel _channel;
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
@@ -174,10 +165,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _channel = WebSocketChannel.connect(
       Uri.parse('wss://zerolog.giize.com:8443'),
     );
-
     _channel.stream.listen((message) {
       final data = jsonDecode(message);
-
       if (data['room'] == widget.roomName) {
         if (data['type'] == 'text') {
           if (data['sender'] != widget.nickname) {
@@ -201,15 +190,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _createPeerConnection() async {
     await Permission.microphone.request();
-
     Map<String, dynamic> configuration = {
       "iceServers": [
         {"urls": "stun:stun.l.google.com:19302"}
       ]
     };
-
     _peerConnection = await createPeerConnection(configuration);
-
     _peerConnection?.onIceCandidate = (candidate) {
       _channel.sink.add(jsonEncode({
         'room': widget.roomName,
@@ -222,16 +208,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _sendMessage() {
     if (_messageController.text.trim().isEmpty) return;
-
     final text = _messageController.text.trim();
-
     _channel.sink.add(jsonEncode({
       'room': widget.roomName,
       'sender': widget.nickname,
       'type': 'text',
       'text': text,
     }));
-
     setState(() {
       _messages.add({
         'sender': widget.nickname,
@@ -243,22 +226,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _startCall() async {
     await _createPeerConnection();
-
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': false});
     _localStream?.getTracks().forEach((track) {
       _peerConnection?.addTrack(track, _localStream!);
     });
-
     RTCSessionDescription offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
-
     _channel.sink.add(jsonEncode({
       'room': widget.roomName,
       'sender': widget.nickname,
       'type': 'offer',
       'sdp': offer.sdp,
     }));
-
     setState(() {
       _inCall = true;
     });
@@ -266,23 +245,19 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _handleOffer(String sdp) async {
     await _createPeerConnection();
-
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': false});
     _localStream?.getTracks().forEach((track) {
       _peerConnection?.addTrack(track, _localStream!);
     });
-
     await _peerConnection!.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
     RTCSessionDescription answer = await _peerConnection!.createAnswer();
     await _peerConnection!.setLocalDescription(answer);
-
     _channel.sink.add(jsonEncode({
       'room': widget.roomName,
       'sender': widget.nickname,
       'type': 'answer',
       'sdp': answer.sdp,
     }));
-
     setState(() {
       _inCall = true;
     });
@@ -306,7 +281,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _localStream?.dispose();
     _peerConnection?.close();
     _peerConnection = null;
-
     setState(() {
       _inCall = false;
     });
