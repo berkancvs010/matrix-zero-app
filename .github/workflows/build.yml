@@ -33,7 +33,12 @@ jobs:
 
       - name: Fix minSdkVersion
         run: |
-          sed -i '/defaultConfig {/a \            minSdkVersion 21' android/app/build.gradle
+          if grep -q "minSdkVersion" android/app/build.gradle; then
+            sed -i 's/minSdkVersion [0-9]*/minSdkVersion 21/g' android/app/build.gradle
+          else
+            sed -i '/defaultConfig {/a \            minSdkVersion 21' android/app/build.gradle
+          fi
+          cat android/app/build.gradle
 
       - name: Install Dependencies
         run: flutter pub get
