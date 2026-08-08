@@ -1,22 +1,94 @@
-name: Build Web
+name: Build Matrix Zero (APK + Web)
+
 on:
   push:
-    branches:
-      - main
+    branches: [ "main", "master" ]
   workflow_dispatch:
+
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
           channel: 'stable'
-      - run: flutter pub get
-      - run: flutter create . --platforms web
-      - run: flutter build web --release
-      - uses: actions/upload-artifact@v4
+
+      - name: Configure Android Platform
+        run: flutter create . --platforms android
+
+      - name: Add Permissions to AndroidManifest
+        run: |
+          sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' android/app/src/main/AndroidManifest.xml
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Android APK
+        run: flutter build apk --release
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
         with:
-          name: web-build
-          path: build/web
-          
+          name: matrix-zero-android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+
+      - name: Configure Web Platform
+        run: flutter create . --platforms web
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Web
+        run: flutter build web --release
+
+      - name: Upload Web Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-zero-web-build
+          path: build/web/
+
+  # iOS build (şimdilik pasif, aktifleştirmek için yorum işaretlerini kaldır)
+  # build-ios:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
+  #     - name: Set up Flutter
+  #       uses: subosito/flutter-action@v2
+  #       with:
+  #         flutter-version: '3.19.0'
+  #         channel: 'stable'
+  #     - name: Configure iOS Platform
+  #       run: flutter create . --platforms ios
+  #     - name: Install Dependencies
+  #       run: flutter pub get
+  #     - name: Build iOS (IPA)
+  #       run: flutter build ios --release --no-codesign
+  #     - name: Upload iOS Build
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: matrix-zero-ios-build
+  #         path: build/ios/iphoneos/
