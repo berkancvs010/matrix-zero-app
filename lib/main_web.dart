@@ -617,6 +617,11 @@ class _WebRoomScreenState
       'text': text,
     });
 
+    _add(WebMessage(
+      sender: widget.nickname,
+      text: text,
+    ));
+
     _controller.clear();
   }
 
@@ -633,6 +638,16 @@ class _WebRoomScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.room),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.call, color: Colors.greenAccent),
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Sesli arama henüz eklenmedi')),
+            );
+          },
+        ),
+      ],
       ),
       body: Column(
         children: [
