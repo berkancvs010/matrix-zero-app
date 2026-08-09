@@ -3,21 +3,20 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-const String wsUrl = 'wss://zerolog.giize.com:8443';
+const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
 
 const List<String> rooms = [
-  '1p09aq66zx6Qr9',
-  '8k22bm91wx3Pt4',
-  '9x44cn18yv7Ls2',
-  '3z88dp52zu1Km8',
-  '7v11er39xt5Jn3',
-  '5m66fs84yq9Hb6',
-  '2q33gt71zp2Wv1',
-  '4w55hy03xr8Dc9',
-  '6j99jx25yv4Fg5',
-  '0n77kz46zt0Tq7',
+  'genel',
+  'sohbet',
+  'teknoloji',
+  'oyun',
+  'müzik',
+  'film',
+  'spor',
+  'gece',
 ];
 
 void main() {
@@ -26,27 +25,392 @@ void main() {
 }
 
 // ============================================================
+// THEMES
+// ============================================================
+
+enum ZeroLogTheme {
+  black,
+  matrix,
+  whatsapp,
+  pink,
+  grey,
+  midnight,
+}
+
+class ZeroLogThemeData {
+  final String name;
+  final Color background;
+  final Color surface;
+  final Color primary;
+  final Color secondary;
+  final Color text;
+  final Color bubbleMine;
+  final Color bubbleOther;
+
+  const ZeroLogThemeData({
+    required this.name,
+    required this.background,
+    required this.surface,
+    required this.primary,
+    required this.secondary,
+    required this.text,
+    required this.bubbleMine,
+    required this.bubbleOther,
+  });
+}
+
+const Map<ZeroLogTheme, ZeroLogThemeData> zeroLogThemes = {
+  ZeroLogTheme.black: ZeroLogThemeData(
+    name: 'Black & White',
+    background: Color(0xFF0B0B0B),
+    surface: Color(0xFF171717),
+    primary: Color(0xFFE5E5E5),
+    secondary: Color(0xFF9E9E9E),
+    text: Color(0xFFFFFFFF),
+    bubbleMine: Color(0xFF303030),
+    bubbleOther: Color(0xFF1E1E1E),
+  ),
+  ZeroLogTheme.matrix: ZeroLogThemeData(
+    name: 'Matrix',
+    background: Color(0xFF000000),
+    surface: Color(0xFF071407),
+    primary: Color(0xFF00FF41),
+    secondary: Color(0xFF00B52D),
+    text: Color(0xFF00FF41),
+    bubbleMine: Color(0xFF123D18),
+    bubbleOther: Color(0xFF0A210E),
+  ),
+  ZeroLogTheme.whatsapp: ZeroLogThemeData(
+    name: 'WhatsApp',
+    background: Color(0xFFECE5DD),
+    surface: Color(0xFFFFFFFF),
+    primary: Color(0xFF075E54),
+    secondary: Color(0xFF25D366),
+    text: Color(0xFF111111),
+    bubbleMine: Color(0xFFD9FDD3),
+    bubbleOther: Color(0xFFFFFFFF),
+  ),
+  ZeroLogTheme.pink: ZeroLogThemeData(
+    name: 'Pink',
+    background: Color(0xFFFFEAF2),
+    surface: Color(0xFFFFF5F8),
+    primary: Color(0xFFE91E63),
+    secondary: Color(0xFFFF80AB),
+    text: Color(0xFF171717),
+    bubbleMine: Color(0xFFFFB6CF),
+    bubbleOther: Color(0xFFFFD9E5),
+  ),
+  ZeroLogTheme.grey: ZeroLogThemeData(
+    name: 'Grey / GPT',
+    background: Color(0xFF212121),
+    surface: Color(0xFF2F2F2F),
+    primary: Color(0xFF10A37F),
+    secondary: Color(0xFF8E8E8E),
+    text: Color(0xFFF5F5F5),
+    bubbleMine: Color(0xFF3A3A3A),
+    bubbleOther: Color(0xFF2B2B2B),
+  ),
+  ZeroLogTheme.midnight: ZeroLogThemeData(
+    name: 'Midnight',
+    background: Color(0xFF08111F),
+    surface: Color(0xFF101D30),
+    primary: Color(0xFF64B5F6),
+    secondary: Color(0xFF42A5F5),
+    text: Color(0xFFF3F7FF),
+    bubbleMine: Color(0xFF183B5C),
+    bubbleOther: Color(0xFF12263D),
+  ),
+};
+
+class ThemeController extends ChangeNotifier {
+  ThemeController._();
+
+  static final ThemeController instance =
+      ThemeController._();
+
+  static const _key = 'zerolog_theme';
+
+  ZeroLogTheme current = ZeroLogTheme.matrix;
+
+  Future<void> load() async {
+    final prefs =
+        await SharedPreferences.getInstance();
+
+    final index =
+        prefs.getInt(_key);
+
+    if (index != null &&
+        index >= 0 &&
+        index < ZeroLogTheme.values.length) {
+      current =
+          ZeroLogTheme.values[index];
+    }
+  }
+
+  Future<void> setTheme(
+    ZeroLogTheme theme,
+  ) async {
+    current = theme;
+
+    final prefs =
+        await SharedPreferences.getInstance();
+
+    await prefs.setInt(
+      _key,
+      theme.index,
+    );
+
+    notifyListeners();
+  }
+
+  ZeroLogThemeData get data =>
+      zeroLogThemes[current]!;
+}
+
+// ============================================================
 // APP
 // ============================================================
 
-class MatrixZeroApp extends StatelessWidget {
+class MatrixZeroApp extends StatefulWidget {
   const MatrixZeroApp({super.key});
 
   @override
+  State<MatrixZeroApp> createState() =>
+      _MatrixZeroAppState();
+}
+
+class _MatrixZeroAppState
+    extends State<MatrixZeroApp> {
+  final ThemeController _theme =
+      ThemeController.instance;
+
+  bool _themeLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _theme.addListener(_onThemeChanged);
+    _loadTheme();
+  }
+
+  Future<void> _loadTheme() async {
+    await _theme.load();
+
+    if (mounted) {
+      setState(() {
+        _themeLoaded = true;
+      });
+    }
+  }
+
+  void _onThemeChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _theme.removeListener(_onThemeChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!_themeLoaded) {
+      return const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
+    final t = _theme.data;
+
     return MaterialApp(
-      title: 'Matrix Zero',
+      title: 'ZeroLog',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.dark,
+        brightness:
+            ThemeData.estimateBrightnessForColor(
+                  t.background,
+                ) ==
+                Brightness.dark
+            ? Brightness.dark
+            : Brightness.light,
+        scaffoldBackgroundColor:
+            t.background,
+        colorScheme:
+            ColorScheme.fromSeed(
+          seedColor: t.primary,
+          brightness:
+              ThemeData.estimateBrightnessForColor(
+                    t.background,
+                  ) ==
+                  Brightness.dark
+              ? Brightness.dark
+              : Brightness.light,
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: t.surface,
+          foregroundColor: t.text,
+        ),
+        inputDecorationTheme:
+            InputDecorationTheme(
+          filled: true,
+          fillColor: t.surface,
         ),
         useMaterial3: true,
       ),
-      home: const NicknameScreen(),
+      home: const WelcomeScreen(),
+    );
+  }
+}
+
+// ============================================================
+// WELCOME
+// ============================================================
+
+class WelcomeScreen extends StatefulWidget {
+  const WelcomeScreen({super.key});
+
+  @override
+  State<WelcomeScreen> createState() =>
+      _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen> {
+  final List<String> _lines = [];
+  Timer? _timer;
+
+  static const List<String> _sequence = [
+    'ZEROLOG',
+    'PRIVATE',
+    'ENCRYPTED',
+    'NO LOGS',
+  ];
+
+  int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _showNext();
+  }
+
+  void _showNext() {
+    if (!mounted) return;
+
+    setState(() {
+      _lines.add(_sequence[_index]);
+      _index++;
+    });
+
+    if (_index >= _sequence.length) {
+      _timer = Timer(
+        const Duration(milliseconds: 900),
+        _openLogin,
+      );
+      return;
+    }
+
+    _timer = Timer(
+      const Duration(milliseconds: 550),
+      _showNext,
+    );
+  }
+
+  void _openLogin() {
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (_, animation, secondaryAnimation) =>
+            const NicknameScreen(),
+        transitionDuration:
+            const Duration(milliseconds: 450),
+        transitionsBuilder:
+            (_, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme =
+        ThemeController.instance.data;
+
+    return Scaffold(
+      backgroundColor: theme.background,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.shield_outlined,
+                size: 78,
+                color: theme.primary,
+              ),
+              const SizedBox(height: 30),
+              ..._lines.map(
+                (line) => Padding(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    vertical: 5,
+                  ),
+                  child: Text(
+                    line,
+                    style: TextStyle(
+                      fontSize:
+                          line == 'ZEROLOG'
+                              ? 30
+                              : 17,
+                      fontWeight:
+                          line == 'ZEROLOG'
+                              ? FontWeight.bold
+                              : FontWeight.w500,
+                      letterSpacing:
+                          line == 'ZEROLOG'
+                              ? 5
+                              : 3,
+                      color: theme.primary,
+                      fontFamily:
+                          'monospace',
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: theme.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -62,6 +426,8 @@ class WsClient {
 
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
+  Timer? _reconnectTimer;
+  Timer? _heartbeatTimer;
 
   final StreamController<Map<String, dynamic>> _events =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -69,43 +435,112 @@ class WsClient {
   Stream<Map<String, dynamic>> get events => _events.stream;
 
   String? nickname;
+  String? username;
+  String? password;
   bool connected = false;
 
-  Future<bool> connect(String nick) async {
-    await disconnect();
+  bool _manualDisconnect = false;
+  bool _connecting = false;
+  int _reconnectAttempt = 0;
 
-    nickname = nick.trim();
+  Future<bool> connect(
+    String username,
+    String password,
+  ) async {
+    _manualDisconnect = false;
+    this.username = username.trim();
+    this.password = password;
+    nickname = this.username;
+    _reconnectAttempt = 0;
+    _reconnectTimer?.cancel();
+
+    return _connectInternal();
+  }
+
+  Future<bool> _connectInternal() async {
+    if (_connecting ||
+        username == null ||
+        username!.isEmpty ||
+        password == null) {
+      return connected;
+    }
+
+    _connecting = true;
 
     try {
+      await _closeCurrent();
+
       final channel = WebSocketChannel.connect(
         Uri.parse(wsUrl),
       );
 
       _channel = channel;
 
+      final authCompleter =
+          Completer<bool>();
+
       _subscription = channel.stream.listen(
         (raw) {
           try {
-            final decoded = jsonDecode(raw.toString());
+            final decoded = jsonDecode(
+              raw.toString(),
+            );
 
             if (decoded is Map) {
-              _events.add(
-                Map<String, dynamic>.from(decoded),
+              final data =
+                  Map<String, dynamic>.from(
+                decoded,
               );
+
+              if (data['type'] ==
+                  'authenticated') {
+                final authenticatedName =
+                    (data['username'] ??
+                            username ??
+                            '')
+                        .toString();
+
+                username =
+                    authenticatedName;
+                nickname =
+                    authenticatedName;
+                connected = true;
+
+                if (!authCompleter.isCompleted) {
+                  authCompleter.complete(true);
+                }
+              }
+
+              if (data['type'] ==
+                  'authError') {
+                connected = false;
+
+                if (!authCompleter.isCompleted) {
+                  authCompleter.complete(false);
+                }
+              }
+
+              _events.add(data);
             }
           } catch (_) {}
         },
         onError: (_) {
           connected = false;
-          _events.add({
-            'type': 'connectionError',
-          });
+
+          if (!authCompleter.isCompleted) {
+            authCompleter.complete(false);
+          }
+
+          _handleConnectionLost();
         },
         onDone: () {
           connected = false;
-          _events.add({
-            'type': 'connectionClosed',
-          });
+
+          if (!authCompleter.isCompleted) {
+            authCompleter.complete(false);
+          }
+
+          _handleConnectionLost();
         },
         cancelOnError: false,
       );
@@ -114,17 +549,108 @@ class WsClient {
 
       channel.sink.add(
         jsonEncode({
-          'type': 'register',
-          'nick': nickname,
+          'type': 'login',
+          'username': username,
+          'password': password,
         }),
       );
 
-      connected = true;
+      final authenticated =
+          await authCompleter.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => false,
+      );
+
+      if (!authenticated) {
+        connected = false;
+        await _closeCurrent();
+        return false;
+      }
+
+      _reconnectAttempt = 0;
+      _startHeartbeat();
+
+      _events.add({
+        'type': 'connectionRestored',
+      });
+
       return true;
     } catch (_) {
       connected = false;
+      _scheduleReconnect();
       return false;
+    } finally {
+      _connecting = false;
     }
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) {
+        if (!connected || _channel == null) return;
+
+        try {
+          _channel!.sink.add(
+            jsonEncode({
+              'type': 'listRooms',
+            }),
+          );
+        } catch (_) {
+          _handleConnectionLost();
+        }
+      },
+    );
+  }
+
+  void _handleConnectionLost() {
+    if (_manualDisconnect) return;
+
+    final wasConnected = connected;
+    connected = false;
+    _heartbeatTimer?.cancel();
+
+    if (wasConnected) {
+      _events.add({
+        'type': 'connectionLost',
+      });
+    }
+
+    _scheduleReconnect();
+  }
+
+  void _scheduleReconnect() {
+    if (_manualDisconnect ||
+        _connecting ||
+        nickname == null ||
+        nickname!.isEmpty ||
+        connected) {
+      return;
+    }
+
+    _reconnectTimer?.cancel();
+
+    _reconnectAttempt++;
+
+    final seconds = (_reconnectAttempt <= 1)
+        ? 2
+        : (_reconnectAttempt <= 3)
+            ? 4
+            : 8;
+
+    _events.add({
+      'type': 'reconnecting',
+      'seconds': seconds,
+    });
+
+    _reconnectTimer = Timer(
+      Duration(seconds: seconds),
+      () {
+        _connectInternal();
+      },
+    );
   }
 
   void send(Map<String, dynamic> data) {
@@ -133,14 +659,16 @@ class WsClient {
     }
 
     try {
-      _channel!.sink.add(jsonEncode(data));
+      _channel!.sink.add(
+        jsonEncode(data),
+      );
     } catch (_) {
-      connected = false;
+      _handleConnectionLost();
     }
   }
 
-  Future<void> disconnect() async {
-    connected = false;
+  Future<void> _closeCurrent() async {
+    _heartbeatTimer?.cancel();
 
     await _subscription?.cancel();
     _subscription = null;
@@ -150,6 +678,17 @@ class WsClient {
     } catch (_) {}
 
     _channel = null;
+    connected = false;
+  }
+
+  Future<void> disconnect() async {
+    _manualDisconnect = true;
+    _reconnectTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    _reconnectTimer = null;
+    _heartbeatTimer = null;
+
+    await _closeCurrent();
   }
 }
 
@@ -165,16 +704,29 @@ class NicknameScreen extends StatefulWidget {
 }
 
 class _NicknameScreenState extends State<NicknameScreen> {
-  final TextEditingController _controller =
+  final TextEditingController _usernameController =
+      TextEditingController();
+
+  final TextEditingController _passwordController =
       TextEditingController();
 
   bool _loading = false;
+  bool _registerMode = false;
+  bool _obscurePassword = true;
 
-  Future<void> _enter() async {
-    final nick = _controller.text.trim();
+  Future<void> _submit() async {
+    final username =
+        _usernameController.text.trim();
+    final password =
+        _passwordController.text;
 
-    if (nick.length < 2) {
-      _show('Lütfen en az 2 karakterlik bir rumuz girin.');
+    if (username.length < 3) {
+      _show('Kullanıcı adı en az 3 karakter olmalı.');
+      return;
+    }
+
+    if (password.length < 8) {
+      _show('Şifre en az 8 karakter olmalı.');
       return;
     }
 
@@ -182,25 +734,145 @@ class _NicknameScreenState extends State<NicknameScreen> {
       _loading = true;
     });
 
-    final ok = await WsClient.instance.connect(nick);
-
-    if (!mounted) {
-      return;
+    if (_registerMode) {
+      await _register(
+        username,
+        password,
+      );
+    } else {
+      await _login(
+        username,
+        password,
+      );
     }
+  }
+
+  Future<void> _register(
+    String username,
+    String password,
+  ) async {
+    try {
+      final channel =
+          WebSocketChannel.connect(
+        Uri.parse(wsUrl),
+      );
+
+      final subscription =
+          channel.stream.listen(
+        (raw) {
+          try {
+            final decoded =
+                jsonDecode(raw.toString());
+
+            if (decoded is! Map) return;
+
+            final data =
+                Map<String, dynamic>.from(
+              decoded,
+            );
+
+            if (!mounted) return;
+
+            if (data['type'] ==
+                'accountRegistered') {
+              channel.sink.close();
+              setState(() {
+                _loading = false;
+                _registerMode = false;
+              });
+
+              _show(
+                'Hesap oluşturuldu. Şimdi giriş yapabilirsiniz.',
+              );
+            }
+
+            if (data['type'] ==
+                'authError') {
+              channel.sink.close();
+
+              setState(() {
+                _loading = false;
+              });
+
+              _show(
+                (data['message'] ??
+                        'Kayıt başarısız.')
+                    .toString(),
+              );
+            }
+          } catch (_) {}
+        },
+        onError: (_) {
+          if (!mounted) return;
+
+          setState(() {
+            _loading = false;
+          });
+
+          _show('Sunucuya bağlanılamadı.');
+        },
+      );
+
+      await channel.ready;
+
+      channel.sink.add(
+        jsonEncode({
+          'type': 'registerAccount',
+          'username': username,
+          'password': password,
+        }),
+      );
+
+      Future.delayed(
+        const Duration(seconds: 10),
+        () {
+          subscription.cancel();
+        },
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+      });
+
+      _show('Sunucuya bağlanılamadı.');
+    }
+  }
+
+  Future<void> _login(
+    String username,
+    String password,
+  ) async {
+    setState(() {
+      _loading = true;
+    });
+
+    final ok =
+        await WsClient.instance.connect(
+      username,
+      password,
+    );
+
+    if (!mounted) return;
 
     setState(() {
       _loading = false;
     });
 
     if (!ok) {
-      _show('Sunucuya bağlanılamadı.');
+      _show(
+        'Giriş başarısız. Kullanıcı adı, şifre veya hesap durumu kontrol edilmeli.',
+      );
       return;
     }
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => MainScreen(
-          nickname: nick,
+          nickname:
+              WsClient.instance.nickname ??
+                  username,
         ),
       ),
     );
@@ -208,13 +880,16 @@ class _NicknameScreenState extends State<NicknameScreen> {
 
   void _show(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
+      SnackBar(
+        content: Text(text),
+      ),
     );
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -229,58 +904,135 @@ class _NicknameScreenState extends State<NicknameScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
+            constraints:
+                const BoxConstraints(
               maxWidth: 480,
             ),
             child: Column(
               mainAxisAlignment:
                   MainAxisAlignment.center,
               children: [
-                const Icon(
+                Icon(
                   Icons.shield_outlined,
                   size: 72,
-                  color: Colors.greenAccent,
+                  color: ThemeController.instance.data.primary,
                 ),
                 const SizedBox(height: 24),
-                const Text(
-                  'Matrix Zero',
+                Text(
+                  'ZeroLog',
                   style: TextStyle(
-                    fontSize: 28,
+                    fontSize: 30,
                     fontWeight: FontWeight.bold,
-                    color: Colors.greenAccent,
+                    color: ThemeController.instance.data.primary,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Sohbete katılmak için bir rumuz seçin.',
-                  textAlign: TextAlign.center,
+                Text(
+                  _registerMode
+                      ? 'Yeni hesabını oluştur'
+                      : 'Gizli iletişim alanına giriş yap',
+                  textAlign:
+                      TextAlign.center,
                 ),
                 const SizedBox(height: 28),
                 TextField(
-                  controller: _controller,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _enter(),
-                  decoration: const InputDecoration(
-                    labelText: 'Rumuz',
-                    hintText: 'Örn. Neo',
-                    border: OutlineInputBorder(),
+                  controller:
+                      _usernameController,
+                  enabled: !_loading,
+                  textInputAction:
+                      TextInputAction.next,
+                  autocorrect: false,
+                  decoration:
+                      const InputDecoration(
+                    labelText:
+                        'Kullanıcı adı',
+                    prefixIcon:
+                        Icon(Icons.person_outline),
+                    border:
+                        OutlineInputBorder(),
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
+                TextField(
+                  controller:
+                      _passwordController,
+                  enabled: !_loading,
+                  obscureText:
+                      _obscurePassword,
+                  onSubmitted:
+                      (_) => _submit(),
+                  decoration:
+                      InputDecoration(
+                    labelText: 'Şifre',
+                    prefixIcon:
+                        const Icon(
+                      Icons.lock_outline,
+                    ),
+                    suffixIcon:
+                        IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword =
+                              !_obscurePassword;
+                        });
+                      },
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
+                    ),
+                    border:
+                        const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 22),
                 SizedBox(
                   width: double.infinity,
                   height: 50,
                   child: FilledButton(
-                    onPressed: _loading ? null : _enter,
+                    onPressed:
+                        _loading
+                            ? null
+                            : _submit,
                     child: _loading
                         ? const SizedBox(
                             width: 22,
                             height: 22,
-                            child: CircularProgressIndicator(
+                            child:
+                                CircularProgressIndicator(
                               strokeWidth: 2,
                             ),
                           )
-                        : const Text('BAĞLAN'),
+                        : Text(
+                            _registerMode
+                                ? 'HESAP OLUŞTUR'
+                                : 'GİRİŞ YAP',
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _loading
+                      ? null
+                      : () {
+                          setState(() {
+                            _registerMode =
+                                !_registerMode;
+                          });
+                        },
+                  child: Text(
+                    _registerMode
+                        ? 'Zaten hesabım var'
+                        : 'Yeni hesap oluştur',
+                  ),
+                ),
+                const SizedBox(height: 30),
+                const Text(
+                  'ZeroLog • Gizlilik odaklı iletişim',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
                   ),
                 ),
               ],
@@ -315,6 +1067,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<String> _onlineUsers = [];
 
   bool _connected = false;
+  bool _reconnecting = false;
 
   @override
   void initState() {
@@ -324,6 +1077,7 @@ class _MainScreenState extends State<MainScreen> {
 
     _subscription =
         WsClient.instance.events.listen(_handleEvent);
+
   }
 
   void _handleEvent(Map<String, dynamic> data) {
@@ -360,14 +1114,31 @@ class _MainScreenState extends State<MainScreen> {
       }
     }
 
-    if (type == 'connectionError' ||
-        type == 'connectionClosed') {
+    if (type == 'reconnecting') {
       setState(() {
         _connected = false;
+        _reconnecting = true;
       });
     }
 
-    if (type == 'offer') {
+    if (type == 'connectionLost' ||
+        type == 'connectionError' ||
+        type == 'connectionClosed') {
+      setState(() {
+        _connected = false;
+        _reconnecting = true;
+      });
+    }
+
+    if (type == 'connectionRestored' ||
+        type == 'registered') {
+      setState(() {
+        _connected = true;
+        _reconnecting = false;
+      });
+    }
+
+    if (type == 'callOffer') {
       final from = (data['from'] ?? '').toString();
       final to = (data['to'] ?? '').toString();
 
@@ -425,6 +1196,12 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Future<void> _selectTheme(
+    ZeroLogTheme theme,
+  ) async {
+    await ThemeController.instance.setTheme(theme);
+  }
+
   @override
   void dispose() {
     _subscription.cancel();
@@ -439,6 +1216,42 @@ class _MainScreenState extends State<MainScreen> {
         appBar: AppBar(
           title: Text(widget.nickname),
           actions: [
+            PopupMenuButton<ZeroLogTheme>(
+              tooltip: 'Tema',
+              icon: const Icon(Icons.palette_outlined),
+              onSelected: _selectTheme,
+              itemBuilder: (_) {
+                return ZeroLogTheme.values.map((theme) {
+                  final data = zeroLogThemes[theme]!;
+
+                  return PopupMenuItem<ZeroLogTheme>(
+                    value: theme,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 18,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: data.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(data.name),
+                        ),
+                        if (ThemeController.instance.current ==
+                            theme)
+                          const Icon(
+                            Icons.check,
+                            size: 18,
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 14),
               child: Center(
@@ -447,7 +1260,9 @@ class _MainScreenState extends State<MainScreen> {
                   size: 12,
                   color: _connected
                       ? Colors.greenAccent
-                      : Colors.red,
+                      : _reconnecting
+                          ? Colors.amber
+                          : Colors.red,
                 ),
               ),
             ),
@@ -687,7 +1502,7 @@ class _ChatRoomScreenState
     if (text.isEmpty) return;
 
     WsClient.instance.send({
-      'type': 'message',
+      'type': 'roomMessage',
       'room': widget.roomName,
       'text': text,
     });
@@ -741,8 +1556,12 @@ class _ChatRoomScreenState
                         const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: mine
-                          ? Colors.green.shade900
-                          : Colors.grey.shade900,
+                          ? ThemeController.instance
+                              .data
+                              .bubbleMine
+                          : ThemeController.instance
+                              .data
+                              .bubbleOther,
                       borderRadius:
                           BorderRadius.circular(12),
                     ),
@@ -821,7 +1640,7 @@ class _PrivateChatScreenState
 
     WsClient.instance.send({
       'type': 'privateHistory',
-      'with': widget.targetNick,
+      'peer': widget.targetNick,
     });
   }
 
@@ -830,7 +1649,8 @@ class _PrivateChatScreenState
 
     if (data['type'] == 'privateHistory') {
       final peer =
-          (data['with'] ??
+          (data['peer'] ??
+                  data['with'] ??
                   data['target'] ??
                   '')
               .toString();
@@ -874,18 +1694,35 @@ class _PrivateChatScreenState
               .toString();
 
       final target =
-          (data['target'] ?? '').toString();
+          (data['to'] ??
+                  data['target'] ??
+                  '')
+              .toString();
 
-      final validSender =
+      final isFromPeer =
           sender.toLowerCase() ==
               widget.targetNick.toLowerCase();
 
-      final validTarget =
+      final isFromMe =
+          sender.toLowerCase() ==
+              widget.myNick.toLowerCase();
+
+      final validPeerTarget =
           target.isEmpty ||
           target.toLowerCase() ==
               widget.myNick.toLowerCase();
 
-      if (!validSender || !validTarget) {
+      final validSelfTarget =
+          target.isEmpty ||
+          target.toLowerCase() ==
+              widget.targetNick.toLowerCase();
+
+      final validTarget =
+          isFromMe
+              ? validSelfTarget
+              : validPeerTarget;
+
+      if ((!isFromPeer && !isFromMe) || !validTarget) {
         return;
       }
 
@@ -935,8 +1772,8 @@ class _PrivateChatScreenState
     if (text.isEmpty) return;
 
     WsClient.instance.send({
-      'type': 'message',
-      'target': widget.targetNick,
+      'type': 'privateMessage',
+      'to': widget.targetNick,
       'text': text,
     });
 
@@ -989,8 +1826,12 @@ class _PrivateChatScreenState
                         const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: mine
-                          ? Colors.green.shade900
-                          : Colors.grey.shade900,
+                          ? ThemeController.instance
+                              .data
+                              .bubbleMine
+                          : ThemeController.instance
+                              .data
+                              .bubbleOther,
                       borderRadius:
                           BorderRadius.circular(12),
                     ),
@@ -1035,6 +1876,9 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
+  final RTCVideoRenderer _remoteRenderer =
+      RTCVideoRenderer();
+  late final Future<void> _remoteRendererReady;
 
   late final StreamSubscription<
       Map<String, dynamic>> _subscription;
@@ -1044,9 +1888,15 @@ class _CallScreenState extends State<CallScreen> {
   bool _muted = false;
   bool _closing = false;
 
+  final List<RTCIceCandidate> _pendingIceCandidates = [];
+  bool _remoteDescriptionSet = false;
+
   @override
   void initState() {
     super.initState();
+
+    _remoteRendererReady =
+        _remoteRenderer.initialize();
 
     _subscription =
         WsClient.instance.events.listen(_handleEvent);
@@ -1079,7 +1929,7 @@ class _CallScreenState extends State<CallScreen> {
       if (candidate.candidate == null) return;
 
       WsClient.instance.send({
-        'type': 'ice-candidate',
+        'type': 'callIce',
         'from': widget.myNick,
         'to': widget.targetNick,
         'candidate': candidate.candidate,
@@ -1087,6 +1937,29 @@ class _CallScreenState extends State<CallScreen> {
         'sdpMLineIndex': candidate.sdpMLineIndex,
       });
     };
+
+    // Karşı taraftan gelen ses track'ini kabul et.
+    _peerConnection!.onTrack =
+        (RTCTrackEvent event) async {
+      if (event.track.kind != 'audio') {
+        return;
+      }
+
+      event.track.enabled = true;
+
+      if (event.streams.isNotEmpty) {
+        try {
+          await _remoteRendererReady;
+          await _remoteRenderer.setSrcObject(
+            stream: event.streams.first,
+          );
+          await _remoteRenderer.setVolume(1.0);
+        } catch (_) {}
+      }
+    };
+
+    _peerConnection!.onIceConnectionState =
+        (RTCIceConnectionState state) {};
 
     _peerConnection!.onConnectionState =
         (RTCPeerConnectionState state) {
@@ -1143,7 +2016,7 @@ class _CallScreenState extends State<CallScreen> {
       );
 
       WsClient.instance.send({
-        'type': 'offer',
+        'type': 'callOffer',
         'from': widget.myNick,
         'to': widget.targetNick,
         'sdp': offer.sdp,
@@ -1187,7 +2060,7 @@ class _CallScreenState extends State<CallScreen> {
       );
 
       WsClient.instance.send({
-        'type': 'answer',
+        'type': 'callAnswer',
         'from': widget.myNick,
         'to': widget.targetNick,
         'sdp': answer.sdp,
@@ -1224,15 +2097,15 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
-    if (type == 'answer') {
+    if (type == 'callAnswer') {
       _handleAnswer(data);
     }
 
-    if (type == 'ice-candidate') {
+    if (type == 'callIce') {
       _handleIceCandidate(data);
     }
 
-    if (type == 'call-end') {
+    if (type == 'callEnded') {
       _finish(sendSignal: false);
     }
   }
@@ -1252,6 +2125,9 @@ class _CallScreenState extends State<CallScreen> {
           'answer',
         ),
       );
+
+      _remoteDescriptionSet = true;
+      await _flushPendingIceCandidates();
     } catch (_) {}
   }
 
@@ -1267,17 +2143,41 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
+    final ice = RTCIceCandidate(
+      candidate,
+      data['sdpMid']?.toString(),
+      data['sdpMLineIndex'] is int
+          ? data['sdpMLineIndex'] as int
+          : null,
+    );
+
+    if (!_remoteDescriptionSet) {
+      _pendingIceCandidates.add(ice);
+      return;
+    }
+
     try {
-      await _peerConnection!.addCandidate(
-        RTCIceCandidate(
-          candidate,
-          data['sdpMid']?.toString(),
-          data['sdpMLineIndex'] is int
-              ? data['sdpMLineIndex'] as int
-              : null,
-        ),
-      );
+      await _peerConnection!.addCandidate(ice);
     } catch (_) {}
+  }
+
+  Future<void> _flushPendingIceCandidates() async {
+    if (_peerConnection == null ||
+        !_remoteDescriptionSet ||
+        _pendingIceCandidates.isEmpty) {
+      return;
+    }
+
+    final pending =
+        List<RTCIceCandidate>.from(_pendingIceCandidates);
+
+    _pendingIceCandidates.clear();
+
+    for (final candidate in pending) {
+      try {
+        await _peerConnection!.addCandidate(candidate);
+      } catch (_) {}
+    }
   }
 
   void _toggleMute() {
@@ -1298,7 +2198,7 @@ class _CallScreenState extends State<CallScreen> {
 
   void _reject() {
     WsClient.instance.send({
-      'type': 'call-end',
+      'type': 'callEnd',
       'from': widget.myNick,
       'to': widget.targetNick,
     });
@@ -1315,18 +2215,63 @@ class _CallScreenState extends State<CallScreen> {
 
     if (sendSignal) {
       WsClient.instance.send({
-        'type': 'call-end',
+        'type': 'callEnd',
         'from': widget.myNick,
         'to': widget.targetNick,
       });
     }
 
-    try {
-      await _localStream?.dispose();
-    } catch (_) {}
+    // Mikrofonu fiziksel olarak durdur.
+    final stream = _localStream;
+
+    if (stream != null) {
+      // Önce peer connection üzerindeki sender track'lerini ayır.
+      try {
+        final senders =
+            await _peerConnection?.getSenders() ??
+                <RTCRtpSender>[];
+
+        for (final sender in senders) {
+          try {
+            await sender.replaceTrack(null);
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // Ardından mikrofon track'ini gerçekten durdur ve dispose et.
+      for (final track in stream.getTracks()) {
+        try {
+          track.enabled = false;
+        } catch (_) {}
+
+        try {
+          await track.stop();
+        } catch (_) {}
+
+
+      }
+
+      try {
+        await stream.dispose();
+      } catch (_) {}
+    }
 
     try {
       await _peerConnection?.close();
+    } catch (_) {}
+
+    try {
+      await _peerConnection?.dispose();
+    } catch (_) {}
+
+    try {
+      await _remoteRenderer.setSrcObject(
+        stream: null,
+      );
+    } catch (_) {}
+
+    try {
+      await _remoteRenderer.dispose();
     } catch (_) {}
 
     _localStream = null;
@@ -1348,8 +2293,22 @@ class _CallScreenState extends State<CallScreen> {
     _subscription.cancel();
 
     if (!_closing) {
+      final stream = _localStream;
+
+      if (stream != null) {
+        for (final track in stream.getTracks()) {
+          try {
+            track.enabled = false;
+            track.stop();
+          } catch (_) {}
+        }
+
+        try {
+          stream.dispose();
+        } catch (_) {}
+      }
+
       try {
-        _localStream?.dispose();
         _peerConnection?.close();
       } catch (_) {}
     }

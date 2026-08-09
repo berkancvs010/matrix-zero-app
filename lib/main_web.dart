@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-const String wsUrl = 'wss://zerolog.giize.com:8443';
+const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
 
 const List<String> rooms = [
   '1p09aq66zx6Qr9',
@@ -328,6 +328,11 @@ class _WebHomeScreenState
 
     _subscription =
         webSocketService.events.listen(_handleEvent);
+
+    webSocketService.send({
+      'type': 'register',
+      'nick': widget.nickname,
+    });
   }
 
   void _handleEvent(
@@ -612,7 +617,7 @@ class _WebRoomScreenState
     if (text.isEmpty) return;
 
     webSocketService.send({
-      'type': 'message',
+      'type': 'roomMessage',
       'room': widget.room,
       'text': text,
     });
@@ -782,7 +787,8 @@ class _WebPrivateScreenState
 
     if (data['type'] == 'privateHistory') {
       final peer =
-          (data['with'] ??
+          (data['peer'] ??
+                  data['with'] ??
                   data['target'] ??
                   '')
               .toString();
@@ -887,8 +893,8 @@ class _WebPrivateScreenState
     if (text.isEmpty) return;
 
     webSocketService.send({
-      'type': 'message',
-      'target': widget.target,
+      'type': 'privateMessage',
+      'to': widget.target,
       'text': text,
     });
 
