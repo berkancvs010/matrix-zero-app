@@ -10,6 +10,7 @@ permissions:
   contents: read
 
 jobs:
+
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
@@ -31,6 +32,7 @@ jobs:
 
       - name: Dart analyze
         run: flutter analyze
+
 
   android:
     name: Android APK
@@ -70,6 +72,7 @@ jobs:
       - name: Verify APK
         run: |
           test -f build/app/outputs/flutter-apk/app-release.apk
+          echo "APK BUILD SUCCESS"
           ls -lh build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload APK
@@ -77,6 +80,7 @@ jobs:
         with:
           name: matrix-zero-android-arm64
           path: build/app/outputs/flutter-apk/app-release.apk
+
 
   web:
     name: Web Chat
@@ -95,6 +99,12 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Create Web project
+        run: |
+          if [ ! -d "web" ]; then
+            flutter create . --platforms=web
+          fi
+
       - name: Flutter dependencies
         run: flutter pub get
 
@@ -104,7 +114,7 @@ jobs:
       - name: Verify Web
         run: |
           test -f build/web/index.html
-          echo "Web build OK"
+          echo "WEB BUILD SUCCESS"
           du -sh build/web
 
       - name: Upload Web
@@ -112,20 +122,3 @@ jobs:
         with:
           name: matrix-zero-web-chat
           path: build/web
-      - name: Verify Web
-        shell: bash
-        run: |
-          if [ ! -f "build/web/index.html" ]; then
-            echo "Web build oluşturulamadı."
-            exit 1
-          fi
-
-          echo "Web build başarıyla oluşturuldu."
-          du -sh build/web
-
-      - name: Upload Web
-        uses: actions/upload-artifact@v4
-        with:
-          name: matrix-zero-web-chat
-          path: build/web
-          if-no-files-found: error
