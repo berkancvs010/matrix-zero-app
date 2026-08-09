@@ -19,26 +19,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.0'
           channel: stable
           cache: true
-
-      - name: Create Android project
-        shell: bash
-        run: |
-          if [ ! -d "android" ]; then
-            flutter create . --platforms=android
-          fi
 
       - name: Flutter dependencies
         run: flutter pub get
@@ -50,18 +36,17 @@ jobs:
     name: Android APK
     needs: analyze
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -71,85 +56,27 @@ jobs:
           cache: true
 
       - name: Create Android project
-        shell: bash
         run: |
           if [ ! -d "android" ]; then
             flutter create . --platforms=android
           fi
 
-      - name: Configure Android
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          manifest = Path("android/app/src/main/AndroidManifest.xml")
-
-          text = manifest.read_text()
-
-          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
-
-          permissions = """\
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
-          """
-
-          if "android.permission.INTERNET" not in text:
-              text = text.replace(marker, marker + "\n" + permissions, 1)
-
-          manifest.write_text(text)
-
-          gradle_kts = Path("android/app/build.gradle.kts")
-          gradle = Path("android/app/build.gradle")
-
-          if gradle_kts.exists():
-              p = gradle_kts
-          elif gradle.exists():
-              p = gradle
-          else:
-              raise SystemExit("Android app Gradle dosyası bulunamadı.")
-
-          text = p.read_text()
-
-          text = text.replace(
-              "minSdk = flutter.minSdkVersion",
-              "minSdk = 23"
-          )
-
-          text = text.replace(
-              "minSdk flutter.minSdkVersion",
-              "minSdk 23"
-          )
-
-          p.write_text(text)
-          PY
-
       - name: Flutter dependencies
         run: flutter pub get
 
-      - name: Build release APK
+      - name: Build APK
         run: flutter build apk --release --target-platform android-arm64
 
       - name: Verify APK
-        shell: bash
         run: |
-          APK="build/app/outputs/flutter-apk/app-release.apk"
-
-          if [ ! -f "$APK" ]; then
-            echo "APK oluşturulamadı."
-            exit 1
-          fi
-
-          echo "APK başarıyla oluşturuldu:"
-          ls -lh "$APK"
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: matrix-zero-android-arm64
           path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
 
   web:
     name: Web Chat
@@ -171,12 +98,20 @@ jobs:
       - name: Flutter dependencies
         run: flutter pub get
 
-      - name: Build Web Chat
-        run: |
-          flutter build web \
-            --release \
-            --target lib/main_web.dart
+      - name: Build Web
+        run: flutter build web --release --target lib/main_web.dart
 
+      - name: Verify Web
+        run: |
+          test -f build/web/index.html
+          echo "Web build OK"
+          du -sh build/web
+
+      - name: Upload Web
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-zero-web-chat
+          path: build/web
       - name: Verify Web
         shell: bash
         run: |
