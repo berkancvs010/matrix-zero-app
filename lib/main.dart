@@ -1221,6 +1221,7 @@ class _MainScreenState extends State<MainScreen> {
       setState(() {
         _connected = false;
         _reconnecting = true;
+        _onlineUsers.clear();
       });
     }
 
