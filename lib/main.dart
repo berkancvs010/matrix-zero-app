@@ -443,6 +443,69 @@ class WsClient {
   bool _connecting = false;
   int _reconnectAttempt = 0;
 
+  final Set<String> _activeRooms = <String>{};
+
+  final List<Map<String, dynamic>> _outgoingQueue =
+      <Map<String, dynamic>>[];
+
+  void joinRoom(String room) {
+    final id = room.trim();
+    if (id.isEmpty) return;
+
+    _activeRooms.add(id);
+
+    if (connected && _channel != null) {
+      try {
+        _channel!.sink.add(
+          jsonEncode({
+            'type': 'joinRoom',
+            'room': id,
+          }),
+        );
+      } catch (_) {
+        _handleConnectionLost();
+      }
+    }
+  }
+
+  void leaveRoom(String room) {
+    final id = room.trim();
+    if (id.isEmpty) return;
+
+    _activeRooms.remove(id);
+
+    if (connected && _channel != null) {
+      try {
+        _channel!.sink.add(
+          jsonEncode({
+            'type': 'leaveRoom',
+            'room': id,
+          }),
+        );
+      } catch (_) {
+        _handleConnectionLost();
+      }
+    }
+  }
+
+  void _restoreActiveRooms() {
+    if (!connected || _channel == null) return;
+
+    for (final room in _activeRooms) {
+      try {
+        _channel!.sink.add(
+          jsonEncode({
+            'type': 'joinRoom',
+            'room': room,
+          }),
+        );
+      } catch (_) {
+        _handleConnectionLost();
+        return;
+      }
+    }
+  }
+
   Future<bool> connect(
     String username,
     String password,
@@ -569,6 +632,8 @@ class WsClient {
 
       _reconnectAttempt = 0;
       _startHeartbeat();
+      _restoreActiveRooms();
+      _flushOutgoingQueue();
 
       _events.add({
         'type': 'connectionRestored',
@@ -655,6 +720,9 @@ class WsClient {
 
   void send(Map<String, dynamic> data) {
     if (!connected || _channel == null) {
+      _outgoingQueue.add(
+        Map<String, dynamic>.from(data),
+      );
       return;
     }
 
@@ -663,7 +731,33 @@ class WsClient {
         jsonEncode(data),
       );
     } catch (_) {
+      _outgoingQueue.add(
+        Map<String, dynamic>.from(data),
+      );
       _handleConnectionLost();
+    }
+  }
+
+  void _flushOutgoingQueue() {
+    if (!connected || _channel == null || _outgoingQueue.isEmpty) {
+      return;
+    }
+
+    final pending =
+        List<Map<String, dynamic>>.from(_outgoingQueue);
+
+    _outgoingQueue.clear();
+
+    for (final data in pending) {
+      try {
+        _channel!.sink.add(
+          jsonEncode(data),
+        );
+      } catch (_) {
+        _outgoingQueue.insert(0, data);
+        _handleConnectionLost();
+        return;
+      }
     }
   }
 
@@ -1414,10 +1508,7 @@ class _ChatRoomScreenState
     _subscription =
         WsClient.instance.events.listen(_handleEvent);
 
-    WsClient.instance.send({
-      'type': 'joinRoom',
-      'room': widget.roomName,
-    });
+    WsClient.instance.joinRoom(widget.roomName);
   }
 
   void _handleEvent(Map<String, dynamic> data) {
@@ -1435,6 +1526,9 @@ class _ChatRoomScreenState
 
             _addMessage(
               ChatMessage(
+                id: (map['id'] ??
+                        'legacy-${widget.roomName}-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['text'] ?? ''}')
+                    .toString(),
                 sender:
                     (map['sender'] ??
                             map['from'] ??
@@ -1454,6 +1548,9 @@ class _ChatRoomScreenState
         data['room'] == widget.roomName) {
       _addMessage(
         ChatMessage(
+          id: (data['id'] ??
+                  'live-${data['ts'] ?? ''}-${data['from'] ?? data['sender'] ?? ''}-${data['text'] ?? ''}')
+              .toString(),
           sender:
               (data['sender'] ??
                       data['from'] ??
@@ -1470,9 +1567,7 @@ class _ChatRoomScreenState
     if (message.text.isEmpty) return;
 
     final exists = _messages.any(
-      (m) =>
-          m.sender == message.sender &&
-          m.text == message.text,
+      (m) => m.id == message.id,
     );
 
     if (exists) return;
@@ -1512,6 +1607,7 @@ class _ChatRoomScreenState
 
   @override
   void dispose() {
+    WsClient.instance.leaveRoom(widget.roomName);
     _subscription.cancel();
     _controller.dispose();
     _scrollController.dispose();
@@ -1671,6 +1767,9 @@ class _PrivateChatScreenState
 
             _addMessage(
               ChatMessage(
+                id: (map['id'] ??
+                        'private-legacy-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['to'] ?? ''}-${map['text'] ?? ''}')
+                    .toString(),
                 sender:
                     (map['sender'] ??
                             map['from'] ??
@@ -1728,6 +1827,9 @@ class _PrivateChatScreenState
 
       _addMessage(
         ChatMessage(
+          id: (data['id'] ??
+                  'private-live-${data['ts'] ?? ''}-${sender}-${target}-${data['text'] ?? ''}')
+              .toString(),
           sender: sender,
           text:
               (data['text'] ?? '').toString(),
@@ -1740,9 +1842,7 @@ class _PrivateChatScreenState
     if (message.text.isEmpty) return;
 
     final exists = _messages.any(
-      (m) =>
-          m.sender == message.sender &&
-          m.text == message.text,
+      (m) => m.id == message.id,
     );
 
     if (exists) return;
@@ -2481,10 +2581,12 @@ class MessageInput extends StatelessWidget {
 // ============================================================
 
 class ChatMessage {
+  final String id;
   final String sender;
   final String text;
 
   const ChatMessage({
+    required this.id,
     required this.sender,
     required this.text,
   });
