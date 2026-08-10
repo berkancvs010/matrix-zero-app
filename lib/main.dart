@@ -1828,7 +1828,7 @@ class _PrivateChatScreenState
       _addMessage(
         ChatMessage(
           id: (data['id'] ??
-                  'private-live-${data['ts'] ?? ''}-${sender}-${target}-${data['text'] ?? ''}')
+                  'private-live-${data['ts'] ?? ''}-$sender-$target-${data['text'] ?? ''}')
               .toString(),
           sender: sender,
           text:
