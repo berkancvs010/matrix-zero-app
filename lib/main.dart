@@ -390,6 +390,28 @@ class WsClient {
 
   final List<Map<String, dynamic>> _outgoingQueue = <Map<String, dynamic>>[];
 
+  Future<void> onAppResumed() async {
+    if (_manualDisconnect ||
+        username == null ||
+        username!.isEmpty ||
+        password == null ||
+        password!.isEmpty) {
+      return;
+    }
+
+    // If Android suspended the socket, reconnect immediately.
+    if (!connected || _channel == null) {
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
+      _reconnectAttempt = 0;
+      await _connectInternal();
+      return;
+    }
+
+    requestPresence();
+    _restoreActiveRooms();
+  }
+
   void requestPresence() {
     if (!connected || _channel == null) return;
 
@@ -655,7 +677,9 @@ class WsClient {
         ? 2
         : (_reconnectAttempt <= 3)
         ? 4
-        : 8;
+        : (_reconnectAttempt <= 6)
+        ? 8
+        : 15;
 
     _events.add({'type': 'reconnecting', 'seconds': seconds});
 
@@ -1003,7 +1027,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   final List<String> _onlineUsers = [];
@@ -1015,6 +1039,8 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
+
     _connected = WsClient.instance.connected;
 
     _onlineUsers
@@ -1024,6 +1050,15 @@ class _MainScreenState extends State<MainScreen> {
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.requestPresence();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Android may suspend the WebSocket while the app is in background.
+      // Force a presence/reconnect cycle when returning to foreground.
+      WsClient.instance.onAppResumed();
+    }
   }
 
   void _handleEvent(Map<String, dynamic> data) {
@@ -1170,6 +1205,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _subscription.cancel();
     super.dispose();
   }
