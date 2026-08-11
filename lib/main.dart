@@ -1987,6 +1987,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _accepted = false;
   bool _connected = false;
   bool _muted = false;
+  bool _speakerOn = false;
   bool _closing = false;
 
   final List<RTCIceCandidate> _pendingIceCandidates = [];
@@ -2297,6 +2298,22 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
+  Future<void> _toggleSpeaker() async {
+    final next = !_speakerOn;
+
+    try {
+      await Helper.setSpeakerphoneOn(next);
+
+      if (!mounted) return;
+
+      setState(() {
+        _speakerOn = next;
+      });
+    } catch (_) {
+      _showError('Ses çıkışı değiştirilemedi.');
+    }
+  }
+
   void _reject() {
     WsClient.instance.send({
       'type': 'callEnd',
@@ -2504,7 +2521,16 @@ class _CallScreenState extends State<CallScreen> {
                               : Icons.mic,
                         ),
                       ),
-                      const SizedBox(width: 30),
+                      const SizedBox(width: 18),
+                      IconButton.filled(
+                        onPressed: _toggleSpeaker,
+                        icon: Icon(
+                          _speakerOn
+                              ? Icons.volume_up
+                              : Icons.volume_down,
+                        ),
+                      ),
+                      const SizedBox(width: 18),
                       IconButton.filled(
                         style:
                             IconButton.styleFrom(
