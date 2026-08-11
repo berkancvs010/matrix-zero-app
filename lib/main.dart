@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:proximity_sensor/proximity_sensor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -29,14 +28,7 @@ void main() {
 // THEMES
 // ============================================================
 
-enum ZeroLogTheme {
-  black,
-  matrix,
-  whatsapp,
-  pink,
-  grey,
-  midnight,
-}
+enum ZeroLogTheme { black, matrix, whatsapp, pink, grey, midnight }
 
 class ZeroLogThemeData {
   final String name;
@@ -126,46 +118,33 @@ const Map<ZeroLogTheme, ZeroLogThemeData> zeroLogThemes = {
 class ThemeController extends ChangeNotifier {
   ThemeController._();
 
-  static final ThemeController instance =
-      ThemeController._();
+  static final ThemeController instance = ThemeController._();
 
   static const _key = 'zerolog_theme';
 
   ZeroLogTheme current = ZeroLogTheme.matrix;
 
   Future<void> load() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    final index =
-        prefs.getInt(_key);
+    final index = prefs.getInt(_key);
 
-    if (index != null &&
-        index >= 0 &&
-        index < ZeroLogTheme.values.length) {
-      current =
-          ZeroLogTheme.values[index];
+    if (index != null && index >= 0 && index < ZeroLogTheme.values.length) {
+      current = ZeroLogTheme.values[index];
     }
   }
 
-  Future<void> setTheme(
-    ZeroLogTheme theme,
-  ) async {
+  Future<void> setTheme(ZeroLogTheme theme) async {
     current = theme;
 
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    await prefs.setInt(
-      _key,
-      theme.index,
-    );
+    await prefs.setInt(_key, theme.index);
 
     notifyListeners();
   }
 
-  ZeroLogThemeData get data =>
-      zeroLogThemes[current]!;
+  ZeroLogThemeData get data => zeroLogThemes[current]!;
 }
 
 // ============================================================
@@ -176,14 +155,11 @@ class MatrixZeroApp extends StatefulWidget {
   const MatrixZeroApp({super.key});
 
   @override
-  State<MatrixZeroApp> createState() =>
-      _MatrixZeroAppState();
+  State<MatrixZeroApp> createState() => _MatrixZeroAppState();
 }
 
-class _MatrixZeroAppState
-    extends State<MatrixZeroApp> {
-  final ThemeController _theme =
-      ThemeController.instance;
+class _MatrixZeroAppState extends State<MatrixZeroApp> {
+  final ThemeController _theme = ThemeController.instance;
 
   bool _themeLoaded = false;
 
@@ -223,9 +199,7 @@ class _MatrixZeroAppState
         debugShowCheckedModeBanner: false,
         home: Scaffold(
           backgroundColor: Colors.black,
-          body: Center(
-            child: CircularProgressIndicator(),
-          ),
+          body: Center(child: CircularProgressIndicator()),
         ),
       );
     }
@@ -237,21 +211,15 @@ class _MatrixZeroAppState
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness:
-            ThemeData.estimateBrightnessForColor(
-                  t.background,
-                ) ==
+            ThemeData.estimateBrightnessForColor(t.background) ==
                 Brightness.dark
             ? Brightness.dark
             : Brightness.light,
-        scaffoldBackgroundColor:
-            t.background,
-        colorScheme:
-            ColorScheme.fromSeed(
+        scaffoldBackgroundColor: t.background,
+        colorScheme: ColorScheme.fromSeed(
           seedColor: t.primary,
           brightness:
-              ThemeData.estimateBrightnessForColor(
-                    t.background,
-                  ) ==
+              ThemeData.estimateBrightnessForColor(t.background) ==
                   Brightness.dark
               ? Brightness.dark
               : Brightness.light,
@@ -260,8 +228,7 @@ class _MatrixZeroAppState
           backgroundColor: t.surface,
           foregroundColor: t.text,
         ),
-        inputDecorationTheme:
-            InputDecorationTheme(
+        inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: t.surface,
         ),
@@ -280,8 +247,7 @@ class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
   @override
-  State<WelcomeScreen> createState() =>
-      _WelcomeScreenState();
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
@@ -312,17 +278,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     });
 
     if (_index >= _sequence.length) {
-      _timer = Timer(
-        const Duration(milliseconds: 900),
-        _openLogin,
-      );
+      _timer = Timer(const Duration(milliseconds: 900), _openLogin);
       return;
     }
 
-    _timer = Timer(
-      const Duration(milliseconds: 550),
-      _showNext,
-    );
+    _timer = Timer(const Duration(milliseconds: 550), _showNext);
   }
 
   void _openLogin() {
@@ -332,14 +292,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       PageRouteBuilder(
         pageBuilder: (_, animation, secondaryAnimation) =>
             const NicknameScreen(),
-        transitionDuration:
-            const Duration(milliseconds: 450),
-        transitionsBuilder:
-            (_, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
+        transitionDuration: const Duration(milliseconds: 450),
+        transitionsBuilder: (_, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
         },
       ),
     );
@@ -353,8 +308,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme =
-        ThemeController.instance.data;
+    final theme = ThemeController.instance.data;
 
     return Scaffold(
       backgroundColor: theme.background,
@@ -362,39 +316,23 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
-            mainAxisAlignment:
-                MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.shield_outlined,
-                size: 78,
-                color: theme.primary,
-              ),
+              Icon(Icons.shield_outlined, size: 78, color: theme.primary),
               const SizedBox(height: 30),
               ..._lines.map(
                 (line) => Padding(
-                  padding:
-                      const EdgeInsets.symmetric(
-                    vertical: 5,
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 5),
                   child: Text(
                     line,
                     style: TextStyle(
-                      fontSize:
-                          line == 'ZEROLOG'
-                              ? 30
-                              : 17,
-                      fontWeight:
-                          line == 'ZEROLOG'
-                              ? FontWeight.bold
-                              : FontWeight.w500,
-                      letterSpacing:
-                          line == 'ZEROLOG'
-                              ? 5
-                              : 3,
+                      fontSize: line == 'ZEROLOG' ? 30 : 17,
+                      fontWeight: line == 'ZEROLOG'
+                          ? FontWeight.bold
+                          : FontWeight.w500,
+                      letterSpacing: line == 'ZEROLOG' ? 5 : 3,
                       color: theme.primary,
-                      fontFamily:
-                          'monospace',
+                      fontFamily: 'monospace',
                     ),
                   ),
                 ),
@@ -435,6 +373,10 @@ class WsClient {
 
   Stream<Map<String, dynamic>> get events => _events.stream;
 
+  final Set<String> _onlineUsers = <String>{};
+
+  List<String> get onlineUsers => List.unmodifiable(_onlineUsers);
+
   String? nickname;
   String? username;
   String? password;
@@ -446,8 +388,17 @@ class WsClient {
 
   final Set<String> _activeRooms = <String>{};
 
-  final List<Map<String, dynamic>> _outgoingQueue =
-      <Map<String, dynamic>>[];
+  final List<Map<String, dynamic>> _outgoingQueue = <Map<String, dynamic>>[];
+
+  void requestPresence() {
+    if (!connected || _channel == null) return;
+
+    try {
+      _channel!.sink.add(jsonEncode({'type': 'getPresence'}));
+    } catch (_) {
+      _handleConnectionLost();
+    }
+  }
 
   void joinRoom(String room) {
     final id = room.trim();
@@ -457,12 +408,7 @@ class WsClient {
 
     if (connected && _channel != null) {
       try {
-        _channel!.sink.add(
-          jsonEncode({
-            'type': 'joinRoom',
-            'room': id,
-          }),
-        );
+        _channel!.sink.add(jsonEncode({'type': 'joinRoom', 'room': id}));
       } catch (_) {
         _handleConnectionLost();
       }
@@ -477,12 +423,7 @@ class WsClient {
 
     if (connected && _channel != null) {
       try {
-        _channel!.sink.add(
-          jsonEncode({
-            'type': 'leaveRoom',
-            'room': id,
-          }),
-        );
+        _channel!.sink.add(jsonEncode({'type': 'leaveRoom', 'room': id}));
       } catch (_) {
         _handleConnectionLost();
       }
@@ -494,12 +435,7 @@ class WsClient {
 
     for (final room in _activeRooms) {
       try {
-        _channel!.sink.add(
-          jsonEncode({
-            'type': 'joinRoom',
-            'room': room,
-          }),
-        );
+        _channel!.sink.add(jsonEncode({'type': 'joinRoom', 'room': room}));
       } catch (_) {
         _handleConnectionLost();
         return;
@@ -507,10 +443,7 @@ class WsClient {
     }
   }
 
-  Future<bool> connect(
-    String username,
-    String password,
-  ) async {
+  Future<bool> connect(String username, String password) async {
     _manualDisconnect = false;
     this.username = username.trim();
     this.password = password;
@@ -534,40 +467,26 @@ class WsClient {
     try {
       await _closeCurrent();
 
-      final channel = WebSocketChannel.connect(
-        Uri.parse(wsUrl),
-      );
+      final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
 
       _channel = channel;
 
-      final authCompleter =
-          Completer<bool>();
+      final authCompleter = Completer<bool>();
 
       _subscription = channel.stream.listen(
         (raw) {
           try {
-            final decoded = jsonDecode(
-              raw.toString(),
-            );
+            final decoded = jsonDecode(raw.toString());
 
             if (decoded is Map) {
-              final data =
-                  Map<String, dynamic>.from(
-                decoded,
-              );
+              final data = Map<String, dynamic>.from(decoded);
 
-              if (data['type'] ==
-                  'authenticated') {
-                final authenticatedName =
-                    (data['username'] ??
-                            username ??
-                            '')
-                        .toString();
+              if (data['type'] == 'authenticated') {
+                final authenticatedName = (data['username'] ?? username ?? '')
+                    .toString();
 
-                username =
-                    authenticatedName;
-                nickname =
-                    authenticatedName;
+                username = authenticatedName;
+                nickname = authenticatedName;
                 connected = true;
 
                 if (!authCompleter.isCompleted) {
@@ -575,8 +494,52 @@ class WsClient {
                 }
               }
 
-              if (data['type'] ==
-                  'authError') {
+              if (data['type'] == 'userList') {
+                final raw = data['users'];
+
+                if (raw is List) {
+                  _onlineUsers
+                    ..clear()
+                    ..addAll(
+                      raw
+                          .map((e) => e.toString().trim())
+                          .where((e) => e.isNotEmpty)
+                          .where(
+                            (e) =>
+                                e.toLowerCase() !=
+                                (nickname ?? '').toLowerCase(),
+                          ),
+                    );
+                }
+              }
+
+              if (data['type'] == 'userOnline') {
+                final name = (data['username'] ?? data['nick'] ?? '')
+                    .toString()
+                    .trim();
+
+                if (name.isNotEmpty &&
+                    name.toLowerCase() != (nickname ?? '').toLowerCase()) {
+                  _onlineUsers.removeWhere(
+                    (user) => user.toLowerCase() == name.toLowerCase(),
+                  );
+                  _onlineUsers.add(name);
+                }
+              }
+
+              if (data['type'] == 'userOffline') {
+                final name = (data['username'] ?? data['nick'] ?? '')
+                    .toString()
+                    .trim();
+
+                if (name.isNotEmpty) {
+                  _onlineUsers.removeWhere(
+                    (user) => user.toLowerCase() == name.toLowerCase(),
+                  );
+                }
+              }
+
+              if (data['type'] == 'authError') {
                 connected = false;
 
                 if (!authCompleter.isCompleted) {
@@ -619,8 +582,7 @@ class WsClient {
         }),
       );
 
-      final authenticated =
-          await authCompleter.future.timeout(
+      final authenticated = await authCompleter.future.timeout(
         const Duration(seconds: 8),
         onTimeout: () => false,
       );
@@ -636,9 +598,7 @@ class WsClient {
       _restoreActiveRooms();
       _flushOutgoingQueue();
 
-      _events.add({
-        'type': 'connectionRestored',
-      });
+      _events.add({'type': 'connectionRestored'});
 
       return true;
     } catch (_) {
@@ -653,22 +613,15 @@ class WsClient {
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
 
-    _heartbeatTimer = Timer.periodic(
-      const Duration(seconds: 20),
-      (_) {
-        if (!connected || _channel == null) return;
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!connected || _channel == null) return;
 
-        try {
-          _channel!.sink.add(
-            jsonEncode({
-              'type': 'listRooms',
-            }),
-          );
-        } catch (_) {
-          _handleConnectionLost();
-        }
-      },
-    );
+      try {
+        _channel!.sink.add(jsonEncode({'type': 'listRooms'}));
+      } catch (_) {
+        _handleConnectionLost();
+      }
+    });
   }
 
   void _handleConnectionLost() {
@@ -679,9 +632,7 @@ class WsClient {
     _heartbeatTimer?.cancel();
 
     if (wasConnected) {
-      _events.add({
-        'type': 'connectionLost',
-      });
+      _events.add({'type': 'connectionLost'});
     }
 
     _scheduleReconnect();
@@ -703,38 +654,26 @@ class WsClient {
     final seconds = (_reconnectAttempt <= 1)
         ? 2
         : (_reconnectAttempt <= 3)
-            ? 4
-            : 8;
+        ? 4
+        : 8;
 
-    _events.add({
-      'type': 'reconnecting',
-      'seconds': seconds,
+    _events.add({'type': 'reconnecting', 'seconds': seconds});
+
+    _reconnectTimer = Timer(Duration(seconds: seconds), () {
+      _connectInternal();
     });
-
-    _reconnectTimer = Timer(
-      Duration(seconds: seconds),
-      () {
-        _connectInternal();
-      },
-    );
   }
 
   void send(Map<String, dynamic> data) {
     if (!connected || _channel == null) {
-      _outgoingQueue.add(
-        Map<String, dynamic>.from(data),
-      );
+      _outgoingQueue.add(Map<String, dynamic>.from(data));
       return;
     }
 
     try {
-      _channel!.sink.add(
-        jsonEncode(data),
-      );
+      _channel!.sink.add(jsonEncode(data));
     } catch (_) {
-      _outgoingQueue.add(
-        Map<String, dynamic>.from(data),
-      );
+      _outgoingQueue.add(Map<String, dynamic>.from(data));
       _handleConnectionLost();
     }
   }
@@ -744,16 +683,13 @@ class WsClient {
       return;
     }
 
-    final pending =
-        List<Map<String, dynamic>>.from(_outgoingQueue);
+    final pending = List<Map<String, dynamic>>.from(_outgoingQueue);
 
     _outgoingQueue.clear();
 
     for (final data in pending) {
       try {
-        _channel!.sink.add(
-          jsonEncode(data),
-        );
+        _channel!.sink.add(jsonEncode(data));
       } catch (_) {
         _outgoingQueue.insert(0, data);
         _handleConnectionLost();
@@ -799,21 +735,17 @@ class NicknameScreen extends StatefulWidget {
 }
 
 class _NicknameScreenState extends State<NicknameScreen> {
-  final TextEditingController _usernameController =
-      TextEditingController();
+  final TextEditingController _usernameController = TextEditingController();
 
-  final TextEditingController _passwordController =
-      TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
 
   bool _loading = false;
   bool _registerMode = false;
   bool _obscurePassword = true;
 
   Future<void> _submit() async {
-    final username =
-        _usernameController.text.trim();
-    final password =
-        _passwordController.text;
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
 
     if (username.length < 3) {
       _show('Kullanıcı adı en az 3 karakter olmalı.');
@@ -830,70 +762,45 @@ class _NicknameScreenState extends State<NicknameScreen> {
     });
 
     if (_registerMode) {
-      await _register(
-        username,
-        password,
-      );
+      await _register(username, password);
     } else {
-      await _login(
-        username,
-        password,
-      );
+      await _login(username, password);
     }
   }
 
-  Future<void> _register(
-    String username,
-    String password,
-  ) async {
+  Future<void> _register(String username, String password) async {
     try {
-      final channel =
-          WebSocketChannel.connect(
-        Uri.parse(wsUrl),
-      );
+      final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
 
-      final subscription =
-          channel.stream.listen(
+      final subscription = channel.stream.listen(
         (raw) {
           try {
-            final decoded =
-                jsonDecode(raw.toString());
+            final decoded = jsonDecode(raw.toString());
 
             if (decoded is! Map) return;
 
-            final data =
-                Map<String, dynamic>.from(
-              decoded,
-            );
+            final data = Map<String, dynamic>.from(decoded);
 
             if (!mounted) return;
 
-            if (data['type'] ==
-                'accountRegistered') {
+            if (data['type'] == 'accountRegistered') {
               channel.sink.close();
               setState(() {
                 _loading = false;
                 _registerMode = false;
               });
 
-              _show(
-                'Hesap oluşturuldu. Şimdi giriş yapabilirsiniz.',
-              );
+              _show('Hesap oluşturuldu. Şimdi giriş yapabilirsiniz.');
             }
 
-            if (data['type'] ==
-                'authError') {
+            if (data['type'] == 'authError') {
               channel.sink.close();
 
               setState(() {
                 _loading = false;
               });
 
-              _show(
-                (data['message'] ??
-                        'Kayıt başarısız.')
-                    .toString(),
-              );
+              _show((data['message'] ?? 'Kayıt başarısız.').toString());
             }
           } catch (_) {}
         },
@@ -918,12 +825,9 @@ class _NicknameScreenState extends State<NicknameScreen> {
         }),
       );
 
-      Future.delayed(
-        const Duration(seconds: 10),
-        () {
-          subscription.cancel();
-        },
-      );
+      Future.delayed(const Duration(seconds: 10), () {
+        subscription.cancel();
+      });
     } catch (_) {
       if (!mounted) return;
 
@@ -935,19 +839,12 @@ class _NicknameScreenState extends State<NicknameScreen> {
     }
   }
 
-  Future<void> _login(
-    String username,
-    String password,
-  ) async {
+  Future<void> _login(String username, String password) async {
     setState(() {
       _loading = true;
     });
 
-    final ok =
-        await WsClient.instance.connect(
-      username,
-      password,
-    );
+    final ok = await WsClient.instance.connect(username, password);
 
     if (!mounted) return;
 
@@ -964,21 +861,14 @@ class _NicknameScreenState extends State<NicknameScreen> {
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => MainScreen(
-          nickname:
-              WsClient.instance.nickname ??
-                  username,
-        ),
+        builder: (_) =>
+            MainScreen(nickname: WsClient.instance.nickname ?? username),
       ),
     );
   }
 
   void _show(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
@@ -991,21 +881,14 @@ class _NicknameScreenState extends State<NicknameScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ZERO LOG'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('ZERO LOG'), centerTitle: true),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints:
-                const BoxConstraints(
-              maxWidth: 480,
-            ),
+            constraints: const BoxConstraints(maxWidth: 480),
             child: Column(
-              mainAxisAlignment:
-                  MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
                   Icons.shield_outlined,
@@ -1026,49 +909,33 @@ class _NicknameScreenState extends State<NicknameScreen> {
                   _registerMode
                       ? 'Yeni hesabını oluştur'
                       : 'Gizli iletişim alanına giriş yap',
-                  textAlign:
-                      TextAlign.center,
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 28),
                 TextField(
-                  controller:
-                      _usernameController,
+                  controller: _usernameController,
                   enabled: !_loading,
-                  textInputAction:
-                      TextInputAction.next,
+                  textInputAction: TextInputAction.next,
                   autocorrect: false,
-                  decoration:
-                      const InputDecoration(
-                    labelText:
-                        'Kullanıcı adı',
-                    prefixIcon:
-                        Icon(Icons.person_outline),
-                    border:
-                        OutlineInputBorder(),
+                  decoration: const InputDecoration(
+                    labelText: 'Kullanıcı adı',
+                    prefixIcon: Icon(Icons.person_outline),
+                    border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 14),
                 TextField(
-                  controller:
-                      _passwordController,
+                  controller: _passwordController,
                   enabled: !_loading,
-                  obscureText:
-                      _obscurePassword,
-                  onSubmitted:
-                      (_) => _submit(),
-                  decoration:
-                      InputDecoration(
+                  obscureText: _obscurePassword,
+                  onSubmitted: (_) => _submit(),
+                  decoration: InputDecoration(
                     labelText: 'Şifre',
-                    prefixIcon:
-                        const Icon(
-                      Icons.lock_outline,
-                    ),
-                    suffixIcon:
-                        IconButton(
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
                       onPressed: () {
                         setState(() {
-                          _obscurePassword =
-                              !_obscurePassword;
+                          _obscurePassword = !_obscurePassword;
                         });
                       },
                       icon: Icon(
@@ -1077,8 +944,7 @@ class _NicknameScreenState extends State<NicknameScreen> {
                             : Icons.visibility_off,
                       ),
                     ),
-                    border:
-                        const OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 22),
@@ -1086,24 +952,14 @@ class _NicknameScreenState extends State<NicknameScreen> {
                   width: double.infinity,
                   height: 50,
                   child: FilledButton(
-                    onPressed:
-                        _loading
-                            ? null
-                            : _submit,
+                    onPressed: _loading ? null : _submit,
                     child: _loading
                         ? const SizedBox(
                             width: 22,
                             height: 22,
-                            child:
-                                CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Text(
-                            _registerMode
-                                ? 'HESAP OLUŞTUR'
-                                : 'GİRİŞ YAP',
-                          ),
+                        : Text(_registerMode ? 'HESAP OLUŞTUR' : 'GİRİŞ YAP'),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1112,23 +968,18 @@ class _NicknameScreenState extends State<NicknameScreen> {
                       ? null
                       : () {
                           setState(() {
-                            _registerMode =
-                                !_registerMode;
+                            _registerMode = !_registerMode;
                           });
                         },
                   child: Text(
-                    _registerMode
-                        ? 'Zaten hesabım var'
-                        : 'Yeni hesap oluştur',
+                    _registerMode ? 'Zaten hesabım var' : 'Yeni hesap oluştur',
                   ),
                 ),
                 const SizedBox(height: 30),
                 const Text(
                   'ZeroLog • Gizlilik odaklı iletişim',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(fontSize: 12),
                 ),
               ],
             ),
@@ -1146,18 +997,14 @@ class _NicknameScreenState extends State<NicknameScreen> {
 class MainScreen extends StatefulWidget {
   final String nickname;
 
-  const MainScreen({
-    super.key,
-    required this.nickname,
-  });
+  const MainScreen({super.key, required this.nickname});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
-  late final StreamSubscription<Map<String, dynamic>>
-      _subscription;
+  late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   final List<String> _onlineUsers = [];
 
@@ -1170,9 +1017,13 @@ class _MainScreenState extends State<MainScreen> {
 
     _connected = WsClient.instance.connected;
 
-    _subscription =
-        WsClient.instance.events.listen(_handleEvent);
+    _onlineUsers
+      ..clear()
+      ..addAll(WsClient.instance.onlineUsers);
 
+    _subscription = WsClient.instance.events.listen(_handleEvent);
+
+    WsClient.instance.requestPresence();
   }
 
   void _handleEvent(Map<String, dynamic> data) {
@@ -1193,11 +1044,7 @@ class _MainScreenState extends State<MainScreen> {
         final users = raw
             .map((e) => e.toString())
             .where((e) => e.isNotEmpty)
-            .where(
-              (e) =>
-                  e.toLowerCase() !=
-                  widget.nickname.toLowerCase(),
-            )
+            .where((e) => e.toLowerCase() != widget.nickname.toLowerCase())
             .toSet()
             .toList();
 
@@ -1205,6 +1052,37 @@ class _MainScreenState extends State<MainScreen> {
           _onlineUsers
             ..clear()
             ..addAll(users);
+        });
+      }
+    }
+
+    if (type == 'userOnline') {
+      final username = (data['username'] ?? data['nick'] ?? '')
+          .toString()
+          .trim();
+
+      if (username.isNotEmpty &&
+          username.toLowerCase() != widget.nickname.toLowerCase()) {
+        setState(() {
+          if (!_onlineUsers.any(
+            (user) => user.toLowerCase() == username.toLowerCase(),
+          )) {
+            _onlineUsers.add(username);
+          }
+        });
+      }
+    }
+
+    if (type == 'userOffline') {
+      final username = (data['username'] ?? data['nick'] ?? '')
+          .toString()
+          .trim();
+
+      if (username.isNotEmpty) {
+        setState(() {
+          _onlineUsers.removeWhere(
+            (user) => user.toLowerCase() == username.toLowerCase(),
+          );
         });
       }
     }
@@ -1226,8 +1104,7 @@ class _MainScreenState extends State<MainScreen> {
       });
     }
 
-    if (type == 'connectionRestored' ||
-        type == 'registered') {
+    if (type == 'connectionRestored' || type == 'registered') {
       setState(() {
         _connected = true;
         _reconnecting = false;
@@ -1240,8 +1117,7 @@ class _MainScreenState extends State<MainScreen> {
 
       if (from.isEmpty || to.isEmpty) return;
 
-      if (to.toLowerCase() !=
-          widget.nickname.toLowerCase()) {
+      if (to.toLowerCase() != widget.nickname.toLowerCase()) {
         return;
       }
 
@@ -1261,10 +1137,8 @@ class _MainScreenState extends State<MainScreen> {
   void _openRoom(String room) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ChatRoomScreen(
-          nickname: widget.nickname,
-          roomName: room,
-        ),
+        builder: (_) =>
+            ChatRoomScreen(nickname: widget.nickname, roomName: room),
       ),
     );
   }
@@ -1272,10 +1146,8 @@ class _MainScreenState extends State<MainScreen> {
   void _openPrivate(String target) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PrivateChatScreen(
-          myNick: widget.nickname,
-          targetNick: target,
-        ),
+        builder: (_) =>
+            PrivateChatScreen(myNick: widget.nickname, targetNick: target),
       ),
     );
   }
@@ -1292,9 +1164,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Future<void> _selectTheme(
-    ZeroLogTheme theme,
-  ) async {
+  Future<void> _selectTheme(ZeroLogTheme theme) async {
     await ThemeController.instance.setTheme(theme);
   }
 
@@ -1333,15 +1203,9 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(data.name),
-                        ),
-                        if (ThemeController.instance.current ==
-                            theme)
-                          const Icon(
-                            Icons.check,
-                            size: 18,
-                          ),
+                        Expanded(child: Text(data.name)),
+                        if (ThemeController.instance.current == theme)
+                          const Icon(Icons.check, size: 18),
                       ],
                     ),
                   );
@@ -1357,31 +1221,23 @@ class _MainScreenState extends State<MainScreen> {
                   color: _connected
                       ? Colors.greenAccent
                       : _reconnecting
-                          ? Colors.amber
-                          : Colors.red,
+                      ? Colors.amber
+                      : Colors.red,
                 ),
               ),
             ),
           ],
           bottom: const TabBar(
             tabs: [
-              Tab(
-                icon: Icon(Icons.forum_outlined),
-                text: 'Odalar',
-              ),
-              Tab(
-                icon: Icon(Icons.people_outline),
-                text: 'Online',
-              ),
+              Tab(icon: Icon(Icons.forum_outlined), text: 'Odalar'),
+              Tab(icon: Icon(Icons.people_outline), text: 'Online'),
             ],
           ),
         ),
         body: TabBarView(
           children: [
             ListView.builder(
-              padding: const EdgeInsets.symmetric(
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(vertical: 10),
               itemCount: rooms.length,
               itemBuilder: (_, index) {
                 final room = rooms[index];
@@ -1392,14 +1248,10 @@ class _MainScreenState extends State<MainScreen> {
                     vertical: 5,
                   ),
                   child: ListTile(
-                    leading: CircleAvatar(
-                      child: Text('${index + 1}'),
-                    ),
+                    leading: CircleAvatar(child: Text('${index + 1}')),
                     title: Text(room),
-                    subtitle:
-                        const Text('Sohbet odası'),
-                    trailing:
-                        const Icon(Icons.chevron_right),
+                    subtitle: const Text('Sohbet odası'),
+                    trailing: const Icon(Icons.chevron_right),
                     onTap: () => _openRoom(room),
                   ),
                 );
@@ -1407,56 +1259,41 @@ class _MainScreenState extends State<MainScreen> {
             ),
             _onlineUsers.isEmpty
                 ? const Center(
-                    child: Text(
-                      'Şu anda çevrimiçi kullanıcı görünmüyor.',
-                    ),
+                    child: Text('Şu anda çevrimiçi kullanıcı görünmüyor.'),
                   )
                 : ListView.builder(
-                    padding:
-                        const EdgeInsets.symmetric(
-                      vertical: 10,
-                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
                     itemCount: _onlineUsers.length,
                     itemBuilder: (_, index) {
-                      final user =
-                          _onlineUsers[index];
+                      final user = _onlineUsers[index];
 
                       return Card(
-                        margin:
-                            const EdgeInsets.symmetric(
+                        margin: const EdgeInsets.symmetric(
                           horizontal: 12,
                           vertical: 5,
                         ),
                         child: ListTile(
-                          leading:
-                              const Icon(
+                          leading: const Icon(
                             Icons.circle,
-                            color:
-                                Colors.greenAccent,
+                            color: Colors.greenAccent,
                             size: 13,
                           ),
                           title: Text(user),
                           trailing: Row(
-                            mainAxisSize:
-                                MainAxisSize.min,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
                                 tooltip: 'Mesaj',
-                                icon: const Icon(
-                                  Icons.chat_outlined,
-                                ),
-                                onPressed: () =>
-                                    _openPrivate(user),
+                                icon: const Icon(Icons.chat_outlined),
+                                onPressed: () => _openPrivate(user),
                               ),
                               IconButton(
                                 tooltip: 'Sesli ara',
                                 icon: const Icon(
                                   Icons.call,
-                                  color:
-                                      Colors.greenAccent,
+                                  color: Colors.greenAccent,
                                 ),
-                                onPressed: () =>
-                                    _call(user),
+                                onPressed: () => _call(user),
                               ),
                             ],
                           ),
@@ -1486,29 +1323,23 @@ class ChatRoomScreen extends StatefulWidget {
   });
 
   @override
-  State<ChatRoomScreen> createState() =>
-      _ChatRoomScreenState();
+  State<ChatRoomScreen> createState() => _ChatRoomScreenState();
 }
 
-class _ChatRoomScreenState
-    extends State<ChatRoomScreen> {
-  final TextEditingController _controller =
-      TextEditingController();
+class _ChatRoomScreenState extends State<ChatRoomScreen> {
+  final TextEditingController _controller = TextEditingController();
 
-  final ScrollController _scrollController =
-      ScrollController();
+  final ScrollController _scrollController = ScrollController();
 
   final List<ChatMessage> _messages = [];
 
-  late final StreamSubscription<
-      Map<String, dynamic>> _subscription;
+  late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   @override
   void initState() {
     super.initState();
 
-    _subscription =
-        WsClient.instance.events.listen(_handleEvent);
+    _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.joinRoom(widget.roomName);
   }
@@ -1516,29 +1347,22 @@ class _ChatRoomScreenState
   void _handleEvent(Map<String, dynamic> data) {
     if (!mounted) return;
 
-    if (data['type'] == 'roomHistory' &&
-        data['room'] == widget.roomName) {
+    if (data['type'] == 'roomHistory' && data['room'] == widget.roomName) {
       final history = data['messages'];
 
       if (history is List) {
         for (final item in history) {
           if (item is Map) {
-            final map =
-                Map<String, dynamic>.from(item);
+            final map = Map<String, dynamic>.from(item);
 
             _addMessage(
               ChatMessage(
-                id: (map['id'] ??
-                        'legacy-${widget.roomName}-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['text'] ?? ''}')
-                    .toString(),
-                sender:
-                    (map['sender'] ??
-                            map['from'] ??
-                            '')
+                id:
+                    (map['id'] ??
+                            'legacy-${widget.roomName}-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['text'] ?? ''}')
                         .toString(),
-                text:
-                    (map['text'] ?? '')
-                        .toString(),
+                sender: (map['sender'] ?? map['from'] ?? '').toString(),
+                text: (map['text'] ?? '').toString(),
               ),
             );
           }
@@ -1546,20 +1370,15 @@ class _ChatRoomScreenState
       }
     }
 
-    if (data['type'] == 'roomMessage' &&
-        data['room'] == widget.roomName) {
+    if (data['type'] == 'roomMessage' && data['room'] == widget.roomName) {
       _addMessage(
         ChatMessage(
-          id: (data['id'] ??
-                  'live-${data['ts'] ?? ''}-${data['from'] ?? data['sender'] ?? ''}-${data['text'] ?? ''}')
-              .toString(),
-          sender:
-              (data['sender'] ??
-                      data['from'] ??
-                      '')
+          id:
+              (data['id'] ??
+                      'live-${data['ts'] ?? ''}-${data['from'] ?? data['sender'] ?? ''}-${data['text'] ?? ''}')
                   .toString(),
-          text:
-              (data['text'] ?? '').toString(),
+          sender: (data['sender'] ?? data['from'] ?? '').toString(),
+          text: (data['text'] ?? '').toString(),
         ),
       );
     }
@@ -1568,9 +1387,7 @@ class _ChatRoomScreenState
   void _addMessage(ChatMessage message) {
     if (message.text.isEmpty) return;
 
-    final exists = _messages.any(
-      (m) => m.id == message.id,
-    );
+    final exists = _messages.any((m) => m.id == message.id);
 
     if (exists) return;
 
@@ -1578,19 +1395,15 @@ class _ChatRoomScreenState
       _messages.add(message);
     });
 
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position
-                .maxScrollExtent,
-            duration:
-                const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-          );
-        }
-      },
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   void _send() {
@@ -1619,9 +1432,7 @@ class _ChatRoomScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.roomName),
-      ),
+      appBar: AppBar(title: Text(widget.roomName)),
       body: Column(
         children: [
           Expanded(
@@ -1630,55 +1441,38 @@ class _ChatRoomScreenState
               padding: const EdgeInsets.all(10),
               itemCount: _messages.length,
               itemBuilder: (_, index) {
-                final message =
-                    _messages[index];
+                final message = _messages[index];
 
                 final mine =
                     message.sender.toLowerCase() ==
-                        widget.nickname.toLowerCase();
+                    widget.nickname.toLowerCase();
 
                 return Align(
                   alignment: mine
                       ? Alignment.centerRight
                       : Alignment.centerLeft,
                   child: Container(
-                    constraints:
-                        const BoxConstraints(
-                      maxWidth: 500,
-                    ),
-                    margin:
-                        const EdgeInsets.symmetric(
-                      vertical: 4,
-                    ),
-                    padding:
-                        const EdgeInsets.all(12),
+                    constraints: const BoxConstraints(maxWidth: 500),
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: mine
-                          ? ThemeController.instance
-                              .data
-                              .bubbleMine
-                          : ThemeController.instance
-                              .data
-                              .bubbleOther,
-                      borderRadius:
-                          BorderRadius.circular(12),
+                          ? ThemeController.instance.data.bubbleMine
+                          : ThemeController.instance.data.bubbleOther,
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (!mine)
                           Text(
                             message.sender,
-                            style:
-                                const TextStyle(
+                            style: const TextStyle(
                               fontSize: 11,
-                              color:
-                                  Colors.greenAccent,
+                              color: Colors.greenAccent,
                             ),
                           ),
-                        if (!mine)
-                          const SizedBox(height: 3),
+                        if (!mine) const SizedBox(height: 3),
                         Text(message.text),
                       ],
                     ),
@@ -1687,10 +1481,7 @@ class _ChatRoomScreenState
               },
             ),
           ),
-          MessageInput(
-            controller: _controller,
-            onSend: _send,
-          ),
+          MessageInput(controller: _controller, onSend: _send),
         ],
       ),
     );
@@ -1712,29 +1503,23 @@ class PrivateChatScreen extends StatefulWidget {
   });
 
   @override
-  State<PrivateChatScreen> createState() =>
-      _PrivateChatScreenState();
+  State<PrivateChatScreen> createState() => _PrivateChatScreenState();
 }
 
-class _PrivateChatScreenState
-    extends State<PrivateChatScreen> {
-  final TextEditingController _controller =
-      TextEditingController();
+class _PrivateChatScreenState extends State<PrivateChatScreen> {
+  final TextEditingController _controller = TextEditingController();
 
-  final ScrollController _scrollController =
-      ScrollController();
+  final ScrollController _scrollController = ScrollController();
 
   final List<ChatMessage> _messages = [];
 
-  late final StreamSubscription<
-      Map<String, dynamic>> _subscription;
+  late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   @override
   void initState() {
     super.initState();
 
-    _subscription =
-        WsClient.instance.events.listen(_handleEvent);
+    _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.send({
       'type': 'privateHistory',
@@ -1746,16 +1531,11 @@ class _PrivateChatScreenState
     if (!mounted) return;
 
     if (data['type'] == 'privateHistory') {
-      final peer =
-          (data['peer'] ??
-                  data['with'] ??
-                  data['target'] ??
-                  '')
-              .toString();
+      final peer = (data['peer'] ?? data['with'] ?? data['target'] ?? '')
+          .toString();
 
       if (peer.isNotEmpty &&
-          peer.toLowerCase() !=
-              widget.targetNick.toLowerCase()) {
+          peer.toLowerCase() != widget.targetNick.toLowerCase()) {
         return;
       }
 
@@ -1764,22 +1544,16 @@ class _PrivateChatScreenState
       if (list is List) {
         for (final item in list) {
           if (item is Map) {
-            final map =
-                Map<String, dynamic>.from(item);
+            final map = Map<String, dynamic>.from(item);
 
             _addMessage(
               ChatMessage(
-                id: (map['id'] ??
-                        'private-legacy-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['to'] ?? ''}-${map['text'] ?? ''}')
-                    .toString(),
-                sender:
-                    (map['sender'] ??
-                            map['from'] ??
-                            '')
+                id:
+                    (map['id'] ??
+                            'private-legacy-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['to'] ?? ''}-${map['text'] ?? ''}')
                         .toString(),
-                text:
-                    (map['text'] ?? '')
-                        .toString(),
+                sender: (map['sender'] ?? map['from'] ?? '').toString(),
+                text: (map['text'] ?? '').toString(),
               ),
             );
           }
@@ -1788,40 +1562,23 @@ class _PrivateChatScreenState
     }
 
     if (data['type'] == 'privateMessage') {
-      final sender =
-          (data['sender'] ??
-                  data['from'] ??
-                  '')
-              .toString();
+      final sender = (data['sender'] ?? data['from'] ?? '').toString();
 
-      final target =
-          (data['to'] ??
-                  data['target'] ??
-                  '')
-              .toString();
+      final target = (data['to'] ?? data['target'] ?? '').toString();
 
       final isFromPeer =
-          sender.toLowerCase() ==
-              widget.targetNick.toLowerCase();
+          sender.toLowerCase() == widget.targetNick.toLowerCase();
 
-      final isFromMe =
-          sender.toLowerCase() ==
-              widget.myNick.toLowerCase();
+      final isFromMe = sender.toLowerCase() == widget.myNick.toLowerCase();
 
       final validPeerTarget =
-          target.isEmpty ||
-          target.toLowerCase() ==
-              widget.myNick.toLowerCase();
+          target.isEmpty || target.toLowerCase() == widget.myNick.toLowerCase();
 
       final validSelfTarget =
           target.isEmpty ||
-          target.toLowerCase() ==
-              widget.targetNick.toLowerCase();
+          target.toLowerCase() == widget.targetNick.toLowerCase();
 
-      final validTarget =
-          isFromMe
-              ? validSelfTarget
-              : validPeerTarget;
+      final validTarget = isFromMe ? validSelfTarget : validPeerTarget;
 
       if ((!isFromPeer && !isFromMe) || !validTarget) {
         return;
@@ -1829,12 +1586,12 @@ class _PrivateChatScreenState
 
       _addMessage(
         ChatMessage(
-          id: (data['id'] ??
-                  'private-live-${data['ts'] ?? ''}-$sender-$target-${data['text'] ?? ''}')
-              .toString(),
+          id:
+              (data['id'] ??
+                      'private-live-${data['ts'] ?? ''}-$sender-$target-${data['text'] ?? ''}')
+                  .toString(),
           sender: sender,
-          text:
-              (data['text'] ?? '').toString(),
+          text: (data['text'] ?? '').toString(),
         ),
       );
     }
@@ -1843,9 +1600,7 @@ class _PrivateChatScreenState
   void _addMessage(ChatMessage message) {
     if (message.text.isEmpty) return;
 
-    final exists = _messages.any(
-      (m) => m.id == message.id,
-    );
+    final exists = _messages.any((m) => m.id == message.id);
 
     if (exists) return;
 
@@ -1853,19 +1608,15 @@ class _PrivateChatScreenState
       _messages.add(message);
     });
 
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position
-                .maxScrollExtent,
-            duration:
-                const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-          );
-        }
-      },
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   void _send() {
@@ -1893,9 +1644,7 @@ class _PrivateChatScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.targetNick),
-      ),
+      appBar: AppBar(title: Text(widget.targetNick)),
       body: Column(
         children: [
           Expanded(
@@ -1904,38 +1653,24 @@ class _PrivateChatScreenState
               padding: const EdgeInsets.all(10),
               itemCount: _messages.length,
               itemBuilder: (_, index) {
-                final message =
-                    _messages[index];
+                final message = _messages[index];
 
                 final mine =
-                    message.sender.toLowerCase() ==
-                        widget.myNick.toLowerCase();
+                    message.sender.toLowerCase() == widget.myNick.toLowerCase();
 
                 return Align(
                   alignment: mine
                       ? Alignment.centerRight
                       : Alignment.centerLeft,
                   child: Container(
-                    constraints:
-                        const BoxConstraints(
-                      maxWidth: 500,
-                    ),
-                    margin:
-                        const EdgeInsets.symmetric(
-                      vertical: 4,
-                    ),
-                    padding:
-                        const EdgeInsets.all(12),
+                    constraints: const BoxConstraints(maxWidth: 500),
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: mine
-                          ? ThemeController.instance
-                              .data
-                              .bubbleMine
-                          : ThemeController.instance
-                              .data
-                              .bubbleOther,
-                      borderRadius:
-                          BorderRadius.circular(12),
+                          ? ThemeController.instance.data.bubbleMine
+                          : ThemeController.instance.data.bubbleOther,
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(message.text),
                   ),
@@ -1943,10 +1678,7 @@ class _PrivateChatScreenState
               },
             ),
           ),
-          MessageInput(
-            controller: _controller,
-            onSend: _send,
-          ),
+          MessageInput(controller: _controller, onSend: _send),
         ],
       ),
     );
@@ -1978,54 +1710,29 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
-  final RTCVideoRenderer _remoteRenderer =
-      RTCVideoRenderer();
-  late final Future<void> _remoteRendererReady;
 
-  late final StreamSubscription<
-      Map<String, dynamic>> _subscription;
-  StreamSubscription<int>? _proximitySubscription;
+  late final StreamSubscription<Map<String, dynamic>> _subscription;
+
+  final List<RTCIceCandidate> _pendingIceCandidates = [];
 
   bool _accepted = false;
   bool _connected = false;
   bool _muted = false;
   bool _speakerOn = false;
   bool _closing = false;
-
-  final List<RTCIceCandidate> _pendingIceCandidates = [];
   bool _remoteDescriptionSet = false;
 
   @override
   void initState() {
     super.initState();
 
-    _remoteRendererReady =
-        _remoteRenderer.initialize();
-
-    _subscription =
-        WsClient.instance.events.listen(_handleEvent);
-
-    _initProximitySensor();
+    _subscription = WsClient.instance.events.listen(_handleEvent);
 
     if (widget.outgoing) {
-      _startOutgoingCall();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startOutgoingCall();
+      });
     }
-  }
-
-  Future<void> _initProximitySensor() async {
-    try {
-      final available =
-          await ProximitySensor.isProximitySensorAvailable();
-
-      if (!available || !mounted || _closing) {
-        return;
-      }
-
-      await ProximitySensor.setProximityScreenOff(true);
-
-      _proximitySubscription =
-          ProximitySensor.events.listen((event) {});
-    } catch (_) {}
   }
 
   Future<void> _createPeerConnection() async {
@@ -2043,12 +1750,12 @@ class _CallScreenState extends State<CallScreen> {
       'sdpSemantics': 'unified-plan',
     };
 
-    _peerConnection =
-        await createPeerConnection(configuration);
+    final peer = await createPeerConnection(configuration);
 
-    _peerConnection!.onIceCandidate =
-        (RTCIceCandidate candidate) {
-      if (candidate.candidate == null) return;
+    _peerConnection = peer;
+
+    peer.onIceCandidate = (RTCIceCandidate candidate) {
+      if (_closing || candidate.candidate == null) return;
 
       WsClient.instance.send({
         'type': 'callIce',
@@ -2060,82 +1767,66 @@ class _CallScreenState extends State<CallScreen> {
       });
     };
 
-    // Karşı taraftan gelen ses track'ini kabul et.
-    _peerConnection!.onTrack =
-        (RTCTrackEvent event) async {
-      if (event.track.kind != 'audio') {
-        return;
-      }
+    peer.onConnectionState = (RTCPeerConnectionState state) {
+      if (!mounted || _closing) return;
 
-      event.track.enabled = true;
-
-      if (event.streams.isNotEmpty) {
-        try {
-          await _remoteRendererReady;
-          await _remoteRenderer.setSrcObject(
-            stream: event.streams.first,
-          );
-          await _remoteRenderer.setVolume(1.0);
-        } catch (_) {}
-      }
-    };
-
-    _peerConnection!.onIceConnectionState =
-        (RTCIceConnectionState state) {};
-
-    _peerConnection!.onConnectionState =
-        (RTCPeerConnectionState state) {
-      if (!mounted) return;
-
-      if (state ==
-          RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         setState(() {
           _connected = true;
         });
       }
 
-      if (state ==
-              RTCPeerConnectionState
-                  .RTCPeerConnectionStateFailed ||
-          state ==
-              RTCPeerConnectionState
-                  .RTCPeerConnectionStateDisconnected ||
-          state ==
-              RTCPeerConnectionState
-                  .RTCPeerConnectionStateClosed) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+          state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+          state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         setState(() {
           _connected = false;
         });
       }
     };
 
-    _localStream =
-        await navigator.mediaDevices.getUserMedia({
+    // Sadece ses kullanıyoruz. Video renderer yok.
+    final stream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
       'video': false,
     });
 
-    for (final track in _localStream!.getTracks()) {
-      await _peerConnection!.addTrack(
-        track,
-        _localStream!,
-      );
+    if (_closing) {
+      for (final track in stream.getTracks()) {
+        try {
+          await track.stop();
+        } catch (_) {}
+      }
+      try {
+        await stream.dispose();
+      } catch (_) {}
+      return;
+    }
+
+    _localStream = stream;
+
+    for (final track in stream.getAudioTracks()) {
+      await peer.addTrack(track, stream);
     }
   }
 
   Future<void> _startOutgoingCall() async {
+    if (_closing) return;
+
     try {
       await _createPeerConnection();
 
-      final offer =
-          await _peerConnection!.createOffer({
+      final peer = _peerConnection;
+      if (peer == null || _closing) return;
+
+      final offer = await peer.createOffer({
         'offerToReceiveAudio': 1,
         'offerToReceiveVideo': 0,
       });
 
-      await _peerConnection!.setLocalDescription(
-        offer,
-      );
+      await peer.setLocalDescription(offer);
+
+      if (_closing) return;
 
       WsClient.instance.send({
         'type': 'callOffer',
@@ -2149,37 +1840,42 @@ class _CallScreenState extends State<CallScreen> {
           _accepted = true;
         });
       }
-    } catch (_) {
-      if (mounted) {
+    } catch (e) {
+      if (mounted && !_closing) {
         _showError('Arama başlatılamadı.');
       }
     }
   }
 
   Future<void> _acceptIncoming() async {
-    if (widget.incomingOffer == null) {
+    final incomingOffer = widget.incomingOffer;
+
+    if (incomingOffer == null || incomingOffer.isEmpty) {
       return;
     }
 
     try {
       await _createPeerConnection();
 
-      await _peerConnection!.setRemoteDescription(
-        RTCSessionDescription(
-          widget.incomingOffer!,
-          'offer',
-        ),
+      final peer = _peerConnection;
+      if (peer == null || _closing) return;
+
+      await peer.setRemoteDescription(
+        RTCSessionDescription(incomingOffer, 'offer'),
       );
 
-      final answer =
-          await _peerConnection!.createAnswer({
+      _remoteDescriptionSet = true;
+
+      await _flushPendingIceCandidates();
+
+      final answer = await peer.createAnswer({
         'offerToReceiveAudio': 1,
         'offerToReceiveVideo': 0,
       });
 
-      await _peerConnection!.setLocalDescription(
-        answer,
-      );
+      await peer.setLocalDescription(answer);
+
+      if (_closing) return;
 
       WsClient.instance.send({
         'type': 'callAnswer',
@@ -2193,132 +1889,116 @@ class _CallScreenState extends State<CallScreen> {
           _accepted = true;
         });
       }
-    } catch (_) {
-      if (mounted) {
+    } catch (e) {
+      if (mounted && !_closing) {
         _showError('Arama kabul edilemedi.');
       }
     }
   }
 
   void _handleEvent(Map<String, dynamic> data) {
-    if (!mounted) return;
+    if (!mounted || _closing) return;
 
     final type = data['type'];
     final from = (data['from'] ?? '').toString();
     final to = (data['to'] ?? '').toString();
 
-    if (from.toLowerCase() !=
-            widget.targetNick.toLowerCase() &&
-        type != 'answer') {
+    if (from.toLowerCase() != widget.targetNick.toLowerCase()) {
       return;
     }
 
-    if (to.isNotEmpty &&
-        to.toLowerCase() !=
-            widget.myNick.toLowerCase()) {
+    if (to.isNotEmpty && to.toLowerCase() != widget.myNick.toLowerCase()) {
       return;
     }
 
     if (type == 'callAnswer') {
       _handleAnswer(data);
-    }
-
-    if (type == 'callIce') {
+    } else if (type == 'callIce') {
       _handleIceCandidate(data);
-    }
-
-    if (type == 'callEnded') {
+    } else if (type == 'callEnded') {
       _finish(sendSignal: false);
     }
   }
 
-  Future<void> _handleAnswer(
-      Map<String, dynamic> data) async {
+  Future<void> _handleAnswer(Map<String, dynamic> data) async {
     final sdp = data['sdp']?.toString();
+    final peer = _peerConnection;
 
-    if (sdp == null || _peerConnection == null) {
+    if (sdp == null || sdp.isEmpty || peer == null || _closing) {
       return;
     }
 
     try {
-      await _peerConnection!.setRemoteDescription(
-        RTCSessionDescription(
-          sdp,
-          'answer',
-        ),
-      );
+      await peer.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
 
       _remoteDescriptionSet = true;
       await _flushPendingIceCandidates();
     } catch (_) {}
   }
 
-  Future<void> _handleIceCandidate(
-      Map<String, dynamic> data) async {
-    if (_peerConnection == null) return;
+  Future<void> _handleIceCandidate(Map<String, dynamic> data) async {
+    final candidateText = data['candidate']?.toString();
 
-    final candidate =
-        data['candidate']?.toString();
-
-    if (candidate == null ||
-        candidate.isEmpty) {
+    if (candidateText == null || candidateText.isEmpty || _closing) {
       return;
     }
 
     final ice = RTCIceCandidate(
-      candidate,
+      candidateText,
       data['sdpMid']?.toString(),
-      data['sdpMLineIndex'] is int
-          ? data['sdpMLineIndex'] as int
-          : null,
+      data['sdpMLineIndex'] is int ? data['sdpMLineIndex'] as int : null,
     );
 
-    if (!_remoteDescriptionSet) {
+    final peer = _peerConnection;
+
+    if (peer == null || !_remoteDescriptionSet) {
       _pendingIceCandidates.add(ice);
       return;
     }
 
     try {
-      await _peerConnection!.addCandidate(ice);
+      await peer.addCandidate(ice);
     } catch (_) {}
   }
 
   Future<void> _flushPendingIceCandidates() async {
-    if (_peerConnection == null ||
+    final peer = _peerConnection;
+
+    if (peer == null ||
         !_remoteDescriptionSet ||
         _pendingIceCandidates.isEmpty) {
       return;
     }
 
-    final pending =
-        List<RTCIceCandidate>.from(_pendingIceCandidates);
+    final pending = List<RTCIceCandidate>.from(_pendingIceCandidates);
 
     _pendingIceCandidates.clear();
 
     for (final candidate in pending) {
       try {
-        await _peerConnection!.addCandidate(candidate);
+        await peer.addCandidate(candidate);
       } catch (_) {}
     }
   }
 
   void _toggleMute() {
     final stream = _localStream;
-
     if (stream == null) return;
 
-    final tracks = stream.getAudioTracks();
-
-    for (final track in tracks) {
-      track.enabled = !track.enabled;
+    for (final track in stream.getAudioTracks()) {
+      track.enabled = _muted;
     }
 
-    setState(() {
-      _muted = !_muted;
-    });
+    if (mounted) {
+      setState(() {
+        _muted = !_muted;
+      });
+    }
   }
 
   Future<void> _toggleSpeaker() async {
+    if (_closing) return;
+
     final next = !_speakerOn;
 
     try {
@@ -2330,11 +2010,15 @@ class _CallScreenState extends State<CallScreen> {
         _speakerOn = next;
       });
     } catch (_) {
-      _showError('Ses çıkışı değiştirilemedi.');
+      if (mounted) {
+        _showError('Ses çıkışı değiştirilemedi.');
+      }
     }
   }
 
   void _reject() {
+    if (_closing) return;
+
     WsClient.instance.send({
       'type': 'callEnd',
       'from': widget.myNick,
@@ -2344,22 +2028,10 @@ class _CallScreenState extends State<CallScreen> {
     _finish(sendSignal: false);
   }
 
-  Future<void> _finish({
-    bool sendSignal = true,
-  }) async {
+  Future<void> _finish({bool sendSignal = true}) async {
     if (_closing) return;
 
     _closing = true;
-
-    try {
-      await _proximitySubscription?.cancel();
-    } catch (_) {}
-
-    _proximitySubscription = null;
-
-    try {
-      await ProximitySensor.setProximityScreenOff(false);
-    } catch (_) {}
 
     if (sendSignal) {
       WsClient.instance.send({
@@ -2369,24 +2041,10 @@ class _CallScreenState extends State<CallScreen> {
       });
     }
 
-    // Mikrofonu fiziksel olarak durdur.
     final stream = _localStream;
+    _localStream = null;
 
     if (stream != null) {
-      // Önce peer connection üzerindeki sender track'lerini ayır.
-      try {
-        final senders =
-            await _peerConnection?.getSenders() ??
-                <RTCRtpSender>[];
-
-        for (final sender in senders) {
-          try {
-            await sender.replaceTrack(null);
-          } catch (_) {}
-        }
-      } catch (_) {}
-
-      // Ardından mikrofon track'ini gerçekten durdur ve dispose et.
       for (final track in stream.getTracks()) {
         try {
           track.enabled = false;
@@ -2395,8 +2053,6 @@ class _CallScreenState extends State<CallScreen> {
         try {
           await track.stop();
         } catch (_) {}
-
-
       }
 
       try {
@@ -2404,26 +2060,18 @@ class _CallScreenState extends State<CallScreen> {
       } catch (_) {}
     }
 
-    try {
-      await _peerConnection?.close();
-    } catch (_) {}
-
-    try {
-      await _peerConnection?.dispose();
-    } catch (_) {}
-
-    try {
-      await _remoteRenderer.setSrcObject(
-        stream: null,
-      );
-    } catch (_) {}
-
-    try {
-      await _remoteRenderer.dispose();
-    } catch (_) {}
-
-    _localStream = null;
+    final peer = _peerConnection;
     _peerConnection = null;
+
+    if (peer != null) {
+      try {
+        await peer.close();
+      } catch (_) {}
+
+      try {
+        await peer.dispose();
+      } catch (_) {}
+    }
 
     if (mounted) {
       Navigator.of(context).pop();
@@ -2431,38 +2079,36 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _showError(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
-    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
   void dispose() {
     _subscription.cancel();
 
-    _proximitySubscription?.cancel();
-    _proximitySubscription = null;
+    final stream = _localStream;
+    _localStream = null;
 
-    ProximitySensor.setProximityScreenOff(false);
-
-    if (!_closing) {
-      final stream = _localStream;
-
-      if (stream != null) {
-        for (final track in stream.getTracks()) {
-          try {
-            track.enabled = false;
-            track.stop();
-          } catch (_) {}
-        }
-
+    if (stream != null) {
+      for (final track in stream.getTracks()) {
         try {
-          stream.dispose();
+          track.stop();
         } catch (_) {}
       }
 
       try {
-        _peerConnection?.close();
+        stream.dispose();
+      } catch (_) {}
+    }
+
+    final peer = _peerConnection;
+    _peerConnection = null;
+
+    if (peer != null) {
+      try {
+        peer.close();
       } catch (_) {}
     }
 
@@ -2471,13 +2117,11 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final waitingIncoming =
-        !widget.outgoing && !_accepted;
+    final waitingIncoming = !widget.outgoing && !_accepted;
 
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult:
-          (didPop, result) {
+      onPopInvokedWithResult: (didPop, result) {
         if (!didPop) {
           _finish();
         }
@@ -2491,15 +2135,11 @@ class _CallScreenState extends State<CallScreen> {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
-              mainAxisAlignment:
-                  MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const CircleAvatar(
                   radius: 55,
-                  child: Icon(
-                    Icons.person,
-                    size: 60,
-                  ),
+                  child: Icon(Icons.person, size: 60),
                 ),
                 const SizedBox(height: 24),
                 Text(
@@ -2514,68 +2154,49 @@ class _CallScreenState extends State<CallScreen> {
                   waitingIncoming
                       ? 'Gelen arama'
                       : _connected
-                          ? 'Bağlandı'
-                          : 'Bağlanıyor...',
+                      ? 'Bağlandı'
+                      : 'Bağlanıyor...',
                 ),
                 const SizedBox(height: 40),
                 if (waitingIncoming)
                   Row(
-                    mainAxisAlignment:
-                        MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       FilledButton.icon(
-                        onPressed:
-                            _acceptIncoming,
-                        icon: const Icon(
-                          Icons.call,
-                        ),
-                        label:
-                            const Text('Kabul Et'),
+                        onPressed: _acceptIncoming,
+                        icon: const Icon(Icons.call),
+                        label: const Text('Kabul Et'),
                       ),
                       const SizedBox(width: 20),
                       FilledButton.tonalIcon(
                         onPressed: _reject,
-                        icon: const Icon(
-                          Icons.call_end,
-                        ),
-                        label:
-                            const Text('Reddet'),
+                        icon: const Icon(Icons.call_end),
+                        label: const Text('Reddet'),
                       ),
                     ],
                   )
                 else
                   Row(
-                    mainAxisAlignment:
-                        MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       IconButton.filled(
                         onPressed: _toggleMute,
-                        icon: Icon(
-                          _muted
-                              ? Icons.mic_off
-                              : Icons.mic,
-                        ),
+                        icon: Icon(_muted ? Icons.mic_off : Icons.mic),
                       ),
                       const SizedBox(width: 18),
                       IconButton.filled(
                         onPressed: _toggleSpeaker,
                         icon: Icon(
-                          _speakerOn
-                              ? Icons.volume_up
-                              : Icons.volume_down,
+                          _speakerOn ? Icons.volume_up : Icons.volume_down,
                         ),
                       ),
                       const SizedBox(width: 18),
                       IconButton.filled(
-                        style:
-                            IconButton.styleFrom(
-                          backgroundColor:
-                              Colors.red,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.red,
                         ),
                         onPressed: _finish,
-                        icon: const Icon(
-                          Icons.call_end,
-                        ),
+                        icon: const Icon(Icons.call_end),
                       ),
                     ],
                   ),
@@ -2606,18 +2227,15 @@ class MessageInput extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding:
-            const EdgeInsets.fromLTRB(8, 4, 8, 8),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
         child: Row(
           children: [
             Expanded(
               child: TextField(
                 controller: controller,
-                textInputAction:
-                    TextInputAction.send,
+                textInputAction: TextInputAction.send,
                 onSubmitted: (_) => onSend(),
-                decoration:
-                    const InputDecoration(
+                decoration: const InputDecoration(
                   hintText: 'Mesaj yaz...',
                   border: OutlineInputBorder(),
                 ),
@@ -2626,10 +2244,7 @@ class MessageInput extends StatelessWidget {
             const SizedBox(width: 6),
             IconButton(
               onPressed: onSend,
-              icon: const Icon(
-                Icons.send,
-                color: Colors.greenAccent,
-              ),
+              icon: const Icon(Icons.send, color: Colors.greenAccent),
             ),
           ],
         ),
