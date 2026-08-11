@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:proximity_sensor/proximity_sensor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -1983,6 +1984,7 @@ class _CallScreenState extends State<CallScreen> {
 
   late final StreamSubscription<
       Map<String, dynamic>> _subscription;
+  StreamSubscription<int>? _proximitySubscription;
 
   bool _accepted = false;
   bool _connected = false;
@@ -2003,9 +2005,27 @@ class _CallScreenState extends State<CallScreen> {
     _subscription =
         WsClient.instance.events.listen(_handleEvent);
 
+    _initProximitySensor();
+
     if (widget.outgoing) {
       _startOutgoingCall();
     }
+  }
+
+  Future<void> _initProximitySensor() async {
+    try {
+      final available =
+          await ProximitySensor.isProximitySensorAvailable();
+
+      if (!available || !mounted || _closing) {
+        return;
+      }
+
+      await ProximitySensor.setProximityScreenOff(true);
+
+      _proximitySubscription =
+          ProximitySensor.events.listen((event) {});
+    } catch (_) {}
   }
 
   Future<void> _createPeerConnection() async {
@@ -2331,6 +2351,16 @@ class _CallScreenState extends State<CallScreen> {
 
     _closing = true;
 
+    try {
+      await _proximitySubscription?.cancel();
+    } catch (_) {}
+
+    _proximitySubscription = null;
+
+    try {
+      await ProximitySensor.setProximityScreenOff(false);
+    } catch (_) {}
+
     if (sendSignal) {
       WsClient.instance.send({
         'type': 'callEnd',
@@ -2409,6 +2439,11 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     _subscription.cancel();
+
+    _proximitySubscription?.cancel();
+    _proximitySubscription = null;
+
+    ProximitySensor.setProximityScreenOff(false);
 
     if (!_closing) {
       final stream = _localStream;
