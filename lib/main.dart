@@ -1738,6 +1738,14 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _createPeerConnection() async {
     if (_peerConnection != null) return;
 
+    // Android voice-call audio session.
+    // Must be configured before starting the WebRTC session.
+    try {
+      await Helper.setAndroidAudioConfiguration(
+        AndroidAudioConfiguration.communication,
+      );
+    } catch (_) {}
+
     final configuration = <String, dynamic>{
       'iceServers': [
         {
