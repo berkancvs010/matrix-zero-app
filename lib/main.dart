@@ -1736,85 +1736,126 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _createPeerConnection() async {
-    if (_peerConnection != null) return;
+    if (_peerConnection != null || _closing) return;
 
-    // Android voice-call audio session.
-    // Must be configured before starting the WebRTC session.
     try {
+      // Android voice communication audio session must be configured
+      // before creating the WebRTC peer connection.
       await Helper.setAndroidAudioConfiguration(
         AndroidAudioConfiguration.communication,
       );
-    } catch (_) {}
 
-    final configuration = <String, dynamic>{
-      'iceServers': [
-        {
-          'urls': [
-            'stun:stun.l.google.com:19302',
-            'stun:stun1.l.google.com:19302',
-          ],
-        },
-      ],
-      'sdpSemantics': 'unified-plan',
-    };
+      if (_closing) return;
 
-    final peer = await createPeerConnection(configuration);
+      final configuration = <String, dynamic>{
+        'iceServers': [
+          {
+            'urls': [
+              'stun:stun.l.google.com:19302',
+              'stun:stun1.l.google.com:19302',
+            ],
+          },
+        ],
+        'sdpSemantics': 'unified-plan',
+      };
 
-    _peerConnection = peer;
+      final peer = await createPeerConnection(configuration);
 
-    peer.onIceCandidate = (RTCIceCandidate candidate) {
-      if (_closing || candidate.candidate == null) return;
-
-      WsClient.instance.send({
-        'type': 'callIce',
-        'from': widget.myNick,
-        'to': widget.targetNick,
-        'candidate': candidate.candidate,
-        'sdpMid': candidate.sdpMid,
-        'sdpMLineIndex': candidate.sdpMLineIndex,
-      });
-    };
-
-    peer.onConnectionState = (RTCPeerConnectionState state) {
-      if (!mounted || _closing) return;
-
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-        setState(() {
-          _connected = true;
-        });
-      }
-
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-        setState(() {
-          _connected = false;
-        });
-      }
-    };
-
-    // Sadece ses kullanıyoruz. Video renderer yok.
-    final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': false,
-    });
-
-    if (_closing) {
-      for (final track in stream.getTracks()) {
+      if (_closing) {
         try {
-          await track.stop();
+          await peer.close();
+        } catch (_) {}
+        try {
+          await peer.dispose();
+        } catch (_) {}
+        return;
+      }
+
+      _peerConnection = peer;
+
+      peer.onIceCandidate = (RTCIceCandidate candidate) {
+        if (_closing || candidate.candidate == null) return;
+
+        WsClient.instance.send({
+          'type': 'callIce',
+          'from': widget.myNick,
+          'to': widget.targetNick,
+          'candidate': candidate.candidate,
+          'sdpMid': candidate.sdpMid,
+          'sdpMLineIndex': candidate.sdpMLineIndex,
+        });
+      };
+
+      peer.onConnectionState = (RTCPeerConnectionState state) {
+        if (!mounted || _closing) return;
+
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          setState(() {
+            _connected = true;
+          });
+        } else if (state ==
+                RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            state ==
+                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+          setState(() {
+            _connected = false;
+          });
+        }
+      };
+
+      // Audio only. No camera is requested.
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
+        'video': false,
+      });
+
+      if (_closing) {
+        for (final track in stream.getTracks()) {
+          try {
+            await track.stop();
+          } catch (_) {}
+        }
+        try {
+          await stream.dispose();
+        } catch (_) {}
+        return;
+      }
+
+      _localStream = stream;
+
+      for (final track in stream.getAudioTracks()) {
+        if (_closing) break;
+        await peer.addTrack(track, stream);
+      }
+
+      if (_closing) return;
+
+      // Start with normal handset audio. Speaker can be enabled
+      // explicitly from the call screen.
+      try {
+        await Helper.setSpeakerphoneOn(false);
+      } catch (_) {}
+    } catch (e) {
+      // Keep the failure inside the Flutter layer instead of leaving
+      // partially initialized WebRTC objects behind.
+      final peer = _peerConnection;
+      _peerConnection = null;
+
+      if (peer != null) {
+        try {
+          await peer.close();
+        } catch (_) {}
+        try {
+          await peer.dispose();
         } catch (_) {}
       }
-      try {
-        await stream.dispose();
-      } catch (_) {}
-      return;
-    }
 
-    _localStream = stream;
-
-    for (final track in stream.getAudioTracks()) {
-      await peer.addTrack(track, stream);
+      rethrow;
     }
   }
 
@@ -1993,13 +2034,15 @@ class _CallScreenState extends State<CallScreen> {
     final stream = _localStream;
     if (stream == null) return;
 
+    final nextMuted = !_muted;
+
     for (final track in stream.getAudioTracks()) {
-      track.enabled = _muted;
+      track.enabled = !nextMuted;
     }
 
     if (mounted) {
       setState(() {
-        _muted = !_muted;
+        _muted = nextMuted;
       });
     }
   }
