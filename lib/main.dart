@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -832,6 +833,58 @@ class WsClient {
 /// The reference image supplies the visual design.
 /// Flutter supplies only transparent interaction layers.
 
+class _ZeroLogWavePainter extends CustomPainter {
+  final double progress;
+
+  const _ZeroLogWavePainter({
+    required this.progress,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerY = size.height / 2;
+
+    for (var i = 0; i < 20; i++) {
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.9
+        ..color = const Color(0xFF39FF88).withValues(
+          alpha: 0.08 + ((1 - (i / 20)) * 0.10),
+        );
+
+      final path = Path();
+
+      final amplitude = 2.0 + (i % 4) * 0.8;
+      final y = centerY - 22 + (i * 2.3);
+
+      for (var x = 0.0; x <= size.width; x += 3) {
+        final normalized = x / size.width;
+        final phase =
+            (normalized * math.pi * 2.4) +
+            (progress * math.pi * 2) +
+            (i * 0.17);
+
+        final wave = math.sin(phase) * amplitude;
+
+        final pointY = y + wave;
+
+        if (x == 0) {
+          path.moveTo(x, pointY);
+        } else {
+          path.lineTo(x, pointY);
+        }
+      }
+
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ZeroLogWavePainter oldDelegate) {
+    return oldDelegate.progress != progress;
+  }
+}
+
 class ZeroLogReferenceLogin extends StatefulWidget {
   final TextEditingController usernameController;
   final TextEditingController passwordController;
@@ -859,8 +912,27 @@ class ZeroLogReferenceLogin extends StatefulWidget {
       _ZeroLogReferenceLoginState();
 }
 
-class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin> {
+class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
+    with SingleTickerProviderStateMixin {
   static const green = Color(0xFF35E57F);
+
+  late final AnimationController _waveController;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _waveController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 9),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _waveController.dispose();
+    super.dispose();
+  }
   static const greenBright = Color(0xFF39FF88);
   static const fieldBg = Color(0xFF0D1410);
 
@@ -1020,23 +1092,14 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    widget.registerMode
-                        ? 'HESAP OLUŞTUR'
-                        : 'G İ R İ Ş   Y A P',
+                    widget.registerMode ? 'HESAP OLUŞTUR' : 'GİRİŞ',
                     style: TextStyle(
                       color: Colors.black,
-                      fontSize: widget.registerMode ? 18 : 21,
+                      fontSize: widget.registerMode ? 18 : 20,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: widget.registerMode ? 1.2 : 3.5,
+                      letterSpacing: widget.registerMode ? 1.2 : 1.8,
                     ),
                   ),
-                  if (!widget.registerMode) ...[
-                    const SizedBox(width: 20),
-                    const Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 30,
-                    ),
-                  ],
                 ],
               ),
       ),
@@ -1087,45 +1150,6 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin> {
     );
   }
 
-  Widget _divider() {
-    return Row(
-      children: [
-        const Expanded(
-          child: Divider(
-            color: Color(0xFF24432F),
-            thickness: 1,
-          ),
-        ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 14),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 8,
-          ),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: const Color(0xFF24432F),
-            ),
-          ),
-          child: const Text(
-            'VEYA',
-            style: TextStyle(
-              color: Color(0xFF777D79),
-              fontSize: 13,
-              letterSpacing: 2.5,
-            ),
-          ),
-        ),
-        const Expanded(
-          child: Divider(
-            color: Color(0xFF24432F),
-            thickness: 1,
-          ),
-        ),
-      ],
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1205,11 +1229,28 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin> {
                         'Gizlilik odaklı iletişim',
                         style: TextStyle(
                           color: Color(0xFF8B918D),
-                          fontSize: 18,
+                          fontSize: 16,
                         ),
                       ),
 
-                      const SizedBox(height: 54),
+                      const SizedBox(height: 12),
+
+                      AnimatedBuilder(
+                        animation: _waveController,
+                        builder: (context, child) {
+                          return SizedBox(
+                            width: 190,
+                            height: 48,
+                            child: CustomPaint(
+                              painter: _ZeroLogWavePainter(
+                                progress: _waveController.value,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 34),
 
                       AnimatedSwitcher(
                         duration: const Duration(milliseconds: 220),
@@ -1257,15 +1298,11 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin> {
 
                       _primaryButton(),
 
-                      const SizedBox(height: 34),
-
-                      _divider(),
-
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 16),
 
                       _registerButton(),
 
-                      const SizedBox(height: 36),
+                      const SizedBox(height: 24),
 
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
