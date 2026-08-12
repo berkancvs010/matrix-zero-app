@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -838,6 +837,7 @@ class ZeroLogReferenceLogin extends StatefulWidget {
   final TextEditingController passwordController;
   final bool loading;
   final bool obscurePassword;
+  final bool registerMode;
   final VoidCallback onSubmit;
   final VoidCallback onTogglePassword;
   final VoidCallback onRegister;
@@ -848,14 +848,14 @@ class ZeroLogReferenceLogin extends StatefulWidget {
     required this.passwordController,
     required this.loading,
     required this.obscurePassword,
+    required this.registerMode,
     required this.onSubmit,
     required this.onTogglePassword,
     required this.onRegister,
   });
 
   @override
-  State<ZeroLogReferenceLogin> createState() =>
-      _ZeroLogReferenceLoginState();
+  State<ZeroLogReferenceLogin> createState() => _ZeroLogReferenceLoginState();
 }
 
 class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
@@ -868,7 +868,7 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
 
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 7),
+      duration: const Duration(seconds: 12),
     )..repeat();
   }
 
@@ -881,223 +881,231 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
   Widget _field({
     required TextEditingController controller,
     required String hint,
-    required IconData icon,
     required bool obscureText,
     required bool enabled,
     TextInputAction? inputAction,
     VoidCallback? onToggle,
     VoidCallback? onSubmitted,
   }) {
-    return TextField(
-      controller: controller,
-      enabled: enabled,
-      autocorrect: false,
-      obscureText: obscureText,
-      textInputAction: inputAction,
-      onSubmitted: onSubmitted == null ? null : (_) => onSubmitted(),
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 17,
-        fontWeight: FontWeight.w500,
+    return Container(
+      height: 62,
+      decoration: BoxDecoration(
+        color: const Color(0xD9000904),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFF39FF88).withValues(alpha: 0.72),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00FF66).withValues(alpha: 0.10),
+            blurRadius: 18,
+            spreadRadius: 1,
+          ),
+        ],
       ),
-      cursorColor: const Color(0xFF35F58A),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(
-          color: Color(0xFF7D8582),
-          fontSize: 17,
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        autocorrect: false,
+        obscureText: obscureText,
+        textInputAction: inputAction,
+        onSubmitted: onSubmitted == null ? null : (_) => onSubmitted(),
+        style: const TextStyle(
+          color: Color(0xFF45FF8A),
+          fontSize: 18,
+          fontWeight: FontWeight.w500,
+          decoration: TextDecoration.none,
         ),
-        prefixIcon: Icon(
-          icon,
-          color: const Color(0xFF32E97E),
-          size: 25,
-        ),
-        suffixIcon: onToggle == null
-            ? null
-            : IconButton(
-                onPressed: onToggle,
-                icon: Icon(
-                  obscureText
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                  color: const Color(0xFFB8C0BD),
-                  size: 25,
+        cursorColor: const Color(0xFF70FFA6),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(
+            color: Colors.white.withValues(alpha: 0.42),
+            fontSize: 17,
+          ),
+          prefixIcon: Icon(
+            hint == 'Kullanıcı adı' ? Icons.person_outline : Icons.lock_outline,
+            color: Colors.white.withValues(alpha: 0.78),
+            size: 27,
+          ),
+          suffixIcon: onToggle == null
+              ? null
+              : IconButton(
+                  onPressed: onToggle,
+                  icon: Icon(
+                    obscureText
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: Colors.white.withValues(alpha: 0.82),
+                    size: 27,
+                  ),
                 ),
-              ),
-        filled: true,
-        fillColor: const Color(0xFF101613),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 18,
-          vertical: 19,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(
-            color: Color(0xFF28312D),
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(
-            color: Color(0xFF244A35),
-            width: 1.1,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(
-            color: Color(0xFF35F58A),
-            width: 1.5,
-          ),
-        ),
-        disabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(
-            color: Color(0xFF202522),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 18,
           ),
         ),
       ),
-    );
-  }
-
-  Widget _animatedLogo() {
-    return AnimatedBuilder(
-      animation: _animationController,
-      builder: (context, child) {
-        final value = _animationController.value;
-        final pulse = 0.92 + (0.08 * (0.5 + 0.5 * math.sin(value)));
-
-        return Transform.scale(
-          scale: pulse,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 78,
-                height: 78,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(
-                    color: const Color(0xFF32E97E),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF00FF66).withValues(alpha: 0.28),
-                      blurRadius: 28,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: const Center(
-                  child: Text(
-                    'Z',
-                    style: TextStyle(
-                      color: Color(0xFF35F58A),
-                      fontSize: 52,
-                      fontWeight: FontWeight.w900,
-                      height: 1,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              RichText(
-                text: const TextSpan(
-                  style: TextStyle(
-                    fontSize: 40,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -1.2,
-                  ),
-                  children: [
-                    TextSpan(
-                      text: 'Zero',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    TextSpan(
-                      text: 'Log',
-                      style: TextStyle(color: Color(0xFF35F58A)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 7),
-              const Text(
-                'Gizlilik odaklı iletişim',
-                style: TextStyle(
-                  color: Color(0xFF9AA39F),
-                  fontSize: 15,
-                  letterSpacing: 0.3,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF050806),
-      resizeToAvoidBottomInset: true,
-      body: Stack(
-        children: [
-          // Kontrollü, hafif animasyonlu ışık efektleri.
-          Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _animationController,
-                builder: (context, child) {
-                  final t = _animationController.value;
+    final media = MediaQuery.of(context);
+    final size = media.size;
+    final keyboard = media.viewInsets.bottom;
 
-                  return CustomPaint(
-                    painter: _ZeroLogGlowPainter(t),
-                  );
-                },
-              ),
+    /*
+     * Kritik nokta:
+     * Scaffold klavye yüzünden yeniden boyutlandırılmıyor.
+     * Böylece arka plan/logo asla yeniden ölçeklenmiyor.
+     */
+    final keyboardShift = keyboard > 0
+        ? (keyboard * 0.34).clamp(0.0, 105.0)
+        : 0.0;
+
+    final horizontal = (size.width * 0.095).clamp(22.0, 46.0);
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ----------------------------------------------------
+          // STATIC REFERENCE BACKGROUND
+          // ----------------------------------------------------
+          const Image(
+            image: AssetImage('assets/zerolog_login_reference.png'),
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.high,
+          ),
+
+          // ----------------------------------------------------
+          // ANIMATED LIGHT LAYER
+          // ----------------------------------------------------
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _animationController,
+              builder: (context, child) {
+                final t = _animationController.value;
+                final x = -0.20 + (t * 1.40);
+                final y = 0.18 + (0.10 * (0.5 + 0.5 * _sin(t)));
+
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Align(
+                      alignment: Alignment(x, y),
+                      child: Container(
+                        width: size.width * 0.65,
+                        height: size.height * 0.24,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              const Color(0xFF00FF66).withValues(alpha: 0.055),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment(-x, -y),
+                      child: Container(
+                        width: size.width * 0.48,
+                        height: size.height * 0.18,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              const Color(0xFF39FF88).withValues(alpha: 0.035),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
 
+          // ----------------------------------------------------
+          // LOGIN CONTENT
+          // ----------------------------------------------------
           SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 30),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight - 58,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          maxWidth: 520,
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _animatedLogo(),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(0, -keyboardShift, 0),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final h = constraints.maxHeight;
 
-                            const SizedBox(height: 38),
+                  return SingleChildScrollView(
+                    physics: keyboard > 0
+                        ? const ClampingScrollPhysics()
+                        : const NeverScrollableScrollPhysics(),
+                    child: SizedBox(
+                      height: h,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: horizontal),
+                        child: Column(
+                          children: [
+                            SizedBox(height: h * 0.445),
+
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 220),
+                              child: Column(
+                                key: ValueKey(widget.registerMode),
+                                children: [
+                                  Text(
+                                    widget.registerMode
+                                        ? 'ZEROLOG HESABI OLUŞTUR'
+                                        : 'ZEROLOG’A GİRİŞ YAP',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 1.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    widget.registerMode
+                                        ? 'Yeni hesabınızı oluşturun'
+                                        : 'Hesabınızla devam edin',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.58),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 18),
+                                ],
+                              ),
+                            ),
 
                             _field(
                               controller: widget.usernameController,
                               hint: 'Kullanıcı adı',
-                              icon: Icons.person_outline,
                               obscureText: false,
                               enabled: !widget.loading,
                               inputAction: TextInputAction.next,
                             ),
 
-                            const SizedBox(height: 13),
+                            const SizedBox(height: 12),
 
                             _field(
                               controller: widget.passwordController,
                               hint: 'Şifre',
-                              icon: Icons.lock_outline,
                               obscureText: widget.obscurePassword,
                               enabled: !widget.loading,
                               inputAction: TextInputAction.done,
@@ -1105,231 +1113,228 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
                               onToggle: widget.onTogglePassword,
                             ),
 
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 17),
 
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
+                            SizedBox(
+                              width: double.infinity,
+                              height: 66,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: widget.loading
+                                      ? null
+                                      : widget.onSubmit,
+                                  borderRadius: BorderRadius.circular(28),
+                                  child: Ink(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(28),
+                                      gradient: const LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Color(0xFF153D25),
+                                          Color(0xFF07140B),
+                                        ],
+                                      ),
+                                      border: Border.all(
+                                        color: const Color(0xFF43FF91),
+                                        width: 1.4,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(
+                                            0xFF00FF66,
+                                          ).withValues(alpha: 0.18),
+                                          blurRadius: 18,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Center(
+                                      child: widget.loading
+                                          ? const SizedBox(
+                                              width: 24,
+                                              height: 24,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Color(0xFF55FF99),
+                                              ),
+                                            )
+                                          : Text(
+                                              widget.registerMode
+                                                  ? 'H E S A P   O L U Ş T U R'
+                                                  : 'G İ R İ Ş   Y A P',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.w400,
+                                                letterSpacing: 4.5,
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 13),
+
+                            if (!widget.registerMode)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
                                 onPressed: widget.loading
                                     ? null
-                                    : () {},
-                                style: TextButton.styleFrom(
-                                  foregroundColor:
-                                      const Color(0xFF35F58A),
-                                  padding: EdgeInsets.zero,
-                                  minimumSize: Size.zero,
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
+                                    : () {
+                                        showDialog<void>(
+                                          context: context,
+                                          builder: (dialogContext) {
+                                            return AlertDialog(
+                                              backgroundColor:
+                                                  const Color(0xFF111613),
+                                              title: const Text(
+                                                'UNUTMASAYDIN 🤣',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.of(
+                                                        dialogContext,
+                                                      ).pop(),
+                                                  child: const Text(
+                                                    'TAMAM',
+                                                    style: TextStyle(
+                                                      color:
+                                                          Color(0xFF38FF80),
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        );
+                                      },
                                 child: const Text(
                                   'Şifremi Unuttum?',
                                   style: TextStyle(
-                                    fontSize: 15,
+                                    color: Color(0xFF38FF80),
+                                    fontSize: 16,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ),
                             ),
 
-                            const SizedBox(height: 24),
-
-                            SizedBox(
-                              width: double.infinity,
-                              height: 62,
-                              child: FilledButton(
-                                onPressed:
-                                    widget.loading ? null : widget.onSubmit,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor:
-                                      const Color(0xFF20D979),
-                                  foregroundColor:
-                                      const Color(0xFF031109),
-                                  disabledBackgroundColor:
-                                      const Color(0xFF173B29),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(20),
-                                  ),
-                                  elevation: 0,
-                                ),
-                                child: widget.loading
-                                    ? const SizedBox(
-                                        width: 23,
-                                        height: 23,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.4,
-                                          color: Color(0xFF031109),
-                                        ),
-                                      )
-                                    : const Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            'GİRİŞ YAP',
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: 4,
-                                            ),
-                                          ),
-                                          SizedBox(width: 18),
-                                          Icon(
-                                            Icons.arrow_forward_rounded,
-                                            size: 24,
-                                          ),
-                                        ],
-                                      ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 28),
+                            const SizedBox(height: 9),
 
                             Row(
                               children: [
-                                const Expanded(
+                                Expanded(
                                   child: Divider(
-                                    color: Color(0xFF303733),
+                                    color: Colors.white.withValues(alpha: 0.22),
                                   ),
                                 ),
-                                Container(
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    border: Border.all(
-                                      color: const Color(0xFF303733),
-                                    ),
-                                    borderRadius:
-                                        BorderRadius.circular(20),
-                                  ),
-                                  child: const Text(
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 18),
+                                  child: Text(
                                     'VEYA',
                                     style: TextStyle(
-                                      color: Color(0xFF7F8884),
-                                      fontSize: 12,
-                                      letterSpacing: 2,
+                                      color: Colors.white54,
+                                      fontSize: 13,
+                                      letterSpacing: 3,
                                     ),
                                   ),
                                 ),
-                                const Expanded(
+                                Expanded(
                                   child: Divider(
-                                    color: Color(0xFF303733),
+                                    color: Colors.white.withValues(alpha: 0.22),
                                   ),
                                 ),
                               ],
                             ),
 
-                            const SizedBox(height: 26),
+                            const SizedBox(height: 20),
 
                             SizedBox(
                               width: double.infinity,
-                              height: 58,
-                              child: OutlinedButton.icon(
-                                onPressed:
-                                    widget.loading ? null : widget.onRegister,
-                                icon: const Icon(
-                                  Icons.person_add_outlined,
-                                  size: 23,
-                                ),
-                                label: const Text(
-                                  'Yeni hesap oluştur',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
+                              height: 56,
+                              child: OutlinedButton(
+                                onPressed: widget.loading
+                                    ? null
+                                    : widget.onRegister,
                                 style: OutlinedButton.styleFrom(
-                                  foregroundColor:
-                                      const Color(0xFFE4EAE7),
-                                  side: const BorderSide(
-                                    color: Color(0xFF2ACF72),
+                                  foregroundColor: widget.registerMode
+                                      ? const Color(0xFF8AFFB8)
+                                      : const Color(0xFF52FF9A),
+                                  side: BorderSide(
+                                    color: widget.registerMode
+                                        ? const Color(0xFF8AFFB8)
+                                        : const Color(0xFF39FF88),
                                     width: 1.2,
                                   ),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(18),
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  backgroundColor: widget.registerMode
+                                      ? const Color(0xCC10251A)
+                                      : const Color(0x99000703),
+                                ),
+                                child: Text(
+                                  widget.registerMode
+                                      ? 'Giriş ekranına dön'
+                                      : 'Yeni hesap oluştur',
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ),
                             ),
 
-                            const SizedBox(height: 28),
+                            const Spacer(),
 
-                            const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.lock_outline,
-                                  size: 15,
-                                  color: Color(0xFF35F58A),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 18),
+                              child: Text(
+                                'ZeroLog • Gizlilik odaklı iletişim',
+                                style: TextStyle(
+                                  color: const Color(
+                                    0xFF2EFF72,
+                                  ).withValues(alpha: 0.72),
+                                  fontSize: 14,
+                                  letterSpacing: 0.5,
                                 ),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Verileriniz uçtan uca şifrelenir.',
-                                  style: TextStyle(
-                                    color: Color(0xFF747D79),
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ],
       ),
     );
   }
-}
 
-class _ZeroLogGlowPainter extends CustomPainter {
-  final double t;
-
-  const _ZeroLogGlowPainter(this.t);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final dx = size.width * (0.15 + (t * 0.7));
-    final dy = size.height * (0.18 + (0.08 * math.sin(t)));
-
-    final paint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          const Color(0xFF00FF66).withValues(alpha: 0.055),
-          Colors.transparent,
-        ],
-      ).createShader(
-        Rect.fromCircle(
-          center: Offset(dx, dy),
-          radius: size.width * 0.55,
-        ),
-      );
-
-    canvas.drawCircle(
-      Offset(dx, dy),
-      size.width * 0.55,
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _ZeroLogGlowPainter oldDelegate) {
-    return oldDelegate.t != t;
+  double _sin(double value) {
+    // Küçük ve yumuşak animasyon için sinüs yaklaşımı.
+    return (value < 0.5) ? (value * 2) : (1.0 - ((value - 0.5) * 2));
   }
 }
 
-
+// ============================================================
+// NICKNAME
+// ============================================================
 
 class NicknameScreen extends StatefulWidget {
   const NicknameScreen({super.key});
@@ -1507,6 +1512,7 @@ class _NicknameScreenState extends State<NicknameScreen>
       passwordController: _passwordController,
       loading: _loading,
       obscurePassword: _obscurePassword,
+      registerMode: _registerMode,
       onSubmit: _submit,
       onTogglePassword: () {
         setState(() {
