@@ -1004,135 +1004,291 @@ class _NicknameScreenState extends State<NicknameScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = ThemeController.instance.data;
+
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _geometryController,
-              builder: (context, child) {
-                return CustomPaint(
-                  painter: _ZeroLogGeometryPainter(
-                    progress: _geometryController.value,
-                    color: ThemeController.instance.data.primary,
-                  ),
-                );
-              },
-            ),
-          ),
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.shield_outlined,
-                      size: 72,
-                      color: ThemeController.instance.data.primary,
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'ZeroLog',
-                      style: TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.bold,
-                        color: ThemeController.instance.data.primary,
+      resizeToAvoidBottomInset: true,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final height = constraints.maxHeight;
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _geometryController,
+                  builder: (context, child) {
+                    return CustomPaint(
+                      painter: _ZeroLogGeometryPainter(
+                        progress: _geometryController.value,
+                        color: theme.primary,
                       ),
-                    ),
-                    const SizedBox(height: 28),
-                    TextField(
-                      controller: _usernameController,
-                      enabled: !_loading,
-                      textInputAction: TextInputAction.next,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Kullanıcı adı',
-                        prefixIcon: Icon(Icons.person_outline),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _passwordController,
-                      enabled: !_loading,
-                      obscureText: _obscurePassword,
-                      onSubmitted: (_) => _submit(),
-                      decoration: InputDecoration(
-                        labelText: 'Şifre',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
-                        ),
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: FilledButton(
-                        onPressed: _loading ? null : _submit,
-                        child: _loading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Text(
-                                _registerMode ? 'HESAP OLUŞTUR' : 'GİRİŞ YAP',
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: _loading
-                          ? null
-                          : () {
-                              setState(() {
-                                _registerMode = !_registerMode;
-                              });
-                            },
-                      child: Text(
-                        _registerMode
-                            ? 'Zaten hesabım var'
-                            : 'Yeni hesap oluştur',
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    const Text(
-                      'ZeroLog • Gizlilik odaklı iletişim',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
-            ),
-          ),
-        ],
+
+              SafeArea(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight:
+                          height - MediaQuery.of(context).padding.vertical,
+                    ),
+                    child: Column(
+                      children: [
+                        SizedBox(height: max(24.0, height * 0.43)),
+
+                        SizedBox(
+                          height: 78,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Deep 3D extrusion
+                              Transform.translate(
+                                offset: const Offset(0, 6),
+                                child: Text(
+                                  'ZeroLog',
+                                  style: TextStyle(
+                                    fontSize: 42,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 2.4,
+                                    color: const Color(0xFF032A12),
+                                    shadows: [
+                                      Shadow(
+                                        color: const Color(
+                                          0xFF00FF55,
+                                        ).withValues(alpha: 0.35),
+                                        blurRadius: 12,
+                                      ),
+                                      const Shadow(
+                                        color: Colors.black,
+                                        blurRadius: 3,
+                                        offset: Offset(0, 3),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              // Dark emerald bevel
+                              Transform.translate(
+                                offset: const Offset(0, 2),
+                                child: Text(
+                                  'ZeroLog',
+                                  style: const TextStyle(
+                                    fontSize: 42,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 2.4,
+                                    color: Color(0xFF087A2B),
+                                  ),
+                                ),
+                              ),
+
+                              // Main metallic emerald surface
+                              Text(
+                                'ZeroLog',
+                                style: TextStyle(
+                                  fontSize: 42,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 2.4,
+                                  foreground: Paint()
+                                    ..shader =
+                                        const LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            Color(0xFFE2FFE9),
+                                            Color(0xFF78FFA1),
+                                            Color(0xFF18D957),
+                                            Color(0xFF07963A),
+                                          ],
+                                          stops: [0.0, 0.24, 0.58, 1.0],
+                                        ).createShader(
+                                          const Rect.fromLTWH(0, 0, 360, 78),
+                                        ),
+                                  shadows: const [
+                                    Shadow(
+                                      color: Color(0xCC00FF55),
+                                      blurRadius: 16,
+                                    ),
+                                    Shadow(
+                                      color: Color(0x6600FF55),
+                                      blurRadius: 3,
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // Thin metallic highlight
+                              Transform.translate(
+                                offset: const Offset(0, -1),
+                                child: Text(
+                                  'ZeroLog',
+                                  style: const TextStyle(
+                                    fontSize: 42,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 2.4,
+                                    color: Color(0xFFB8FFD0),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 30),
+
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 480),
+                          child: Column(
+                            children: [
+                              TextField(
+                                controller: _usernameController,
+                                enabled: !_loading,
+                                textInputAction: TextInputAction.next,
+                                autocorrect: false,
+                                decoration: InputDecoration(
+                                  labelText: 'Kullanıcı adı',
+                                  border: const OutlineInputBorder(),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: theme.primary.withValues(
+                                        alpha: 0.42,
+                                      ),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: theme.primary,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 14),
+
+                              TextField(
+                                controller: _passwordController,
+                                enabled: !_loading,
+                                obscureText: _obscurePassword,
+                                onSubmitted: (_) => _submit(),
+                                decoration: InputDecoration(
+                                  labelText: 'Şifre',
+                                  suffixIcon: IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _obscurePassword = !_obscurePassword;
+                                      });
+                                    },
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility
+                                          : Icons.visibility_off,
+                                      color: theme.primary,
+                                    ),
+                                  ),
+                                  border: const OutlineInputBorder(),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: theme.primary.withValues(
+                                        alpha: 0.42,
+                                      ),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: theme.primary,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 22),
+
+                              SizedBox(
+                                width: double.infinity,
+                                height: 52,
+                                child: FilledButton(
+                                  onPressed: _loading ? null : _submit,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: theme.primary,
+                                    foregroundColor: Colors.black,
+                                  ),
+                                  child: _loading
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.black,
+                                          ),
+                                        )
+                                      : Text(
+                                          _registerMode
+                                              ? 'HESAP OLUŞTUR'
+                                              : 'GİRİŞ YAP',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 12),
+
+                              TextButton(
+                                onPressed: _loading
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _registerMode = !_registerMode;
+                                        });
+                                      },
+                                child: Text(
+                                  _registerMode
+                                      ? 'Zaten hesabım var'
+                                      : 'Yeni hesap oluştur',
+                                  style: TextStyle(
+                                    color: theme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 20),
+
+                              Text(
+                                'ZeroLog • Gizlilik odaklı iletişim',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.text.withValues(alpha: 0.72),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
 // ============================================================
-// ZEROLOG LOGIN GEOMETRY
+// ZEROLOG LOGIN WAVE
 // ============================================================
 
 class _ZeroLogGeometryPainter extends CustomPainter {
@@ -1146,245 +1302,146 @@ class _ZeroLogGeometryPainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
 
-    // The animation occupies the upper half of the screen.
-    // The login controls remain visually clean and separate.
-    final center = Offset(w * 0.5, h * 0.30);
+    final green = color;
 
-    final rotation = progress * pi * 2.0;
-    final base = min(w, h);
+    // ----------------------------------------------------------
+    // STAR / DIGITAL PARTICLE FIELD
+    // ----------------------------------------------------------
 
-    // ==========================================================
-    // SUBTLE DIGITAL GRID
-    // ==========================================================
+    final particles = Paint()..style = PaintingStyle.fill;
 
-    final gridPaint = Paint()
-      ..color = color.withValues(alpha: 0.035)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.55;
+    for (var i = 0; i < 220; i++) {
+      final a = i * 12.345;
+      final b = i * 7.891;
 
-    final horizontalStep = max(38.0, w / 9);
-    final verticalStep = max(42.0, h / 12);
+      final x = ((sin(a) + 1) * 0.5) * w;
+      final y = ((cos(b) + 1) * 0.5) * h * 0.72;
 
-    for (double x = 0; x <= w; x += horizontalStep) {
-      canvas.drawLine(Offset(x, 0), Offset(x, h * 0.72), gridPaint);
+      final pulse = (sin(progress * pi * 2 + i * 0.37) + 1) * 0.5;
+
+      particles.color = green.withValues(alpha: 0.025 + pulse * 0.13);
+
+      canvas.drawCircle(Offset(x, y), i % 17 == 0 ? 1.3 : 0.55, particles);
     }
 
-    for (double y = 0; y <= h * 0.72; y += verticalStep) {
-      canvas.drawLine(Offset(0, y), Offset(w, y), gridPaint);
-    }
+    // ----------------------------------------------------------
+    // FLOWING DIGITAL WAVES
+    // ----------------------------------------------------------
 
-    // ==========================================================
-    // CENTRAL GLOW
-    // ==========================================================
+    for (var wave = 0; wave < 5; wave++) {
+      final path = Path();
 
-    final glowPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color.withValues(alpha: 0.11),
-          color.withValues(alpha: 0.035),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(center: center, radius: base * 0.48));
+      final baseY = h * (0.38 + wave * 0.045);
+      final amplitude = h * (0.018 + wave * 0.003);
 
-    canvas.drawCircle(center, base * 0.48, glowPaint);
+      final phase = progress * pi * 2 * (wave.isEven ? 1 : -0.8) + wave * 0.9;
 
-    // ==========================================================
-    // CONCENTRIC DIGITAL RINGS
-    // ==========================================================
+      for (var x = -20.0; x <= w + 20; x += 4) {
+        final n = x / w;
 
-    final maxRadius = min(w * 0.39, h * 0.25);
+        final y =
+            baseY +
+            sin(n * pi * 2.2 + phase) * amplitude +
+            sin(n * pi * 5.0 - phase * 0.5) * amplitude * 0.25;
 
-    for (var i = 0; i < 7; i++) {
-      final radius = maxRadius * (0.42 + i * 0.095);
-
-      final ringPaint = Paint()
-        ..color = color.withValues(alpha: i == 3 ? 0.18 : 0.055 + i * 0.006)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = i == 3 ? 1.15 : 0.55;
-
-      canvas.drawCircle(center, radius, ringPaint);
-    }
-
-    // ==========================================================
-    // CONTROLLED ROTATING SEGMENTS
-    // ==========================================================
-
-    final segmentPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 1.8;
-
-    for (var i = 0; i < 12; i++) {
-      final radius = maxRadius * (0.60 + (i % 4) * 0.095);
-      final direction = i.isEven ? 1.0 : -1.0;
-      final start = rotation * direction * 0.42 + i * (pi * 2 / 12);
-
-      segmentPaint.color = color.withValues(alpha: i % 3 == 0 ? 0.50 : 0.18);
-
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        start,
-        i % 3 == 0 ? pi * 0.24 : pi * 0.12,
-        false,
-        segmentPaint,
-      );
-    }
-
-    // ==========================================================
-    // DIGITAL PARTICLES
-    // ==========================================================
-
-    final particlePaint = Paint()..style = PaintingStyle.fill;
-
-    for (var i = 0; i < 90; i++) {
-      final seed = i * 1.6180339887;
-      final angle = seed + rotation * (i.isEven ? 0.10 : -0.07);
-
-      final distance = maxRadius * (0.72 + ((i * 37) % 100) / 100 * 0.62);
-
-      final x = center.dx + cos(angle) * distance;
-      final y = center.dy + sin(angle) * distance * 0.62;
-
-      // Keep particles inside the visual canvas.
-      if (x < 8 || x > w - 8 || y < 8 || y > h * 0.68) {
-        continue;
+        if (x == -20) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
       }
 
-      final pulse = (sin(rotation * 1.8 + seed) + 1) * 0.5;
+      // Soft glow
+      final glow = Paint()
+        ..color = green.withValues(alpha: 0.035 + wave * 0.008)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
 
-      particlePaint.color = color.withValues(alpha: 0.05 + pulse * 0.22);
+      canvas.drawPath(path, glow);
 
-      canvas.drawCircle(Offset(x, y), i % 13 == 0 ? 1.45 : 0.65, particlePaint);
+      // Main wave
+      final line = Paint()
+        ..color = green.withValues(alpha: 0.13 + wave * 0.025)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = wave == 1 ? 1.4 : 0.7;
+
+      canvas.drawPath(path, line);
+
+      // Wave particles
+      final dots = Paint()..style = PaintingStyle.fill;
+
+      for (var i = 0; i < 38; i++) {
+        final x = ((i * 97 + wave * 31) % 1000) / 1000 * w;
+
+        final n = x / w;
+
+        final y = baseY + sin(n * pi * 2.2 + phase) * amplitude;
+
+        final glowPulse = (sin(progress * pi * 6 + i * 0.8) + 1) * 0.5;
+
+        dots.color = green.withValues(alpha: 0.035 + glowPulse * 0.16);
+
+        canvas.drawCircle(Offset(x, y), i % 9 == 0 ? 1.2 : 0.45, dots);
+      }
     }
 
-    // ==========================================================
-    // CENTRAL SHIELD
-    // ==========================================================
+    // ----------------------------------------------------------
+    // HORIZONTAL ENERGY LINE
+    // ----------------------------------------------------------
 
-    final shieldWidth = min(w * 0.25, 118.0);
-    final shieldHeight = shieldWidth * 1.18;
-    final top = center.dy - shieldHeight * 0.50;
+    final lineY = h * 0.405;
 
-    final shield = Path()
-      ..moveTo(center.dx, top)
-      ..lineTo(center.dx + shieldWidth * 0.48, top + shieldHeight * 0.18)
-      ..lineTo(center.dx + shieldWidth * 0.41, top + shieldHeight * 0.58)
-      ..cubicTo(
-        center.dx + shieldWidth * 0.36,
-        top + shieldHeight * 0.82,
-        center.dx + shieldWidth * 0.15,
-        top + shieldHeight * 0.96,
-        center.dx,
-        top + shieldHeight,
-      )
-      ..cubicTo(
-        center.dx - shieldWidth * 0.15,
-        top + shieldHeight * 0.96,
-        center.dx - shieldWidth * 0.36,
-        top + shieldHeight * 0.82,
-        center.dx - shieldWidth * 0.41,
-        top + shieldHeight * 0.58,
-      )
-      ..lineTo(center.dx - shieldWidth * 0.48, top + shieldHeight * 0.18)
-      ..close();
+    final energyGlow = Paint()
+      ..color = green.withValues(alpha: 0.18)
+      ..strokeWidth = 5
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
 
-    final shieldGlow = Paint()
-      ..color = color.withValues(alpha: 0.22)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-
-    canvas.drawPath(shield, shieldGlow);
-
-    final shieldPaint = Paint()
-      ..color = color.withValues(alpha: 0.90)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-
-    canvas.drawPath(shield, shieldPaint);
-
-    // ==========================================================
-    // LOCK
-    // ==========================================================
-
-    final lockCenter = Offset(center.dx, top + shieldHeight * 0.56);
-
-    final lockWidth = shieldWidth * 0.28;
-    final lockHeight = lockWidth * 0.72;
-
-    final lockBody = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: Offset(lockCenter.dx, lockCenter.dy + lockHeight * 0.18),
-        width: lockWidth,
-        height: lockHeight,
-      ),
-      Radius.circular(3),
+    canvas.drawLine(
+      Offset(w * 0.08, lineY),
+      Offset(w * 0.92, lineY),
+      energyGlow,
     );
 
-    final lockPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.9;
+    final energy = Paint()
+      ..color = green.withValues(alpha: 0.40)
+      ..strokeWidth = 0.8;
 
-    canvas.drawRRect(lockBody, lockPaint);
+    canvas.drawLine(Offset(w * 0.08, lineY), Offset(w * 0.92, lineY), energy);
 
-    final shackle = Path()
-      ..moveTo(
-        lockCenter.dx - lockWidth * 0.27,
-        lockCenter.dy + lockHeight * 0.02,
-      )
-      ..lineTo(
-        lockCenter.dx - lockWidth * 0.27,
-        lockCenter.dy - lockHeight * 0.22,
-      )
-      ..quadraticBezierTo(
-        lockCenter.dx,
-        lockCenter.dy - lockHeight * 0.52,
-        lockCenter.dx + lockWidth * 0.27,
-        lockCenter.dy - lockHeight * 0.22,
-      )
-      ..lineTo(
-        lockCenter.dx + lockWidth * 0.27,
-        lockCenter.dy + lockHeight * 0.02,
-      );
+    // ----------------------------------------------------------
+    // MOVING LIGHT BEAM
+    // ----------------------------------------------------------
 
-    canvas.drawPath(shackle, lockPaint);
+    final beamT = (sin(progress * pi * 2) + 1) * 0.5;
 
-    final keyhole = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
+    final beamX = w * 0.12 + beamT * w * 0.76;
+
+    final beamGlow = Paint()
+      ..color = green.withValues(alpha: 0.20)
+      ..strokeWidth = 4
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+
+    canvas.drawLine(
+      Offset(beamX, lineY - h * 0.12),
+      Offset(beamX, lineY + h * 0.12),
+      beamGlow,
+    );
+
+    final beam = Paint()
+      ..color = green.withValues(alpha: 0.55)
+      ..strokeWidth = 0.8;
+
+    canvas.drawLine(
+      Offset(beamX, lineY - h * 0.12),
+      Offset(beamX, lineY + h * 0.12),
+      beam,
+    );
 
     canvas.drawCircle(
-      Offset(lockCenter.dx, lockCenter.dy + lockHeight * 0.19),
-      2.1,
-      keyhole,
-    );
-
-    canvas.drawRect(
-      Rect.fromCenter(
-        center: Offset(lockCenter.dx, lockCenter.dy + lockHeight * 0.31),
-        width: 1.8,
-        height: 5.5,
-      ),
-      keyhole,
-    );
-
-    // ==========================================================
-    // SCAN ARC
-    // ==========================================================
-
-    final scanPaint = Paint()
-      ..color = color.withValues(alpha: 0.65)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.15
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: maxRadius * 0.93),
-      rotation,
-      pi * 0.28,
-      false,
-      scanPaint,
+      Offset(beamX, lineY),
+      2,
+      Paint()..color = green.withValues(alpha: 0.9),
     );
   }
 
@@ -1396,6 +1453,8 @@ class _ZeroLogGeometryPainter extends CustomPainter {
 
 // ============================================================
 // MAIN
+// ============================================================
+
 // ============================================================
 
 class MainScreen extends StatefulWidget {
