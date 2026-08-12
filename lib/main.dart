@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -829,6 +828,144 @@ class WsClient {
   }
 }
 
+/// ZeroLog approved reference UI.
+/// The reference image supplies the visual design.
+/// Flutter supplies only transparent interaction layers.
+class ZeroLogReferenceLogin extends StatelessWidget {
+  final TextEditingController usernameController;
+  final TextEditingController passwordController;
+  final bool loading;
+  final bool obscurePassword;
+  final VoidCallback onSubmit;
+  final VoidCallback onTogglePassword;
+  final VoidCallback onRegister;
+
+  const ZeroLogReferenceLogin({
+    super.key,
+    required this.usernameController,
+    required this.passwordController,
+    required this.loading,
+    required this.obscurePassword,
+    required this.onSubmit,
+    required this.onTogglePassword,
+    required this.onRegister,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      resizeToAvoidBottomInset: true,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth;
+          final h = constraints.maxHeight;
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              const Image(
+                image: AssetImage('assets/zerolog_login_reference.png'),
+                fit: BoxFit.cover,
+              ),
+
+              Positioned(
+                left: w * 0.10,
+                right: w * 0.10,
+                top: h * 0.487,
+                height: h * 0.055,
+                child: TextField(
+                  controller: usernameController,
+                  enabled: !loading,
+                  autocorrect: false,
+                  textInputAction: TextInputAction.next,
+                  style: TextStyle(
+                    color: ThemeController.instance.data.primary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    decoration: TextDecoration.none,
+                  ),
+                  cursorColor: Colors.white,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+
+              Positioned(
+                left: w * 0.10,
+                right: w * 0.10,
+                top: h * 0.552,
+                height: h * 0.055,
+                child: TextField(
+                  controller: passwordController,
+                  enabled: !loading,
+                  obscureText: obscurePassword,
+                  onSubmitted: (_) => onSubmit(),
+                  style: TextStyle(
+                    color: ThemeController.instance.data.primary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    decoration: TextDecoration.none,
+                  ),
+                  cursorColor: Colors.white,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+
+              Positioned(
+                right: w * 0.10,
+                top: h * 0.552,
+                width: w * 0.12,
+                height: h * 0.055,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onTogglePassword,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                ),
+              ),
+
+              Positioned(
+                left: w * 0.09,
+                right: w * 0.09,
+                top: h * 0.666,
+                height: h * 0.065,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: loading ? null : onSubmit,
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                ),
+              ),
+
+              Positioned(
+                left: w * 0.10,
+                right: w * 0.10,
+                top: h * 0.800,
+                height: h * 0.055,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: loading ? null : onRegister,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 // ============================================================
 // NICKNAME
 // ============================================================
@@ -1004,285 +1141,22 @@ class _NicknameScreenState extends State<NicknameScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = ThemeController.instance.data;
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      resizeToAvoidBottomInset: true,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final height = constraints.maxHeight;
-
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              IgnorePointer(
-                child: AnimatedBuilder(
-                  animation: _geometryController,
-                  builder: (context, child) {
-                    return CustomPaint(
-                      painter: _ZeroLogGeometryPainter(
-                        progress: _geometryController.value,
-                        color: theme.primary,
-                      ),
-                    );
-                  },
-                ),
-              ),
-
-              SafeArea(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight:
-                          height - MediaQuery.of(context).padding.vertical,
-                    ),
-                    child: Column(
-                      children: [
-                        SizedBox(height: max(24.0, height * 0.43)),
-
-                        SizedBox(
-                          height: 78,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              // Deep 3D extrusion
-                              Transform.translate(
-                                offset: const Offset(0, 6),
-                                child: Text(
-                                  'ZeroLog',
-                                  style: TextStyle(
-                                    fontSize: 42,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 2.4,
-                                    color: const Color(0xFF032A12),
-                                    shadows: [
-                                      Shadow(
-                                        color: const Color(
-                                          0xFF00FF55,
-                                        ).withValues(alpha: 0.35),
-                                        blurRadius: 12,
-                                      ),
-                                      const Shadow(
-                                        color: Colors.black,
-                                        blurRadius: 3,
-                                        offset: Offset(0, 3),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-
-                              // Dark emerald bevel
-                              Transform.translate(
-                                offset: const Offset(0, 2),
-                                child: Text(
-                                  'ZeroLog',
-                                  style: const TextStyle(
-                                    fontSize: 42,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 2.4,
-                                    color: Color(0xFF087A2B),
-                                  ),
-                                ),
-                              ),
-
-                              // Main metallic emerald surface
-                              Text(
-                                'ZeroLog',
-                                style: TextStyle(
-                                  fontSize: 42,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 2.4,
-                                  foreground: Paint()
-                                    ..shader =
-                                        const LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            Color(0xFFE2FFE9),
-                                            Color(0xFF78FFA1),
-                                            Color(0xFF18D957),
-                                            Color(0xFF07963A),
-                                          ],
-                                          stops: [0.0, 0.24, 0.58, 1.0],
-                                        ).createShader(
-                                          const Rect.fromLTWH(0, 0, 360, 78),
-                                        ),
-                                  shadows: const [
-                                    Shadow(
-                                      color: Color(0xCC00FF55),
-                                      blurRadius: 16,
-                                    ),
-                                    Shadow(
-                                      color: Color(0x6600FF55),
-                                      blurRadius: 3,
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              // Thin metallic highlight
-                              Transform.translate(
-                                offset: const Offset(0, -1),
-                                child: Text(
-                                  'ZeroLog',
-                                  style: const TextStyle(
-                                    fontSize: 42,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 2.4,
-                                    color: Color(0xFFB8FFD0),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 30),
-
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 480),
-                          child: Column(
-                            children: [
-                              TextField(
-                                controller: _usernameController,
-                                enabled: !_loading,
-                                textInputAction: TextInputAction.next,
-                                autocorrect: false,
-                                decoration: InputDecoration(
-                                  labelText: 'Kullanıcı adı',
-                                  border: const OutlineInputBorder(),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color: theme.primary.withValues(
-                                        alpha: 0.42,
-                                      ),
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color: theme.primary,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              const SizedBox(height: 14),
-
-                              TextField(
-                                controller: _passwordController,
-                                enabled: !_loading,
-                                obscureText: _obscurePassword,
-                                onSubmitted: (_) => _submit(),
-                                decoration: InputDecoration(
-                                  labelText: 'Şifre',
-                                  suffixIcon: IconButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility
-                                          : Icons.visibility_off,
-                                      color: theme.primary,
-                                    ),
-                                  ),
-                                  border: const OutlineInputBorder(),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color: theme.primary.withValues(
-                                        alpha: 0.42,
-                                      ),
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color: theme.primary,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              const SizedBox(height: 22),
-
-                              SizedBox(
-                                width: double.infinity,
-                                height: 52,
-                                child: FilledButton(
-                                  onPressed: _loading ? null : _submit,
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: theme.primary,
-                                    foregroundColor: Colors.black,
-                                  ),
-                                  child: _loading
-                                      ? const SizedBox(
-                                          width: 22,
-                                          height: 22,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.black,
-                                          ),
-                                        )
-                                      : Text(
-                                          _registerMode
-                                              ? 'HESAP OLUŞTUR'
-                                              : 'GİRİŞ YAP',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                ),
-                              ),
-
-                              const SizedBox(height: 12),
-
-                              TextButton(
-                                onPressed: _loading
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _registerMode = !_registerMode;
-                                        });
-                                      },
-                                child: Text(
-                                  _registerMode
-                                      ? 'Zaten hesabım var'
-                                      : 'Yeni hesap oluştur',
-                                  style: TextStyle(
-                                    color: theme.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-
-                              const SizedBox(height: 20),
-
-                              Text(
-                                'ZeroLog • Gizlilik odaklı iletişim',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.text.withValues(alpha: 0.72),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+    return ZeroLogReferenceLogin(
+      usernameController: _usernameController,
+      passwordController: _passwordController,
+      loading: _loading,
+      obscurePassword: _obscurePassword,
+      onSubmit: _submit,
+      onTogglePassword: () {
+        setState(() {
+          _obscurePassword = !_obscurePassword;
+        });
+      },
+      onRegister: () {
+        setState(() {
+          _registerMode = !_registerMode;
+        });
+      },
     );
   }
 }
@@ -1290,166 +1164,6 @@ class _NicknameScreenState extends State<NicknameScreen>
 // ============================================================
 // ZEROLOG LOGIN WAVE
 // ============================================================
-
-class _ZeroLogGeometryPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-
-  const _ZeroLogGeometryPainter({required this.progress, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-
-    final green = color;
-
-    // ----------------------------------------------------------
-    // STAR / DIGITAL PARTICLE FIELD
-    // ----------------------------------------------------------
-
-    final particles = Paint()..style = PaintingStyle.fill;
-
-    for (var i = 0; i < 220; i++) {
-      final a = i * 12.345;
-      final b = i * 7.891;
-
-      final x = ((sin(a) + 1) * 0.5) * w;
-      final y = ((cos(b) + 1) * 0.5) * h * 0.72;
-
-      final pulse = (sin(progress * pi * 2 + i * 0.37) + 1) * 0.5;
-
-      particles.color = green.withValues(alpha: 0.025 + pulse * 0.13);
-
-      canvas.drawCircle(Offset(x, y), i % 17 == 0 ? 1.3 : 0.55, particles);
-    }
-
-    // ----------------------------------------------------------
-    // FLOWING DIGITAL WAVES
-    // ----------------------------------------------------------
-
-    for (var wave = 0; wave < 5; wave++) {
-      final path = Path();
-
-      final baseY = h * (0.38 + wave * 0.045);
-      final amplitude = h * (0.018 + wave * 0.003);
-
-      final phase = progress * pi * 2 * (wave.isEven ? 1 : -0.8) + wave * 0.9;
-
-      for (var x = -20.0; x <= w + 20; x += 4) {
-        final n = x / w;
-
-        final y =
-            baseY +
-            sin(n * pi * 2.2 + phase) * amplitude +
-            sin(n * pi * 5.0 - phase * 0.5) * amplitude * 0.25;
-
-        if (x == -20) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
-        }
-      }
-
-      // Soft glow
-      final glow = Paint()
-        ..color = green.withValues(alpha: 0.035 + wave * 0.008)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 5
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
-
-      canvas.drawPath(path, glow);
-
-      // Main wave
-      final line = Paint()
-        ..color = green.withValues(alpha: 0.13 + wave * 0.025)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = wave == 1 ? 1.4 : 0.7;
-
-      canvas.drawPath(path, line);
-
-      // Wave particles
-      final dots = Paint()..style = PaintingStyle.fill;
-
-      for (var i = 0; i < 38; i++) {
-        final x = ((i * 97 + wave * 31) % 1000) / 1000 * w;
-
-        final n = x / w;
-
-        final y = baseY + sin(n * pi * 2.2 + phase) * amplitude;
-
-        final glowPulse = (sin(progress * pi * 6 + i * 0.8) + 1) * 0.5;
-
-        dots.color = green.withValues(alpha: 0.035 + glowPulse * 0.16);
-
-        canvas.drawCircle(Offset(x, y), i % 9 == 0 ? 1.2 : 0.45, dots);
-      }
-    }
-
-    // ----------------------------------------------------------
-    // HORIZONTAL ENERGY LINE
-    // ----------------------------------------------------------
-
-    final lineY = h * 0.405;
-
-    final energyGlow = Paint()
-      ..color = green.withValues(alpha: 0.18)
-      ..strokeWidth = 5
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
-
-    canvas.drawLine(
-      Offset(w * 0.08, lineY),
-      Offset(w * 0.92, lineY),
-      energyGlow,
-    );
-
-    final energy = Paint()
-      ..color = green.withValues(alpha: 0.40)
-      ..strokeWidth = 0.8;
-
-    canvas.drawLine(Offset(w * 0.08, lineY), Offset(w * 0.92, lineY), energy);
-
-    // ----------------------------------------------------------
-    // MOVING LIGHT BEAM
-    // ----------------------------------------------------------
-
-    final beamT = (sin(progress * pi * 2) + 1) * 0.5;
-
-    final beamX = w * 0.12 + beamT * w * 0.76;
-
-    final beamGlow = Paint()
-      ..color = green.withValues(alpha: 0.20)
-      ..strokeWidth = 4
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
-
-    canvas.drawLine(
-      Offset(beamX, lineY - h * 0.12),
-      Offset(beamX, lineY + h * 0.12),
-      beamGlow,
-    );
-
-    final beam = Paint()
-      ..color = green.withValues(alpha: 0.55)
-      ..strokeWidth = 0.8;
-
-    canvas.drawLine(
-      Offset(beamX, lineY - h * 0.12),
-      Offset(beamX, lineY + h * 0.12),
-      beam,
-    );
-
-    canvas.drawCircle(
-      Offset(beamX, lineY),
-      2,
-      Paint()..color = green.withValues(alpha: 0.9),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _ZeroLogGeometryPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.color != color;
-  }
-}
 
 // ============================================================
 // MAIN
