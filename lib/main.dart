@@ -1143,329 +1143,249 @@ class _ZeroLogGeometryPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width * 0.5, size.height * 0.36);
-    final shortest = min(size.width, size.height);
+    final w = size.width;
+    final h = size.height;
+
+    // The animation occupies the upper half of the screen.
+    // The login controls remain visually clean and separate.
+    final center = Offset(w * 0.5, h * 0.30);
+
+    final rotation = progress * pi * 2.0;
+    final base = min(w, h);
 
     // ==========================================================
-    // FULL BLACK BACKGROUND
+    // SUBTLE DIGITAL GRID
     // ==========================================================
 
-    final backgroundPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..color = Colors.black;
+    final gridPaint = Paint()
+      ..color = color.withValues(alpha: 0.035)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.55;
 
-    canvas.drawRect(Offset.zero & size, backgroundPaint);
+    final horizontalStep = max(38.0, w / 9);
+    final verticalStep = max(42.0, h / 12);
+
+    for (double x = 0; x <= w; x += horizontalStep) {
+      canvas.drawLine(Offset(x, 0), Offset(x, h * 0.72), gridPaint);
+    }
+
+    for (double y = 0; y <= h * 0.72; y += verticalStep) {
+      canvas.drawLine(Offset(0, y), Offset(w, y), gridPaint);
+    }
 
     // ==========================================================
-    // VERY SOFT CENTRAL GLOW
+    // CENTRAL GLOW
     // ==========================================================
-
-    final glowRadius = shortest * 0.46;
 
     final glowPaint = Paint()
       ..shader = RadialGradient(
         colors: [
-          color.withValues(alpha: 0.12),
-          color.withValues(alpha: 0.045),
+          color.withValues(alpha: 0.11),
+          color.withValues(alpha: 0.035),
           Colors.transparent,
         ],
-      ).createShader(Rect.fromCircle(center: center, radius: glowRadius));
+      ).createShader(Rect.fromCircle(center: center, radius: base * 0.48));
 
-    canvas.drawCircle(center, glowRadius, glowPaint);
-
-    // ==========================================================
-    // NETWORK BACKGROUND
-    // ==========================================================
-
-    final random = Random(731);
-
-    final nodes = <Offset>[];
-
-    for (var i = 0; i < 54; i++) {
-      final x = random.nextDouble() * size.width;
-      final y = random.nextDouble() * size.height;
-
-      nodes.add(Offset(x, y));
-    }
-
-    final networkPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.55
-      ..color = color.withValues(alpha: 0.055);
-
-    for (var i = 0; i < nodes.length; i++) {
-      final a = nodes[i];
-
-      for (var j = i + 1; j < nodes.length; j++) {
-        final b = nodes[j];
-        final distance = (a - b).distance;
-
-        if (distance < size.width * 0.19) {
-          final pulse = 0.45 + 0.55 * sin(progress * 2 * pi + i * 0.31);
-
-          networkPaint.color = color.withValues(alpha: 0.025 + pulse * 0.045);
-
-          canvas.drawLine(a, b, networkPaint);
-        }
-      }
-    }
+    canvas.drawCircle(center, base * 0.48, glowPaint);
 
     // ==========================================================
-    // MOVING NETWORK NODES
+    // CONCENTRIC DIGITAL RINGS
     // ==========================================================
 
-    for (var i = 0; i < nodes.length; i++) {
-      final base = nodes[i];
+    final maxRadius = min(w * 0.39, h * 0.25);
 
-      final movement = sin(progress * 2 * pi + i * 0.71) * shortest * 0.008;
+    for (var i = 0; i < 7; i++) {
+      final radius = maxRadius * (0.42 + i * 0.095);
 
-      final point = Offset(
-        base.dx + movement,
-        base.dy + cos(progress * 2 * pi + i * 0.53) * shortest * 0.006,
-      );
-
-      final pulse = 0.35 + 0.65 * (sin(progress * 2 * pi + i * 0.44) + 1) / 2;
-
-      final nodePaint = Paint()
-        ..style = PaintingStyle.fill
-        ..color = color.withValues(alpha: 0.08 + pulse * 0.18);
-
-      canvas.drawCircle(point, 1.0 + pulse * 1.5, nodePaint);
-    }
-
-    // ==========================================================
-    // DIGITAL VORTEX
-    // ==========================================================
-
-    final vortexRadius = shortest * 0.31;
-
-    for (var ring = 0; ring < 15; ring++) {
-      final radius = vortexRadius * (0.42 + ring * 0.045);
-
-      final rotation =
-          progress * 2 * pi * (ring.isEven ? 0.22 : -0.17) + ring * 0.38;
-
-      final segments = 48 + ring * 4;
-
-      final vortexPaint = Paint()
+      final ringPaint = Paint()
+        ..color = color.withValues(alpha: i == 3 ? 0.18 : 0.055 + i * 0.006)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = ring % 3 == 0 ? 1.0 : 0.55
-        ..strokeCap = StrokeCap.round
-        ..color = color.withValues(alpha: 0.035 + (15 - ring) * 0.004);
+        ..strokeWidth = i == 3 ? 1.15 : 0.55;
 
-      for (var segment = 0; segment < segments; segment++) {
-        final t = segment / segments;
-        final angle = rotation + t * 2 * pi;
-
-        // Break the ring into digital fragments.
-        if (((segment + ring * 3) % 7) < 2) {
-          continue;
-        }
-
-        final radiusOffset =
-            sin(t * 11 + ring * 0.8 + progress * 2 * pi) * shortest * 0.006;
-
-        final r = radius + radiusOffset;
-
-        final point = Offset(
-          center.dx + cos(angle) * r,
-          center.dy + sin(angle) * r * 0.92,
-        );
-
-        final nextAngle = angle + 2 * pi / segments * 1.8;
-
-        final nextPoint = Offset(
-          center.dx + cos(nextAngle) * r,
-          center.dy + sin(nextAngle) * r * 0.92,
-        );
-
-        canvas.drawLine(point, nextPoint, vortexPaint);
-      }
+      canvas.drawCircle(center, radius, ringPaint);
     }
 
     // ==========================================================
-    // ROTATING PARTICLE STREAMS
+    // CONTROLLED ROTATING SEGMENTS
     // ==========================================================
 
-    for (var i = 0; i < 110; i++) {
-      final seed = i * 0.6180339887;
+    final segmentPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.8;
 
-      final angle =
-          seed * 2 * pi + progress * 2 * pi * (i.isEven ? 0.16 : -0.12);
+    for (var i = 0; i < 12; i++) {
+      final radius = maxRadius * (0.60 + (i % 4) * 0.095);
+      final direction = i.isEven ? 1.0 : -1.0;
+      final start = rotation * direction * 0.42 + i * (pi * 2 / 12);
 
-      final distance = shortest * (0.09 + ((i * 37) % 100) / 100 * 0.30);
+      segmentPaint.color = color.withValues(alpha: i % 3 == 0 ? 0.50 : 0.18);
 
-      final ellipticalY = 0.88;
-
-      final point = Offset(
-        center.dx + cos(angle) * distance,
-        center.dy + sin(angle) * distance * ellipticalY,
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        start,
+        i % 3 == 0 ? pi * 0.24 : pi * 0.12,
+        false,
+        segmentPaint,
       );
-
-      final brightness =
-          0.12 + 0.38 * (0.5 + 0.5 * sin(progress * 2 * pi * 2 + i * 0.47));
-
-      final particlePaint = Paint()
-        ..style = PaintingStyle.fill
-        ..color = color.withValues(alpha: brightness);
-
-      canvas.drawCircle(point, 0.55 + (i % 3) * 0.35, particlePaint);
     }
 
     // ==========================================================
-    // SHIELD
+    // DIGITAL PARTICLES
     // ==========================================================
 
-    final shieldCenter = Offset(center.dx, center.dy);
+    final particlePaint = Paint()..style = PaintingStyle.fill;
 
-    final shieldWidth = shortest * 0.22;
-    final shieldHeight = shortest * 0.29;
+    for (var i = 0; i < 90; i++) {
+      final seed = i * 1.6180339887;
+      final angle = seed + rotation * (i.isEven ? 0.10 : -0.07);
 
-    final breathing = 1.0 + sin(progress * 2 * pi) * 0.025;
+      final distance = maxRadius * (0.72 + ((i * 37) % 100) / 100 * 0.62);
 
-    canvas.save();
+      final x = center.dx + cos(angle) * distance;
+      final y = center.dy + sin(angle) * distance * 0.62;
 
-    canvas.translate(shieldCenter.dx, shieldCenter.dy);
+      // Keep particles inside the visual canvas.
+      if (x < 8 || x > w - 8 || y < 8 || y > h * 0.68) {
+        continue;
+      }
 
-    canvas.scale(breathing, breathing);
+      final pulse = (sin(rotation * 1.8 + seed) + 1) * 0.5;
 
-    final shieldPath = Path()
-      ..moveTo(0, -shieldHeight * 0.5)
-      ..lineTo(shieldWidth * 0.5, -shieldHeight * 0.32)
-      ..lineTo(shieldWidth * 0.43, shieldHeight * 0.17)
-      ..quadraticBezierTo(
-        0,
-        shieldHeight * 0.51,
-        -shieldWidth * 0.43,
-        shieldHeight * 0.17,
+      particlePaint.color = color.withValues(alpha: 0.05 + pulse * 0.22);
+
+      canvas.drawCircle(Offset(x, y), i % 13 == 0 ? 1.45 : 0.65, particlePaint);
+    }
+
+    // ==========================================================
+    // CENTRAL SHIELD
+    // ==========================================================
+
+    final shieldWidth = min(w * 0.25, 118.0);
+    final shieldHeight = shieldWidth * 1.18;
+    final top = center.dy - shieldHeight * 0.50;
+
+    final shield = Path()
+      ..moveTo(center.dx, top)
+      ..lineTo(center.dx + shieldWidth * 0.48, top + shieldHeight * 0.18)
+      ..lineTo(center.dx + shieldWidth * 0.41, top + shieldHeight * 0.58)
+      ..cubicTo(
+        center.dx + shieldWidth * 0.36,
+        top + shieldHeight * 0.82,
+        center.dx + shieldWidth * 0.15,
+        top + shieldHeight * 0.96,
+        center.dx,
+        top + shieldHeight,
       )
-      ..lineTo(-shieldWidth * 0.5, -shieldHeight * 0.32)
+      ..cubicTo(
+        center.dx - shieldWidth * 0.15,
+        top + shieldHeight * 0.96,
+        center.dx - shieldWidth * 0.36,
+        top + shieldHeight * 0.82,
+        center.dx - shieldWidth * 0.41,
+        top + shieldHeight * 0.58,
+      )
+      ..lineTo(center.dx - shieldWidth * 0.48, top + shieldHeight * 0.18)
       ..close();
 
     final shieldGlow = Paint()
+      ..color = color.withValues(alpha: 0.22)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 8
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
-      ..color = color.withValues(alpha: 0.20);
+      ..strokeWidth = 6
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
 
-    canvas.drawPath(shieldPath, shieldGlow);
+    canvas.drawPath(shield, shieldGlow);
 
     final shieldPaint = Paint()
+      ..color = color.withValues(alpha: 0.90)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0
-      ..strokeJoin = StrokeJoin.round
-      ..color = color.withValues(alpha: 0.95);
+      ..strokeWidth = 2.0;
 
-    canvas.drawPath(shieldPath, shieldPaint);
-
-    // ==========================================================
-    // SHIELD INTERNAL CIRCUIT LINES
-    // ==========================================================
-
-    final circuitPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.7
-      ..color = color.withValues(alpha: 0.38);
-
-    final circuitLines = <List<Offset>>[
-      [
-        Offset(-shieldWidth * 0.30, -shieldHeight * 0.12),
-        Offset(-shieldWidth * 0.08, -shieldHeight * 0.02),
-        Offset(-shieldWidth * 0.20, shieldHeight * 0.16),
-      ],
-      [
-        Offset(shieldWidth * 0.30, -shieldHeight * 0.12),
-        Offset(shieldWidth * 0.08, -shieldHeight * 0.02),
-        Offset(shieldWidth * 0.20, shieldHeight * 0.16),
-      ],
-      [
-        Offset(-shieldWidth * 0.18, -shieldHeight * 0.25),
-        Offset(0, -shieldHeight * 0.08),
-        Offset(shieldWidth * 0.18, -shieldHeight * 0.25),
-      ],
-      [
-        Offset(-shieldWidth * 0.26, shieldHeight * 0.25),
-        Offset(0, shieldHeight * 0.11),
-        Offset(shieldWidth * 0.26, shieldHeight * 0.25),
-      ],
-    ];
-
-    for (final points in circuitLines) {
-      final path = Path()..moveTo(points.first.dx, points.first.dy);
-
-      for (var i = 1; i < points.length; i++) {
-        path.lineTo(points[i].dx, points[i].dy);
-      }
-
-      canvas.drawPath(path, circuitPaint);
-    }
+    canvas.drawPath(shield, shieldPaint);
 
     // ==========================================================
     // LOCK
     // ==========================================================
 
-    final lockWidth = shieldWidth * 0.32;
-    final lockHeight = shieldHeight * 0.25;
+    final lockCenter = Offset(center.dx, top + shieldHeight * 0.56);
+
+    final lockWidth = shieldWidth * 0.28;
+    final lockHeight = lockWidth * 0.72;
 
     final lockBody = RRect.fromRectAndRadius(
       Rect.fromCenter(
-        center: Offset(0, shieldHeight * 0.08),
+        center: Offset(lockCenter.dx, lockCenter.dy + lockHeight * 0.18),
         width: lockWidth,
         height: lockHeight,
       ),
-      Radius.circular(lockWidth * 0.08),
+      Radius.circular(3),
     );
 
     final lockPaint = Paint()
+      ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..color = color;
+      ..strokeWidth = 1.9;
 
     canvas.drawRRect(lockBody, lockPaint);
 
     final shackle = Path()
-      ..moveTo(-lockWidth * 0.28, -shieldHeight * 0.02)
-      ..lineTo(-lockWidth * 0.28, -shieldHeight * 0.09)
-      ..quadraticBezierTo(
-        0,
-        -shieldHeight * 0.22,
-        lockWidth * 0.28,
-        -shieldHeight * 0.09,
+      ..moveTo(
+        lockCenter.dx - lockWidth * 0.27,
+        lockCenter.dy + lockHeight * 0.02,
       )
-      ..lineTo(lockWidth * 0.28, -shieldHeight * 0.02);
+      ..lineTo(
+        lockCenter.dx - lockWidth * 0.27,
+        lockCenter.dy - lockHeight * 0.22,
+      )
+      ..quadraticBezierTo(
+        lockCenter.dx,
+        lockCenter.dy - lockHeight * 0.52,
+        lockCenter.dx + lockWidth * 0.27,
+        lockCenter.dy - lockHeight * 0.22,
+      )
+      ..lineTo(
+        lockCenter.dx + lockWidth * 0.27,
+        lockCenter.dy + lockHeight * 0.02,
+      );
 
     canvas.drawPath(shackle, lockPaint);
 
+    final keyhole = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
     canvas.drawCircle(
-      Offset(0, shieldHeight * 0.08),
-      2.2,
-      Paint()..color = color,
+      Offset(lockCenter.dx, lockCenter.dy + lockHeight * 0.19),
+      2.1,
+      keyhole,
     );
 
-    canvas.restore();
+    canvas.drawRect(
+      Rect.fromCenter(
+        center: Offset(lockCenter.dx, lockCenter.dy + lockHeight * 0.31),
+        width: 1.8,
+        height: 5.5,
+      ),
+      keyhole,
+    );
 
     // ==========================================================
-    // OUTER ROTATING ARCS
+    // SCAN ARC
     // ==========================================================
 
-    final arcPaint = Paint()
+    final scanPaint = Paint()
+      ..color = color.withValues(alpha: 0.65)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1
-      ..strokeCap = StrokeCap.round
-      ..color = color.withValues(alpha: 0.25);
+      ..strokeWidth = 1.15
+      ..strokeCap = StrokeCap.round;
 
-    final arcRect = Rect.fromCenter(
-      center: center,
-      width: shortest * 0.72,
-      height: shortest * 0.64,
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: maxRadius * 0.93),
+      rotation,
+      pi * 0.28,
+      false,
+      scanPaint,
     );
-
-    for (var i = 0; i < 4; i++) {
-      final start =
-          progress * 2 * pi * (i.isEven ? 0.22 : -0.18) + i * pi * 0.5;
-
-      canvas.drawArc(arcRect, start, pi * 0.34, false, arcPaint);
-    }
   }
 
   @override
