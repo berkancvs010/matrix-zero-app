@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
@@ -263,11 +264,34 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   ];
 
   int _index = 0;
+  late final Future<bool> _sessionRestoreFuture;
 
   @override
   void initState() {
     super.initState();
+
+    _sessionRestoreFuture = _restoreSession();
+
     _showNext();
+  }
+
+  Future<bool> _restoreSession() async {
+    try {
+      final saved = await SecureSession.read();
+
+      if (saved == null) {
+        return false;
+      }
+
+      final ok = await WsClient.instance.connect(
+        saved['username']!,
+        saved['password']!,
+      );
+
+      return ok;
+    } catch (_) {
+      return false;
+    }
   }
 
   void _showNext() {
@@ -286,8 +310,24 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     _timer = Timer(const Duration(milliseconds: 550), _showNext);
   }
 
-  void _openLogin() {
+  Future<void> _openLogin() async {
     if (!mounted) return;
+
+    final restored = await _sessionRestoreFuture;
+
+    if (!mounted) return;
+
+    if (restored) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => MainScreen(
+            nickname:
+                WsClient.instance.nickname ?? WsClient.instance.username ?? '',
+          ),
+        ),
+      );
+      return;
+    }
 
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
@@ -352,6 +392,47 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
       ),
     );
+  }
+}
+
+// ============================================================
+// SECURE SESSION
+// ============================================================
+
+class SecureSession {
+  SecureSession._();
+
+  static const String usernameKey = 'zerolog.session.username';
+  static const String passwordKey = 'zerolog.session.password';
+
+  static const FlutterSecureStorage storage = FlutterSecureStorage();
+
+  static Future<void> save({
+    required String username,
+    required String password,
+  }) async {
+    await storage.write(key: usernameKey, value: username);
+
+    await storage.write(key: passwordKey, value: password);
+  }
+
+  static Future<Map<String, String>?> read() async {
+    final username = await storage.read(key: usernameKey);
+    final password = await storage.read(key: passwordKey);
+
+    if (username == null ||
+        username.trim().isEmpty ||
+        password == null ||
+        password.isEmpty) {
+      return null;
+    }
+
+    return {'username': username, 'password': password};
+  }
+
+  static Future<void> clear() async {
+    await storage.delete(key: usernameKey);
+    await storage.delete(key: passwordKey);
   }
 }
 
@@ -897,6 +978,10 @@ class _NicknameScreenState extends State<NicknameScreen>
       return;
     }
 
+    await SecureSession.save(username: username, password: password);
+
+    if (!mounted) return;
+
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) =>
@@ -1240,10 +1325,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _handleEvent(Map<String, dynamic> data) {
+  Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
     final type = data['type'];
+
+    if (type == 'accountDeleted') {
+      await SecureSession.clear();
+      await WsClient.instance.disconnect();
+
+      if (!mounted) return;
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const NicknameScreen()),
+        (route) => false,
+      );
+      return;
+    }
 
     if (type == 'registered') {
       setState(() {
@@ -1382,6 +1480,102 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await ThemeController.instance.setTheme(theme);
   }
 
+  Future<void> _logout() async {
+    await WsClient.instance.disconnect();
+    await SecureSession.clear();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const NicknameScreen()),
+      (route) => false,
+    );
+  }
+
+  Future<void> _deleteAccount({required bool allData}) async {
+    final title = allData ? 'Tüm kayıtları sil' : 'Hesabı sil';
+
+    final message = allData
+        ? 'Hesabınız, özel mesajlarınız ve odalarda gönderdiğiniz mesajlar kalıcı olarak silinecek. Bu işlem geri alınamaz.'
+        : 'Hesabınız ve özel mesaj geçmişiniz kalıcı olarak silinecek. Bu işlem geri alınamaz.';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('İptal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Sil'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    WsClient.instance.send({
+      'type': allData ? 'deleteAllData' : 'deleteAccount',
+    });
+  }
+
+  void _openAccountMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: Text(widget.nickname),
+                  subtitle: const Text('Hesap'),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text('Oturumu kapat'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _logout();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Hesabı sil'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _deleteAccount(allData: false);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_forever_outlined),
+                  title: const Text('Tüm kayıtları sil'),
+                  subtitle: const Text('Hesap + özel mesajlar + oda mesajları'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _deleteAccount(allData: true);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -1397,6 +1591,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         appBar: AppBar(
           title: Text(widget.nickname),
           actions: [
+            IconButton(
+              tooltip: 'Hesap',
+              icon: const Icon(Icons.person_outline),
+              onPressed: _openAccountMenu,
+            ),
             PopupMenuButton<ZeroLogTheme>(
               tooltip: 'Tema',
               icon: const Icon(Icons.palette_outlined),
