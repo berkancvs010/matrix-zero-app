@@ -1856,6 +1856,116 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       }
     }
 
+
+    if (data['type'] == 'messageAck') {
+      final clientMessageId =
+          (data['clientMessageId'] ?? '').toString();
+
+      if (clientMessageId.isNotEmpty) {
+        final messageId = (data['messageId'] ?? '').toString();
+
+        setState(() {
+          for (var i = 0; i < _messages.length; i++) {
+            final message = _messages[i];
+
+            if (message.clientMessageId == clientMessageId) {
+              _messages[i] = message.copyWith(
+                id: messageId.isNotEmpty ? messageId : message.id,
+                status: 'stored',
+              );
+              break;
+            }
+          }
+        });
+      }
+
+      return;
+    }
+
+    if (data['type'] == 'messageDelivered') {
+      final messageId =
+          (data['messageId'] ?? '').toString();
+
+      final clientMessageId =
+          (data['clientMessageId'] ?? '').toString();
+
+      setState(() {
+        for (var i = 0; i < _messages.length; i++) {
+          final message = _messages[i];
+
+          final matches =
+              (clientMessageId.isNotEmpty &&
+                  message.clientMessageId == clientMessageId) ||
+              (messageId.isNotEmpty && message.id == messageId);
+
+          if (matches) {
+            _messages[i] = message.copyWith(
+              id: messageId.isNotEmpty ? messageId : message.id,
+              clientMessageId: clientMessageId.isNotEmpty
+                  ? clientMessageId
+                  : message.clientMessageId,
+              status: 'delivered',
+            );
+            break;
+          }
+        }
+      });
+
+      return;
+    }
+
+    if (data['type'] == 'pendingPrivateMessages') {
+      final list = data['messages'];
+
+      if (list is List) {
+        for (final item in list) {
+          if (item is Map) {
+            final map = Map<String, dynamic>.from(item);
+
+            final sender =
+                (map['sender'] ?? map['from'] ?? '').toString();
+
+            final target =
+                (map['to'] ?? map['target'] ?? '').toString();
+
+            if (sender.toLowerCase() !=
+                    widget.targetNick.toLowerCase() ||
+                target.toLowerCase() !=
+                    widget.myNick.toLowerCase()) {
+              continue;
+            }
+
+            final clientMessageId =
+                (map['clientMessageId'] ?? '').toString();
+
+            _addMessage(
+              ChatMessage(
+                id:
+                    (map['id'] ??
+                            (clientMessageId.isNotEmpty
+                                ? clientMessageId
+                                : 'pending-${map['ts'] ?? ''}-$sender-${map['text'] ?? ''}'))
+                        .toString(),
+                sender: sender,
+                text: (map['text'] ?? '').toString(),
+                clientMessageId: clientMessageId,
+                status: 'delivered',
+              ),
+            );
+
+            WsClient.instance.send({
+              'type': 'messageDelivered',
+              'from': sender,
+              'messageId': (map['id'] ?? '').toString(),
+              'clientMessageId': clientMessageId,
+            });
+          }
+        }
+      }
+
+      return;
+    }
+
     if (data['type'] == 'privateMessage') {
       final sender = (data['sender'] ?? data['from'] ?? '').toString();
 
@@ -1879,16 +1989,34 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         return;
       }
 
+      final clientMessageId =
+          (data['clientMessageId'] ?? '').toString();
+
       _addMessage(
         ChatMessage(
           id:
               (data['id'] ??
-                      'private-live-${data['ts'] ?? ''}-$sender-$target-${data['text'] ?? ''}')
+                      (clientMessageId.isNotEmpty
+                          ? clientMessageId
+                          : 'private-live-${data['ts'] ?? ''}-$sender-$target-${data['text'] ?? ''}'))
                   .toString(),
           sender: sender,
           text: (data['text'] ?? '').toString(),
+          clientMessageId: clientMessageId,
         ),
       );
+
+      // Mesaj karşı cihaza ulaştığında server'a teslim bilgisi gönder.
+      if (sender.toLowerCase() ==
+              widget.targetNick.toLowerCase() &&
+          clientMessageId.isNotEmpty) {
+        WsClient.instance.send({
+          'type': 'messageDelivered',
+          'from': sender,
+          'messageId': (data['id'] ?? '').toString(),
+          'clientMessageId': clientMessageId,
+        });
+      }
     }
   }
 
@@ -1919,10 +2047,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     if (text.isEmpty) return;
 
+    final clientMessageId =
+        '${DateTime.now().microsecondsSinceEpoch}-${widget.myNick}-${widget.targetNick}';
+
     WsClient.instance.send({
       'type': 'privateMessage',
       'to': widget.targetNick,
       'text': text,
+      'clientMessageId': clientMessageId,
     });
 
     _controller.clear();
@@ -2607,10 +2739,30 @@ class ChatMessage {
   final String id;
   final String sender;
   final String text;
+  final String clientMessageId;
+  final String status;
 
   const ChatMessage({
     required this.id,
     required this.sender,
     required this.text,
+    this.clientMessageId = '',
+    this.status = 'sending',
   });
+
+  ChatMessage copyWith({
+    String? id,
+    String? sender,
+    String? text,
+    String? clientMessageId,
+    String? status,
+  }) {
+    return ChatMessage(
+      id: id ?? this.id,
+      sender: sender ?? this.sender,
+      text: text ?? this.text,
+      clientMessageId: clientMessageId ?? this.clientMessageId,
+      status: status ?? this.status,
+    );
+  }
 }
