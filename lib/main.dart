@@ -1060,7 +1060,7 @@ class _ZeroLogGeometryPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
 
-    final center = Offset(size.width * 0.50, size.height * 0.45);
+    final center = Offset(size.width * 0.50, size.height * 0.34);
 
     final shortest = min(size.width, size.height);
     final base = shortest * 0.18;
