@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -758,14 +759,27 @@ class NicknameScreen extends StatefulWidget {
   State<NicknameScreen> createState() => _NicknameScreenState();
 }
 
-class _NicknameScreenState extends State<NicknameScreen> {
+class _NicknameScreenState extends State<NicknameScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _usernameController = TextEditingController();
 
   final TextEditingController _passwordController = TextEditingController();
 
+  late final AnimationController _geometryController;
+
   bool _loading = false;
   bool _registerMode = false;
   bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _geometryController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 18),
+    )..repeat();
+  }
 
   Future<void> _submit() async {
     final username = _usernameController.text.trim();
@@ -897,6 +911,7 @@ class _NicknameScreenState extends State<NicknameScreen> {
 
   @override
   void dispose() {
+    _geometryController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -906,111 +921,275 @@ class _NicknameScreenState extends State<NicknameScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('ZERO LOG'), centerTitle: true),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.shield_outlined,
-                  size: 72,
-                  color: ThemeController.instance.data.primary,
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'ZeroLog',
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _geometryController,
+              builder: (context, child) {
+                return CustomPaint(
+                  painter: _ZeroLogGeometryPainter(
+                    progress: _geometryController.value,
                     color: ThemeController.instance.data.primary,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _registerMode
-                      ? 'Yeni hesabını oluştur'
-                      : 'Gizli iletişim alanına giriş yap',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 28),
-                TextField(
-                  controller: _usernameController,
-                  enabled: !_loading,
-                  textInputAction: TextInputAction.next,
-                  autocorrect: false,
-                  decoration: const InputDecoration(
-                    labelText: 'Kullanıcı adı',
-                    prefixIcon: Icon(Icons.person_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _passwordController,
-                  enabled: !_loading,
-                  obscureText: _obscurePassword,
-                  onSubmitted: (_) => _submit(),
-                  decoration: InputDecoration(
-                    labelText: 'Şifre',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
-                      },
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                    ),
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: FilledButton(
-                    onPressed: _loading ? null : _submit,
-                    child: _loading
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(_registerMode ? 'HESAP OLUŞTUR' : 'GİRİŞ YAP'),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: _loading
-                      ? null
-                      : () {
-                          setState(() {
-                            _registerMode = !_registerMode;
-                          });
-                        },
-                  child: Text(
-                    _registerMode ? 'Zaten hesabım var' : 'Yeni hesap oluştur',
-                  ),
-                ),
-                const SizedBox(height: 30),
-                const Text(
-                  'ZeroLog • Gizlilik odaklı iletişim',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12),
-                ),
-              ],
+                );
+              },
             ),
           ),
-        ),
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.shield_outlined,
+                      size: 72,
+                      color: ThemeController.instance.data.primary,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'ZeroLog',
+                      style: TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.bold,
+                        color: ThemeController.instance.data.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    TextField(
+                      controller: _usernameController,
+                      enabled: !_loading,
+                      textInputAction: TextInputAction.next,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Kullanıcı adı',
+                        prefixIcon: Icon(Icons.person_outline),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: _passwordController,
+                      enabled: !_loading,
+                      obscureText: _obscurePassword,
+                      onSubmitted: (_) => _submit(),
+                      decoration: InputDecoration(
+                        labelText: 'Şifre',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                          ),
+                        ),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: FilledButton(
+                        onPressed: _loading ? null : _submit,
+                        child: _loading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                _registerMode ? 'HESAP OLUŞTUR' : 'GİRİŞ YAP',
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: _loading
+                          ? null
+                          : () {
+                              setState(() {
+                                _registerMode = !_registerMode;
+                              });
+                            },
+                      child: Text(
+                        _registerMode
+                            ? 'Zaten hesabım var'
+                            : 'Yeni hesap oluştur',
+                      ),
+                    ),
+                    const SizedBox(height: 30),
+                    const Text(
+                      'ZeroLog • Gizlilik odaklı iletişim',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+}
+
+// ============================================================
+// ZEROLOG LOGIN GEOMETRY
+// ============================================================
+
+class _ZeroLogGeometryPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  const _ZeroLogGeometryPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+
+    final center = Offset(size.width * 0.50, size.height * 0.45);
+
+    final shortest = min(size.width, size.height);
+    final base = shortest * 0.18;
+
+    final linePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.15
+      ..color = color.withValues(alpha: 0.14);
+
+    final softPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = color.withValues(alpha: 0.075);
+
+    // Ana iç içe küpler.
+    _drawCube(canvas, center, base * 1.55, progress * 2 * pi, linePaint);
+
+    _drawCube(
+      canvas,
+      center,
+      base * 1.05,
+      -progress * 2 * pi * 1.35 + 0.8,
+      softPaint,
+    );
+
+    _drawCube(canvas, center, base * 0.62, progress * 2 * pi * 1.8, linePaint);
+
+    // Dönen eliptik halkalar.
+    for (var i = 0; i < 5; i++) {
+      final angle = progress * 2 * pi * (i.isEven ? 1.0 : -0.72) + i * 0.92;
+
+      final radius = base * (1.65 + i * 0.30);
+
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(angle);
+
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset.zero,
+          width: radius * 1.75,
+          height: radius * 0.38,
+        ),
+        softPaint,
+      );
+
+      canvas.restore();
+    }
+
+    // Uzak, ince eksen çizgileri.
+    final axisPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.7
+      ..color = color.withValues(alpha: 0.055);
+
+    final wave = sin(progress * 2 * pi);
+
+    for (var i = -3; i <= 3; i++) {
+      final x = center.dx + i * base * 0.42;
+
+      canvas.drawLine(
+        Offset(x, center.dy - base * 2.1),
+        Offset(x + wave * base * 0.35, center.dy + base * 2.1),
+        axisPaint,
+      );
+    }
+  }
+
+  void _drawCube(
+    Canvas canvas,
+    Offset center,
+    double size,
+    double angle,
+    Paint paint,
+  ) {
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(angle);
+
+    final half = size * 0.5;
+    final depth = size * 0.34;
+
+    final front = Path()
+      ..moveTo(-half, -half)
+      ..lineTo(half, -half)
+      ..lineTo(half, half)
+      ..lineTo(-half, half)
+      ..close();
+
+    final back = Path()
+      ..moveTo(-half + depth, -half + depth)
+      ..lineTo(half + depth, -half + depth)
+      ..lineTo(half + depth, half + depth)
+      ..lineTo(-half + depth, half + depth)
+      ..close();
+
+    canvas.drawPath(front, paint);
+    canvas.drawPath(back, paint);
+
+    canvas.drawLine(
+      Offset(-half, -half),
+      Offset(-half + depth, -half + depth),
+      paint,
+    );
+
+    canvas.drawLine(
+      Offset(half, -half),
+      Offset(half + depth, -half + depth),
+      paint,
+    );
+
+    canvas.drawLine(
+      Offset(half, half),
+      Offset(half + depth, half + depth),
+      paint,
+    );
+
+    canvas.drawLine(
+      Offset(-half, half),
+      Offset(-half + depth, half + depth),
+      paint,
+    );
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _ZeroLogGeometryPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.color != color;
   }
 }
 
