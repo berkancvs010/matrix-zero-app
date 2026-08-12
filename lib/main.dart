@@ -831,7 +831,8 @@ class WsClient {
 /// ZeroLog approved reference UI.
 /// The reference image supplies the visual design.
 /// Flutter supplies only transparent interaction layers.
-class ZeroLogReferenceLogin extends StatelessWidget {
+
+class ZeroLogReferenceLogin extends StatefulWidget {
   final TextEditingController usernameController;
   final TextEditingController passwordController;
   final bool loading;
@@ -852,117 +853,401 @@ class ZeroLogReferenceLogin extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      resizeToAvoidBottomInset: true,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth;
-          final h = constraints.maxHeight;
+  State<ZeroLogReferenceLogin> createState() => _ZeroLogReferenceLoginState();
+}
 
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              const Image(
-                image: AssetImage('assets/zerolog_login_reference.png'),
-                fit: BoxFit.cover,
-              ),
+class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animationController;
 
-              Positioned(
-                left: w * 0.10,
-                right: w * 0.10,
-                top: h * 0.487,
-                height: h * 0.055,
-                child: TextField(
-                  controller: usernameController,
-                  enabled: !loading,
-                  autocorrect: false,
-                  textInputAction: TextInputAction.next,
-                  style: TextStyle(
-                    color: ThemeController.instance.data.primary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    decoration: TextDecoration.none,
-                  ),
-                  cursorColor: Colors.white,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
+  @override
+  void initState() {
+    super.initState();
+
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  Widget _field({
+    required TextEditingController controller,
+    required String hint,
+    required bool obscureText,
+    required bool enabled,
+    TextInputAction? inputAction,
+    VoidCallback? onToggle,
+    VoidCallback? onSubmitted,
+  }) {
+    return Container(
+      height: 62,
+      decoration: BoxDecoration(
+        color: const Color(0xD9000904),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFF39FF88).withValues(alpha: 0.72),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00FF66).withValues(alpha: 0.10),
+            blurRadius: 18,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        autocorrect: false,
+        obscureText: obscureText,
+        textInputAction: inputAction,
+        onSubmitted: onSubmitted == null ? null : (_) => onSubmitted(),
+        style: const TextStyle(
+          color: Color(0xFF45FF8A),
+          fontSize: 18,
+          fontWeight: FontWeight.w500,
+          decoration: TextDecoration.none,
+        ),
+        cursorColor: const Color(0xFF70FFA6),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(
+            color: Colors.white.withValues(alpha: 0.42),
+            fontSize: 17,
+          ),
+          prefixIcon: Icon(
+            hint == 'Kullanıcı adı' ? Icons.person_outline : Icons.lock_outline,
+            color: Colors.white.withValues(alpha: 0.78),
+            size: 27,
+          ),
+          suffixIcon: onToggle == null
+              ? null
+              : IconButton(
+                  onPressed: onToggle,
+                  icon: Icon(
+                    obscureText
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: Colors.white.withValues(alpha: 0.82),
+                    size: 27,
                   ),
                 ),
-              ),
-
-              Positioned(
-                left: w * 0.10,
-                right: w * 0.10,
-                top: h * 0.552,
-                height: h * 0.055,
-                child: TextField(
-                  controller: passwordController,
-                  enabled: !loading,
-                  obscureText: obscurePassword,
-                  onSubmitted: (_) => onSubmit(),
-                  style: TextStyle(
-                    color: ThemeController.instance.data.primary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    decoration: TextDecoration.none,
-                  ),
-                  cursorColor: Colors.white,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-
-              Positioned(
-                right: w * 0.10,
-                top: h * 0.552,
-                width: w * 0.12,
-                height: h * 0.055,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: onTogglePassword,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                ),
-              ),
-
-              Positioned(
-                left: w * 0.09,
-                right: w * 0.09,
-                top: h * 0.666,
-                height: h * 0.065,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: loading ? null : onSubmit,
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                ),
-              ),
-
-              Positioned(
-                left: w * 0.10,
-                right: w * 0.10,
-                top: h * 0.800,
-                height: h * 0.055,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: loading ? null : onRegister,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 18,
+          ),
+        ),
       ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final size = media.size;
+    final keyboard = media.viewInsets.bottom;
+
+    /*
+     * Kritik nokta:
+     * Scaffold klavye yüzünden yeniden boyutlandırılmıyor.
+     * Böylece arka plan/logo asla yeniden ölçeklenmiyor.
+     */
+    final keyboardShift = keyboard > 0
+        ? (keyboard * 0.34).clamp(0.0, 105.0)
+        : 0.0;
+
+    final horizontal = (size.width * 0.095).clamp(22.0, 46.0);
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ----------------------------------------------------
+          // STATIC REFERENCE BACKGROUND
+          // ----------------------------------------------------
+          const Image(
+            image: AssetImage('assets/zerolog_login_reference.png'),
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.high,
+          ),
+
+          // ----------------------------------------------------
+          // ANIMATED LIGHT LAYER
+          // ----------------------------------------------------
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _animationController,
+              builder: (context, child) {
+                final t = _animationController.value;
+                final x = -0.20 + (t * 1.40);
+                final y = 0.18 + (0.10 * (0.5 + 0.5 * _sin(t)));
+
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Align(
+                      alignment: Alignment(x, y),
+                      child: Container(
+                        width: size.width * 0.65,
+                        height: size.height * 0.24,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              const Color(0xFF00FF66).withValues(alpha: 0.055),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment(-x, -y),
+                      child: Container(
+                        width: size.width * 0.48,
+                        height: size.height * 0.18,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              const Color(0xFF39FF88).withValues(alpha: 0.035),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+
+          // ----------------------------------------------------
+          // LOGIN CONTENT
+          // ----------------------------------------------------
+          SafeArea(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(0, -keyboardShift, 0),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final h = constraints.maxHeight;
+
+                  return SingleChildScrollView(
+                    physics: keyboard > 0
+                        ? const ClampingScrollPhysics()
+                        : const NeverScrollableScrollPhysics(),
+                    child: SizedBox(
+                      height: h,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: horizontal),
+                        child: Column(
+                          children: [
+                            SizedBox(height: h * 0.445),
+
+                            _field(
+                              controller: widget.usernameController,
+                              hint: 'Kullanıcı adı',
+                              obscureText: false,
+                              enabled: !widget.loading,
+                              inputAction: TextInputAction.next,
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            _field(
+                              controller: widget.passwordController,
+                              hint: 'Şifre',
+                              obscureText: widget.obscurePassword,
+                              enabled: !widget.loading,
+                              inputAction: TextInputAction.done,
+                              onSubmitted: widget.onSubmit,
+                              onToggle: widget.onTogglePassword,
+                            ),
+
+                            const SizedBox(height: 17),
+
+                            SizedBox(
+                              width: double.infinity,
+                              height: 66,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: widget.loading
+                                      ? null
+                                      : widget.onSubmit,
+                                  borderRadius: BorderRadius.circular(28),
+                                  child: Ink(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(28),
+                                      gradient: const LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Color(0xFF153D25),
+                                          Color(0xFF07140B),
+                                        ],
+                                      ),
+                                      border: Border.all(
+                                        color: const Color(0xFF43FF91),
+                                        width: 1.4,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(
+                                            0xFF00FF66,
+                                          ).withValues(alpha: 0.18),
+                                          blurRadius: 18,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Center(
+                                      child: widget.loading
+                                          ? const SizedBox(
+                                              width: 24,
+                                              height: 24,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Color(0xFF55FF99),
+                                              ),
+                                            )
+                                          : const Text(
+                                              'G İ R İ Ş   Y A P',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.w400,
+                                                letterSpacing: 4.5,
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 13),
+
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: widget.loading ? null : () {},
+                                child: const Text(
+                                  'Şifremi Unuttum?',
+                                  style: TextStyle(
+                                    color: Color(0xFF38FF80),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 9),
+
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Divider(
+                                    color: Colors.white.withValues(alpha: 0.22),
+                                  ),
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 18),
+                                  child: Text(
+                                    'VEYA',
+                                    style: TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 13,
+                                      letterSpacing: 3,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Divider(
+                                    color: Colors.white.withValues(alpha: 0.22),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            SizedBox(
+                              width: double.infinity,
+                              height: 56,
+                              child: OutlinedButton(
+                                onPressed: widget.loading
+                                    ? null
+                                    : widget.onRegister,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF52FF9A),
+                                  side: BorderSide(
+                                    color: const Color(
+                                      0xFF39FF88,
+                                    ).withValues(alpha: 0.85),
+                                    width: 1.2,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  backgroundColor: const Color(0x99000703),
+                                ),
+                                child: const Text(
+                                  'Yeni hesap oluştur',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const Spacer(),
+
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 18),
+                              child: Text(
+                                'ZeroLog • Gizlilik odaklı iletişim',
+                                style: TextStyle(
+                                  color: const Color(
+                                    0xFF2EFF72,
+                                  ).withValues(alpha: 0.72),
+                                  fontSize: 14,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _sin(double value) {
+    // Küçük ve yumuşak animasyon için sinüs yaklaşımı.
+    return (value < 0.5) ? (value * 2) : (1.0 - ((value - 0.5) * 2));
   }
 }
 
@@ -1856,10 +2141,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       }
     }
 
-
     if (data['type'] == 'messageAck') {
-      final clientMessageId =
-          (data['clientMessageId'] ?? '').toString();
+      final clientMessageId = (data['clientMessageId'] ?? '').toString();
 
       if (clientMessageId.isNotEmpty) {
         final messageId = (data['messageId'] ?? '').toString();
@@ -1883,11 +2166,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
 
     if (data['type'] == 'messageDelivered') {
-      final messageId =
-          (data['messageId'] ?? '').toString();
+      final messageId = (data['messageId'] ?? '').toString();
 
-      final clientMessageId =
-          (data['clientMessageId'] ?? '').toString();
+      final clientMessageId = (data['clientMessageId'] ?? '').toString();
 
       setState(() {
         for (var i = 0; i < _messages.length; i++) {
@@ -1922,21 +2203,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           if (item is Map) {
             final map = Map<String, dynamic>.from(item);
 
-            final sender =
-                (map['sender'] ?? map['from'] ?? '').toString();
+            final sender = (map['sender'] ?? map['from'] ?? '').toString();
 
-            final target =
-                (map['to'] ?? map['target'] ?? '').toString();
+            final target = (map['to'] ?? map['target'] ?? '').toString();
 
-            if (sender.toLowerCase() !=
-                    widget.targetNick.toLowerCase() ||
-                target.toLowerCase() !=
-                    widget.myNick.toLowerCase()) {
+            if (sender.toLowerCase() != widget.targetNick.toLowerCase() ||
+                target.toLowerCase() != widget.myNick.toLowerCase()) {
               continue;
             }
 
-            final clientMessageId =
-                (map['clientMessageId'] ?? '').toString();
+            final clientMessageId = (map['clientMessageId'] ?? '').toString();
 
             _addMessage(
               ChatMessage(
@@ -1989,8 +2265,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         return;
       }
 
-      final clientMessageId =
-          (data['clientMessageId'] ?? '').toString();
+      final clientMessageId = (data['clientMessageId'] ?? '').toString();
 
       _addMessage(
         ChatMessage(
@@ -2007,8 +2282,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       );
 
       // Mesaj karşı cihaza ulaştığında server'a teslim bilgisi gönder.
-      if (sender.toLowerCase() ==
-              widget.targetNick.toLowerCase() &&
+      if (sender.toLowerCase() == widget.targetNick.toLowerCase() &&
           clientMessageId.isNotEmpty) {
         WsClient.instance.send({
           'type': 'messageDelivered',
