@@ -1,4 +1,4 @@
-package com.example.matrix_zero
+package com.zerolog.app
 
 import io.flutter.embedding.android.FlutterActivity
 
