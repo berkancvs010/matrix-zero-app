@@ -1963,6 +1963,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _connected = false;
   bool _reconnecting = false;
 
+  int _selectedIndex = 0;
+
   @override
   void initState() {
     super.initState();
@@ -2323,145 +2325,717 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(widget.nickname),
-          actions: [
-            IconButton(
-              tooltip: 'Hesap',
-              icon: const Icon(Icons.person_outline),
-              onPressed: _openAccountMenu,
-            ),
-            PopupMenuButton<ZeroLogTheme>(
-              tooltip: 'Tema',
-              icon: const Icon(Icons.palette_outlined),
-              onSelected: _selectTheme,
-              itemBuilder: (_) {
-                return ZeroLogTheme.values.map((theme) {
-                  final data = zeroLogThemes[theme]!;
+  Widget _avatar(String name, {bool online = false}) {
+    final theme = ThemeController.instance.data;
+    final letter = name.trim().isEmpty
+        ? '?'
+        : name.trim().substring(0, 1).toUpperCase();
 
-                  return PopupMenuItem<ZeroLogTheme>(
-                    value: theme,
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            color: data.primary,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(child: Text(data.name)),
-                        if (ThemeController.instance.current == theme)
-                          const Icon(Icons.check, size: 18),
-                      ],
-                    ),
-                  );
-                }).toList();
-              },
+    return Stack(
+      children: [
+        CircleAvatar(
+          radius: 25,
+          backgroundColor: theme.primary.withValues(alpha: 0.14),
+          child: Text(
+            letter,
+            style: TextStyle(
+              color: theme.primary,
+              fontWeight: FontWeight.w700,
+              fontSize: 17,
             ),
-            Padding(
-              padding: const EdgeInsets.only(right: 14),
-              child: Center(
-                child: Icon(
-                  Icons.circle,
-                  size: 12,
-                  color: _connected
-                      ? Colors.greenAccent
-                      : _reconnecting
-                      ? Colors.amber
-                      : Colors.red,
+          ),
+        ),
+        if (online)
+          Positioned(
+            right: 0,
+            bottom: 1,
+            child: Container(
+              width: 13,
+              height: 13,
+              decoration: BoxDecoration(
+                color: Colors.greenAccent,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: theme.background,
+                  width: 2,
                 ),
               ),
             ),
-          ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(icon: Icon(Icons.forum_outlined), text: 'Odalar'),
-              Tab(icon: Icon(Icons.people_outline), text: 'Online'),
+          ),
+      ],
+    );
+  }
+
+  Widget _sectionTitle(String title, {String? action}) {
+    final theme = ThemeController.instance.data;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: theme.text,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (action != null)
+            Text(
+              action,
+              style: TextStyle(
+                color: theme.primary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _connectionBanner() {
+    final theme = ThemeController.instance.data;
+
+    if (_connected && !_reconnecting) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.primary.withValues(alpha: 0.16),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: theme.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            _reconnecting ? 'Bağlantı yeniden kuruluyor…' : 'Bağlanıyor…',
+            style: TextStyle(
+              color: theme.text,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChatsPage() {
+    final theme = ThemeController.instance.data;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 110),
+      children: [
+        _connectionBanner(),
+
+        _sectionTitle('Sohbetler'),
+
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: theme.surface,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: TextField(
+            readOnly: true,
+            onTap: () {
+              setState(() {
+                _selectedIndex = 1;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'Rumuz veya sohbet ara',
+              prefixIcon: const Icon(Icons.search_rounded),
+              border: InputBorder.none,
+              filled: false,
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+        ),
+
+        _sectionTitle('Sohbet odaları'),
+
+        ...rooms.map(
+          (room) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Material(
+              color: theme.surface,
+              borderRadius: BorderRadius.circular(17),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(17),
+                onTap: () => _openRoom(room),
+                child: Padding(
+                  padding: const EdgeInsets.all(15),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: theme.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          Icons.tag_rounded,
+                          color: theme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              room,
+                              style: TextStyle(
+                                color: theme.text,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Sohbet odası',
+                              style: TextStyle(
+                                color: theme.text.withValues(alpha: 0.58),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: theme.text.withValues(alpha: 0.58),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContactsPage() {
+    final theme = ThemeController.instance.data;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 110),
+      children: [
+        _sectionTitle('Kişiler'),
+
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: theme.surface,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: TextField(
+            decoration: InputDecoration(
+              hintText: 'Rumuz ara…',
+              prefixIcon: const Icon(Icons.search_rounded),
+              border: InputBorder.none,
+              filled: false,
+            ),
+            onSubmitted: (value) {
+              final target = value.trim();
+              if (target.isNotEmpty &&
+                  target.toLowerCase() != widget.nickname.toLowerCase()) {
+                _openPrivate(target);
+              }
+            },
+          ),
+        ),
+
+        _sectionTitle(
+          'Çevrimiçi',
+          action: '${_onlineUsers.length} kişi',
+        ),
+
+        if (_onlineUsers.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 30, 24, 20),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.people_outline_rounded,
+                  size: 48,
+                  color: theme.text.withValues(alpha: 0.58),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Şu anda çevrimiçi kullanıcı yok.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.58),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          ..._onlineUsers.map(
+            (user) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Material(
+                color: theme.surface,
+                borderRadius: BorderRadius.circular(17),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 11,
+                  ),
+                  child: Row(
+                    children: [
+                      _avatar(user, online: true),
+                      const SizedBox(width: 13),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              user,
+                              style: TextStyle(
+                                color: theme.text,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Çevrimiçi',
+                              style: TextStyle(
+                                color: theme.text.withValues(alpha: 0.58),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Mesaj',
+                        icon: const Icon(Icons.chat_bubble_outline_rounded),
+                        onPressed: () => _openPrivate(user),
+                      ),
+                      IconButton(
+                        tooltip: 'Sesli ara',
+                        icon: const Icon(Icons.call_outlined),
+                        onPressed: () => _call(user),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCallsPage() {
+    final theme = ThemeController.instance.data;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 110),
+      children: [
+        _sectionTitle('Çağrılar'),
+
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: theme.surface,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  color: theme.primary.withValues(alpha: 0.10),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.call_rounded,
+                  size: 31,
+                  color: theme.primary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Çağrı geçmişi',
+                style: TextStyle(
+                  color: theme.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                'Yaptığınız ve aldığınız sesli çağrılar burada görünecek.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: 0.58),
+                  height: 1.4,
+                  fontSize: 13,
+                ),
+              ),
             ],
           ),
         ),
-        body: TabBarView(
-          children: [
-            ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              itemCount: rooms.length,
-              itemBuilder: (_, index) {
-                final room = rooms[index];
 
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 5,
+        _sectionTitle('Hızlı arama'),
+
+        ..._onlineUsers.take(5).map(
+          (user) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Material(
+              color: theme.surface,
+              borderRadius: BorderRadius.circular(17),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 15,
+                  vertical: 4,
+                ),
+                leading: _avatar(user, online: true),
+                title: Text(
+                  user,
+                  style: TextStyle(
+                    color: theme.text,
+                    fontWeight: FontWeight.w700,
                   ),
-                  child: ListTile(
-                    leading: CircleAvatar(child: Text('${index + 1}')),
-                    title: Text(room),
-                    subtitle: const Text('Sohbet odası'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _openRoom(room),
+                ),
+                subtitle: Text(
+                  'Çevrimiçi',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.58),
+                    fontSize: 12,
+                  ),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.call_rounded),
+                  color: theme.primary,
+                  onPressed: () => _call(user),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSettingsPage() {
+    final theme = ThemeController.instance.data;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 110),
+      children: [
+        _sectionTitle('Ayarlar'),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Material(
+            color: theme.surface,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                children: [
+                  _avatar(widget.nickname),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.nickname,
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _connected ? 'Bağlı' : 'Bağlantı bekleniyor',
+                          style: TextStyle(
+                            color: _connected
+                                ? Colors.greenAccent
+                                : theme.text.withValues(alpha: 0.58),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        _settingsTile(
+          icon: Icons.person_outline_rounded,
+          title: 'Hesap',
+          subtitle: 'Profil ve hesap işlemleri',
+          onTap: _openAccountMenu,
+        ),
+
+        _settingsTile(
+          icon: Icons.palette_outlined,
+          title: 'Görünüm',
+          subtitle: 'ZeroLog temasını değiştir',
+          onTap: () {
+            showModalBottomSheet(
+              context: context,
+              backgroundColor: theme.surface,
+              builder: (_) {
+                return SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Görünüm',
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        ...ZeroLogTheme.values.map(
+                          (value) {
+                            final data = zeroLogThemes[value]!;
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: CircleAvatar(
+                                backgroundColor: data.primary,
+                                radius: 10,
+                              ),
+                              title: Text(data.name),
+                              trailing:
+                                  ThemeController.instance.current == value
+                                      ? Icon(
+                                          Icons.check_rounded,
+                                          color: theme.primary,
+                                        )
+                                      : null,
+                              onTap: () {
+                                Navigator.pop(context);
+                                _selectTheme(value);
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
-            ),
-            _onlineUsers.isEmpty
-                ? const Center(
-                    child: Text('Şu anda çevrimiçi kullanıcı görünmüyor.'),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    itemCount: _onlineUsers.length,
-                    itemBuilder: (_, index) {
-                      final user = _onlineUsers[index];
+            );
+          },
+        ),
 
-                      return Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 5,
-                        ),
-                        child: ListTile(
-                          leading: const Icon(
-                            Icons.circle,
-                            color: Colors.greenAccent,
-                            size: 13,
-                          ),
-                          title: Text(user),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: 'Mesaj',
-                                icon: const Icon(Icons.chat_outlined),
-                                onPressed: () => _openPrivate(user),
-                              ),
-                              IconButton(
-                                tooltip: 'Sesli ara',
-                                icon: const Icon(
-                                  Icons.call,
-                                  color: Colors.greenAccent,
-                                ),
-                                onPressed: () => _call(user),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ],
+        _settingsTile(
+          icon: Icons.notifications_none_rounded,
+          title: 'Bildirimler',
+          subtitle: 'Mesaj ve çağrı bildirimleri',
+          onTap: () {},
+        ),
+
+        _settingsTile(
+          icon: Icons.lock_outline_rounded,
+          title: 'Gizlilik',
+          subtitle: 'ZeroLog gizlilik seçenekleri',
+          onTap: () {},
+        ),
+      ],
+    );
+  }
+
+  Widget _settingsTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final theme = ThemeController.instance.data;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Material(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(17),
+        child: ListTile(
+          onTap: onTap,
+          leading: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: theme.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, color: theme.primary),
+          ),
+          title: Text(
+            title,
+            style: TextStyle(
+              color: theme.text,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            subtitle,
+            style: TextStyle(
+              color: theme.text.withValues(alpha: 0.58),
+              fontSize: 12,
+            ),
+          ),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: theme.text.withValues(alpha: 0.58),
+          ),
         ),
       ),
     );
   }
-}
 
+  @override
+  Widget build(BuildContext context) {
+    final theme = ThemeController.instance.data;
+
+    final pages = [
+      _buildChatsPage(),
+      _buildContactsPage(),
+      _buildCallsPage(),
+      _buildSettingsPage(),
+    ];
+
+    const titles = [
+      'ZeroLog',
+      'Kişiler',
+      'Çağrılar',
+      'Ayarlar',
+    ];
+
+    return Scaffold(
+      backgroundColor: theme.background,
+      appBar: AppBar(
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: theme.background,
+        surfaceTintColor: Colors.transparent,
+        titleSpacing: 20,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              titles[_selectedIndex],
+              style: TextStyle(
+                color: theme.text,
+                fontSize: 23,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (_selectedIndex == 0)
+              Text(
+                'Özel ve güvenli iletişim',
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: 0.58),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Hesap',
+            icon: const Icon(Icons.person_outline_rounded),
+            onPressed: _openAccountMenu,
+          ),
+        ],
+      ),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: pages,
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        backgroundColor: theme.surface,
+        indicatorColor: theme.primary.withValues(alpha: 0.14),
+        elevation: 0,
+        height: 72,
+        onDestinationSelected: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        destinations: [
+          NavigationDestination(
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            selectedIcon: Icon(
+              Icons.chat_bubble_rounded,
+              color: theme.primary,
+            ),
+            label: 'Sohbetler',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.people_outline_rounded),
+            selectedIcon: Icon(
+              Icons.people_rounded,
+              color: theme.primary,
+            ),
+            label: 'Kişiler',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.call_outlined),
+            selectedIcon: Icon(
+              Icons.call_rounded,
+              color: theme.primary,
+            ),
+            label: 'Çağrılar',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.settings_outlined),
+            selectedIcon: Icon(
+              Icons.settings_rounded,
+              color: theme.primary,
+            ),
+            label: 'Ayarlar',
+          ),
+        ],
+      ),
+    );
+  }
+}
 // ============================================================
 // ROOM CHAT
 // ============================================================
