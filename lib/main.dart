@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -22,9 +24,100 @@ const List<String> rooms = [
   'gece',
 ];
 
-void main() {
+
+// ============================================================
+// FIREBASE / FCM
+// ============================================================
+// FCM background mesajları için top-level handler.
+// Android uygulamayı arka planda/kapalı durumda uyandırdığında çalışabilir.
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+
+  debugPrint(
+    '[FCM][background] '
+    'messageId=${message.messageId} '
+    'type=${message.data['type']}',
+  );
+}
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp();
+  await ZeroLogPushService.initialize();
+
   runApp(const MatrixZeroApp());
+}
+
+
+class ZeroLogPushService {
+  ZeroLogPushService._();
+
+  static final FirebaseMessaging _messaging =
+      FirebaseMessaging.instance;
+
+  static String? _currentToken;
+
+  static String? get currentToken => _currentToken;
+
+  static Future<void> initialize() async {
+    FirebaseMessaging.onBackgroundMessage(
+      _firebaseMessagingBackgroundHandler,
+    );
+
+    final settings = await _messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
+
+    debugPrint(
+      '[FCM] permission=${settings.authorizationStatus}',
+    );
+
+    final token = await _messaging.getToken();
+
+    _currentToken = token;
+
+    debugPrint('[FCM] token=$token');
+
+    _messaging.onTokenRefresh.listen((newToken) {
+      _currentToken = newToken;
+
+      debugPrint('[FCM] token_refresh=$newToken');
+
+      WsClient.instance.updateFcmToken(newToken);
+    });
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      debugPrint(
+        '[FCM][foreground] '
+        'messageId=${message.messageId} '
+        'type=${message.data['type']} '
+        'title=${message.notification?.title}',
+      );
+    });
+
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      debugPrint(
+        '[FCM][opened] '
+        'messageId=${message.messageId} '
+        'type=${message.data['type']}',
+      );
+    });
+
+    final initialMessage = await _messaging.getInitialMessage();
+
+    if (initialMessage != null) {
+      debugPrint(
+        '[FCM][initial] '
+        'messageId=${initialMessage.messageId} '
+        'type=${initialMessage.data['type']}',
+      );
+    }
+  }
 }
 
 // ============================================================
@@ -548,6 +641,17 @@ class WsClient {
     }
   }
 
+  void updateFcmToken(String token) {
+    final clean = token.trim();
+
+    if(clean.isEmpty) return;
+
+    send({
+      'type': 'fcmToken',
+      'token': clean,
+    });
+  }
+
   Future<bool> connect(String username, String password) async {
     _manualDisconnect = false;
     this.username = username.trim();
@@ -684,6 +788,7 @@ class WsClient {
           'type': 'login',
           'username': username,
           'password': password,
+          'fcmToken': ZeroLogPushService.currentToken,
         }),
       );
 
