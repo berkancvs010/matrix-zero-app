@@ -68,9 +68,15 @@ Future<void> _firebaseMessagingBackgroundHandler(
 ) async {
   await Firebase.initializeApp();
 
-  if (message.data['type'] == 'callInvite') {
+  final type = message.data['type'];
+
+  if (type == 'callInvite') {
     await ZeroLogPushService.showIncomingCallNotification(
       message.data,
+    );
+  } else if (type == 'privateMessage') {
+    await ZeroLogPushService.showPrivateMessageNotification(
+      message,
     );
   }
 
@@ -140,6 +146,7 @@ class ZeroLogPushService {
           playSound: true,
           enableVibration: true,
           showBadge: true,
+            sound: RawResourceAndroidNotificationSound('zerolog_call'),
           audioAttributesUsage:
               AudioAttributesUsage.voiceCommunication,
         ),
@@ -155,6 +162,7 @@ class ZeroLogPushService {
           playSound: true,
           enableVibration: true,
           showBadge: true,
+            sound: RawResourceAndroidNotificationSound('zerolog_message'),
         ),
       );
 
@@ -323,6 +331,7 @@ class ZeroLogPushService {
       ongoing: true,
       autoCancel: false,
       showWhen: false,
+        sound: RawResourceAndroidNotificationSound('zerolog_call'),
       audioAttributesUsage:
           AudioAttributesUsage.voiceCommunication,
     );
@@ -369,6 +378,7 @@ class ZeroLogPushService {
         playSound: true,
         enableVibration: true,
         showWhen: true,
+        sound: RawResourceAndroidNotificationSound('zerolog_message'),
       );
 
       await _notifications.show(
