@@ -2057,25 +2057,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
+      _scrollToBottom();
 
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
-
-      // Klavye açıkken Android'in yeniden layout hesaplamasını bekle.
-      Future.delayed(const Duration(milliseconds: 120), () {
-        if (!_scrollController.hasClients) return;
-
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-        );
+      // Android klavyeyi açtıktan sonra viewInsets/layout yeniden hesaplanır.
+      // Bu ikinci scroll, son mesajın klavye altında kalmasını engeller.
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (!mounted) return;
+        _scrollToBottom();
       });
     });
+  }
+
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+
+    final position = _scrollController.position;
+
+    _scrollController.animateTo(
+      position.maxScrollExtent,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+    );
   }
 
   void _send() {
@@ -2389,7 +2391,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   void _addMessage(ChatMessage message) {
     if (message.text.isEmpty) return;
 
-    final exists = _messages.any((m) => m.id == message.id);
+    final exists = _messages.any(
+      (m) =>
+          m.id == message.id ||
+          (message.clientMessageId.isNotEmpty &&
+              m.clientMessageId.isNotEmpty &&
+              m.clientMessageId == message.clientMessageId),
+    );
 
     if (exists) return;
 
@@ -2541,29 +2549,48 @@ class _CallScreenState extends State<CallScreen> {
   StreamSubscription<int>? _proximitySubscription;
   bool _proximityScreenOffEnabled = false;
 
+  Future<void> _initProximitySensor() async {
+    if (_proximitySubscription != null ||
+        _proximityScreenOffEnabled ||
+        _closing ||
+        !mounted) {
+      return;
+    }
+
+    try {
+      // Proximity ekran kontrolünü yalnızca aktif aramada başlat.
+      await ProximitySensor.setProximityScreenOff(true);
+
+      if (!mounted || _closing) {
+        try {
+          await ProximitySensor.setProximityScreenOff(false);
+        } catch (_) {}
+        return;
+      }
+
+      _proximityScreenOffEnabled = true;
+
+      _proximitySubscription = ProximitySensor.events.listen((value) {
+        if (!mounted || _closing || !_accepted) return;
+
+        // 0 = uzak, >0 = yakın.
+        // Ekran kontrolünü proximity_sensor'ın kendi mekanizması yapar.
+        final isNear = value > 0;
+
+        if (isNear) {
+          // Telefon kulağa yaklaştırıldı.
+        } else {
+          // Telefon kulaktan uzaklaştırıldı.
+        }
+      });
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
-
-    _proximitySubscription = ProximitySensor.events.listen((value) async {
-      if (!mounted || _closing || !_accepted) return;
-
-      final isNear = value > 0;
-
-      if (isNear && !_proximityScreenOffEnabled) {
-        try {
-          await ProximitySensor.setProximityScreenOff(true);
-          _proximityScreenOffEnabled = true;
-        } catch (_) {}
-      } else if (!isNear && _proximityScreenOffEnabled) {
-        try {
-          await ProximitySensor.setProximityScreenOff(false);
-          _proximityScreenOffEnabled = false;
-        } catch (_) {}
-      }
-    });
 
     if (widget.outgoing) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2725,6 +2752,8 @@ class _CallScreenState extends State<CallScreen> {
         setState(() {
           _accepted = true;
         });
+
+        await _initProximitySensor();
       }
     } catch (e) {
       if (mounted && !_closing) {
@@ -2774,6 +2803,8 @@ class _CallScreenState extends State<CallScreen> {
         setState(() {
           _accepted = true;
         });
+
+        await _initProximitySensor();
       }
     } catch (e) {
       if (mounted && !_closing) {
