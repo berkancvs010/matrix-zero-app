@@ -2057,13 +2057,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
+      if (!_scrollController.hasClients) return;
+
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+
+      // Klavye açıkken Android'in yeniden layout hesaplamasını bekle.
+      Future.delayed(const Duration(milliseconds: 120), () {
+        if (!_scrollController.hasClients) return;
+
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 180),
+          duration: const Duration(milliseconds: 120),
           curve: Curves.easeOut,
         );
-      }
+      });
     });
   }
 
@@ -2387,13 +2398,24 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
+      if (!_scrollController.hasClients) return;
+
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+
+      // Klavye açıkken Android'in yeniden layout hesaplamasını bekle.
+      Future.delayed(const Duration(milliseconds: 120), () {
+        if (!_scrollController.hasClients) return;
+
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 180),
+          duration: const Duration(milliseconds: 120),
           curve: Curves.easeOut,
         );
-      }
+      });
     });
   }
 
@@ -2404,6 +2426,18 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     final clientMessageId =
         '${DateTime.now().microsecondsSinceEpoch}-${widget.myNick}-${widget.targetNick}';
+
+    // Mesajı sunucudan geri gelmesini beklemeden gönderen ekranda göster.
+    // clientMessageId sayesinde daha sonra gelen messageAck aynı mesajı günceller.
+    _addMessage(
+      ChatMessage(
+        id: clientMessageId,
+        sender: widget.myNick,
+        text: text,
+        clientMessageId: clientMessageId,
+        status: 'sending',
+      ),
+    );
 
     WsClient.instance.send({
       'type': 'privateMessage',
