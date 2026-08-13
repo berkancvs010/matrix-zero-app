@@ -91,7 +91,9 @@ class ZeroLogPushService {
       FlutterLocalNotificationsPlugin();
 
   static const String callChannelId = 'zerolog_calls';
+  static const String messageChannelId = 'zerolog_messages';
   static const int callNotificationId = 9001;
+  static const int messageNotificationId = 9002;
   static const String pendingCallKey = 'zerolog.pending_call';
 
   static String? _currentToken;
@@ -140,6 +142,19 @@ class ZeroLogPushService {
           showBadge: true,
           audioAttributesUsage:
               AudioAttributesUsage.voiceCommunication,
+        ),
+      );
+
+
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          messageChannelId,
+          'Mesajlar',
+          description: 'ZeroLog özel mesaj bildirimleri',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+          showBadge: true,
         ),
       );
 
@@ -208,7 +223,7 @@ class ZeroLogPushService {
       WsClient.instance.updateFcmToken(newToken);
     });
 
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       final type = message.data['type'];
 
       debugPrint(
@@ -221,6 +236,8 @@ class ZeroLogPushService {
         WsClient.instance.emitExternalEvent(
           Map<String, dynamic>.from(message.data),
         );
+      } else if (type == 'privateMessage') {
+        await showPrivateMessageNotification(message);
       }
     });
 
@@ -319,6 +336,52 @@ class ZeroLogPushService {
       ),
       payload: payload,
     );
+  }
+
+  static Future<void> showPrivateMessageNotification(
+    RemoteMessage message,
+  ) async {
+    try {
+      await _initializeNotifications(
+        requestPermissions: false,
+      );
+
+      final from = (
+        message.data['from'] ??
+        message.notification?.title ??
+        ''
+      ).toString().trim();
+
+      final text = (
+        message.data['text'] ??
+        message.notification?.body ??
+        ''
+      ).toString().trim();
+
+      if (from.isEmpty || text.isEmpty) return;
+
+      const androidDetails = AndroidNotificationDetails(
+        messageChannelId,
+        'Mesajlar',
+        channelDescription: 'ZeroLog özel mesaj bildirimleri',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        showWhen: true,
+      );
+
+      await _notifications.show(
+        id: messageNotificationId,
+        title: from,
+        body: text,
+        notificationDetails: const NotificationDetails(
+          android: androidDetails,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[FCM] private message notification failed: $e');
+    }
   }
 
   static Future<void> cancelIncomingCallNotification() async {
