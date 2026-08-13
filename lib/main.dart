@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -12,6 +13,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:proximity_sensor/proximity_sensor.dart';
 
 const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
+final GlobalKey<NavigatorState> zeroLogNavigatorKey = GlobalKey<NavigatorState>();
 
 const List<String> rooms = [
   'genel',
@@ -25,22 +27,6 @@ const List<String> rooms = [
 ];
 
 
-// ============================================================
-// FIREBASE / FCM
-// ============================================================
-// FCM background mesajları için top-level handler.
-// Android uygulamayı arka planda/kapalı durumda uyandırdığında çalışabilir.
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-
-  debugPrint(
-    '[FCM][background] '
-    'messageId=${message.messageId} '
-    'type=${message.data['type']}',
-  );
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -51,19 +37,141 @@ Future<void> main() async {
 }
 
 
+@pragma('vm:entry-point')
+Future<void> _notificationTapBackground(
+  NotificationResponse response,
+) async {
+  final payload = response.payload;
+  if (payload == null || payload.isEmpty) return;
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      ZeroLogPushService.pendingCallKey,
+      payload,
+    );
+  } catch (_) {}
+}
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(
+  RemoteMessage message,
+) async {
+  await Firebase.initializeApp();
+
+  if (message.data['type'] == 'callInvite') {
+    await ZeroLogPushService.showIncomingCallNotification(
+      message.data,
+    );
+  }
+
+  debugPrint(
+    '[FCM][background] '
+    'messageId=${message.messageId} '
+    'type=${message.data['type']}',
+  );
+}
+
 class ZeroLogPushService {
   ZeroLogPushService._();
 
   static final FirebaseMessaging _messaging =
       FirebaseMessaging.instance;
 
+  static final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
+
+  static const String callChannelId = 'zerolog_calls';
+  static const int callNotificationId = 9001;
+  static const String pendingCallKey = 'zerolog.pending_call';
+
   static String? _currentToken;
+  static bool _notificationsInitialized = false;
 
   static String? get currentToken => _currentToken;
+
+  static Future<void> _initializeNotifications({
+    required bool requestPermissions,
+  }) async {
+    if (_notificationsInitialized) return;
+
+    const androidSettings =
+        AndroidInitializationSettings('ic_launcher');
+
+    await _notifications.initialize(
+      settings: const InitializationSettings(
+        android: androidSettings,
+      ),
+      onDidReceiveNotificationResponse: (response) async {
+        final payload = response.payload;
+        if (payload == null || payload.isEmpty) return;
+
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(pendingCallKey, payload);
+        } catch (_) {}
+      },
+      onDidReceiveBackgroundNotificationResponse:
+          _notificationTapBackground,
+    );
+
+    final android = _notifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    if (android != null) {
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          callChannelId,
+          'Gelen çağrılar',
+          description: 'ZeroLog sesli arama bildirimleri',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+          showBadge: true,
+          audioAttributesUsage:
+              AudioAttributesUsage.voiceCommunication,
+        ),
+      );
+
+      if (requestPermissions) {
+        await android.requestNotificationsPermission();
+        await android.requestFullScreenIntentPermission();
+      }
+    }
+
+    _notificationsInitialized = true;
+
+    if (requestPermissions) {
+      try {
+        final launchDetails =
+            await _notifications.getNotificationAppLaunchDetails();
+
+        if (launchDetails?.didNotificationLaunchApp == true) {
+          final payload =
+              launchDetails?.notificationResponse?.payload;
+
+          if (payload != null && payload.isNotEmpty) {
+            final prefs =
+                await SharedPreferences.getInstance();
+
+            await prefs.setString(
+              pendingCallKey,
+              payload,
+            );
+          }
+        }
+      } catch (_) {}
+    }
+  }
 
   static Future<void> initialize() async {
     FirebaseMessaging.onBackgroundMessage(
       _firebaseMessagingBackgroundHandler,
+    );
+
+    await _initializeNotifications(
+      requestPermissions: true,
     );
 
     final settings = await _messaging.requestPermission(
@@ -92,23 +200,45 @@ class ZeroLogPushService {
     });
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      final type = message.data['type'];
+
       debugPrint(
         '[FCM][foreground] '
         'messageId=${message.messageId} '
-        'type=${message.data['type']} '
-        'title=${message.notification?.title}',
+        'type=$type',
       );
+
+      if (type == 'callInvite') {
+        WsClient.instance.emitExternalEvent(
+          Map<String, dynamic>.from(message.data),
+        );
+      }
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      debugPrint(
-        '[FCM][opened] '
-        'messageId=${message.messageId} '
-        'type=${message.data['type']}',
-      );
-    });
+    FirebaseMessaging.onMessageOpenedApp.listen(
+      (RemoteMessage message) async {
+        debugPrint(
+          '[FCM][opened] '
+          'messageId=${message.messageId} '
+          'type=${message.data['type']}',
+        );
 
-    final initialMessage = await _messaging.getInitialMessage();
+        if (message.data['type'] == 'callInvite') {
+          try {
+            final prefs =
+                await SharedPreferences.getInstance();
+
+            await prefs.setString(
+              pendingCallKey,
+              jsonEncode(message.data),
+            );
+          } catch (_) {}
+        }
+      },
+    );
+
+    final initialMessage =
+        await _messaging.getInitialMessage();
 
     if (initialMessage != null) {
       debugPrint(
@@ -116,7 +246,102 @@ class ZeroLogPushService {
         'messageId=${initialMessage.messageId} '
         'type=${initialMessage.data['type']}',
       );
+
+      if (initialMessage.data['type'] == 'callInvite') {
+        try {
+          final prefs =
+              await SharedPreferences.getInstance();
+
+          await prefs.setString(
+            pendingCallKey,
+            jsonEncode(initialMessage.data),
+          );
+        } catch (_) {}
+      }
     }
+  }
+
+  static Future<void> showIncomingCallNotification(
+    Map<String, dynamic> data,
+  ) async {
+    await _initializeNotifications(
+      requestPermissions: false,
+    );
+
+    final from = (data['from'] ?? '').toString().trim();
+    final to = (data['to'] ?? '').toString().trim();
+    final callId = (data['callId'] ?? '').toString().trim();
+
+    if (from.isEmpty || to.isEmpty || callId.isEmpty) {
+      return;
+    }
+
+    final payload = jsonEncode({
+      'type': 'callInvite',
+      'from': from,
+      'to': to,
+      'callId': callId,
+    });
+
+    const androidDetails = AndroidNotificationDetails(
+      callChannelId,
+      'Gelen çağrılar',
+      channelDescription: 'ZeroLog gelen sesli arama',
+      importance: Importance.max,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.call,
+      fullScreenIntent: true,
+      visibility: NotificationVisibility.public,
+      playSound: true,
+      enableVibration: true,
+      ongoing: true,
+      autoCancel: false,
+      showWhen: false,
+      audioAttributesUsage:
+          AudioAttributesUsage.voiceCommunication,
+    );
+
+    await _notifications.show(
+      id: callNotificationId,
+      title: 'Gelen ZeroLog çağrısı',
+      body: '$from sizi arıyor',
+      notificationDetails: const NotificationDetails(
+        android: androidDetails,
+      ),
+      payload: payload,
+    );
+  }
+
+  static Future<void> cancelIncomingCallNotification() async {
+    try {
+      await _initializeNotifications(
+        requestPermissions: false,
+      );
+      await _notifications.cancel(
+        id: callNotificationId,
+      );
+    } catch (_) {}
+  }
+
+  static Future<Map<String, dynamic>?> takePendingCall() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(pendingCallKey);
+
+      if (raw == null || raw.isEmpty) {
+        return null;
+      }
+
+      await prefs.remove(pendingCallKey);
+
+      final decoded = jsonDecode(raw);
+
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+
+    return null;
   }
 }
 
@@ -303,6 +528,7 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
     final t = _theme.data;
 
     return MaterialApp(
+      navigatorKey: zeroLogNavigatorKey,
       title: 'ZeroLog',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -548,6 +774,10 @@ class WsClient {
       StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get events => _events.stream;
+
+  void emitExternalEvent(Map<String, dynamic> data) {
+    _events.add(Map<String, dynamic>.from(data));
+  }
 
   final Set<String> _onlineUsers = <String>{};
 
@@ -1652,6 +1882,8 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+  final Set<String> _handledCallIds = <String>{};
+
   late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   final List<String> _onlineUsers = [];
@@ -1674,6 +1906,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.requestPresence();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _openPendingIncomingCall();
+    });
   }
 
   @override
@@ -1783,6 +2019,39 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
     }
 
+    if (type == 'callInvite') {
+      final from = (data['from'] ?? '').toString().trim();
+      final to = (data['to'] ?? '').toString().trim();
+      final callId = (data['callId'] ?? '').toString().trim();
+
+      if (from.isEmpty || to.isEmpty || callId.isEmpty) {
+        return;
+      }
+
+      if (to.toLowerCase() != widget.nickname.toLowerCase()) {
+        return;
+      }
+
+      if (_handledCallIds.contains(callId)) {
+        return;
+      }
+
+      _handledCallIds.add(callId);
+
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CallScreen(
+            myNick: widget.nickname,
+            targetNick: from,
+            outgoing: false,
+            callId: callId,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Eski/uyumluluk akışı: doğrudan offer gelirse de kabul et.
     if (type == 'callOffer') {
       final from = (data['from'] ?? '').toString();
       final to = (data['to'] ?? '').toString();
@@ -1793,12 +2062,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         return;
       }
 
+      final callId = (data['callId'] ?? '').toString().trim();
+
+      if (callId.isNotEmpty && _handledCallIds.contains(callId)) {
+        return;
+      }
+
+      if (callId.isNotEmpty) {
+        _handledCallIds.add(callId);
+      }
+
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => CallScreen(
             myNick: widget.nickname,
             targetNick: from,
             outgoing: false,
+            callId: callId.isEmpty ? null : callId,
             incomingOffer: data['sdp']?.toString(),
           ),
         ),
@@ -1825,12 +2105,48 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _call(String target) {
+    final callId =
+        '${DateTime.now().millisecondsSinceEpoch}-${widget.nickname}';
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CallScreen(
           myNick: widget.nickname,
           targetNick: target,
           outgoing: true,
+          callId: callId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPendingIncomingCall() async {
+    final data = await ZeroLogPushService.takePendingCall();
+
+    if (!mounted || data == null) return;
+
+    final from = (data['from'] ?? '').toString().trim();
+    final to = (data['to'] ?? '').toString().trim();
+    final callId = (data['callId'] ?? '').toString().trim();
+
+    if (from.isEmpty ||
+        to.isEmpty ||
+        callId.isEmpty ||
+        to.toLowerCase() != widget.nickname.toLowerCase()) {
+      return;
+    }
+
+    if (_handledCallIds.contains(callId)) return;
+
+    _handledCallIds.add(callId);
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          myNick: widget.nickname,
+          targetNick: from,
+          outgoing: false,
+          callId: callId,
         ),
       ),
     );
@@ -2622,6 +2938,7 @@ class CallScreen extends StatefulWidget {
   final String myNick;
   final String targetNick;
   final bool outgoing;
+  final String? callId;
   final String? incomingOffer;
 
   const CallScreen({
@@ -2629,6 +2946,7 @@ class CallScreen extends StatefulWidget {
     required this.myNick,
     required this.targetNick,
     required this.outgoing,
+    this.callId,
     this.incomingOffer,
   });
 
@@ -2749,6 +3067,7 @@ class _CallScreenState extends State<CallScreen> {
           'type': 'callIce',
           'from': widget.myNick,
           'to': widget.targetNick,
+          'callId': widget.callId,
           'candidate': candidate.candidate,
           'sdpMid': candidate.sdpMid,
           'sdpMLineIndex': candidate.sdpMLineIndex,
@@ -2831,6 +3150,25 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _startOutgoingCall() async {
     if (_closing) return;
 
+    final callId = widget.callId;
+    if (callId == null || callId.isEmpty) {
+      if (mounted) {
+        _showError('Arama kimliği oluşturulamadı.');
+      }
+      return;
+    }
+
+    WsClient.instance.send({
+      'type': 'callInvite',
+      'from': widget.myNick,
+      'to': widget.targetNick,
+      'callId': callId,
+    });
+  }
+
+  Future<void> _startOutgoingOffer() async {
+    if (_closing) return;
+
     try {
       await _createPeerConnection();
 
@@ -2850,6 +3188,7 @@ class _CallScreenState extends State<CallScreen> {
         'type': 'callOffer',
         'from': widget.myNick,
         'to': widget.targetNick,
+        'callId': widget.callId,
         'sdp': offer.sdp,
       });
 
@@ -2860,7 +3199,7 @@ class _CallScreenState extends State<CallScreen> {
 
         await _initProximitySensor();
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted && !_closing) {
         _showError('Arama başlatılamadı.');
       }
@@ -2868,11 +3207,41 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _acceptIncoming() async {
+    if (_closing) return;
+
     final incomingOffer = widget.incomingOffer;
 
-    if (incomingOffer == null || incomingOffer.isEmpty) {
-      return;
+    try {
+      if (incomingOffer == null || incomingOffer.isEmpty) {
+        WsClient.instance.send({
+          'type': 'callAccept',
+          'from': widget.myNick,
+          'to': widget.targetNick,
+          'callId': widget.callId,
+        });
+
+        if (mounted) {
+          setState(() {
+            _accepted = true;
+          });
+
+          await _initProximitySensor();
+        }
+
+        await ZeroLogPushService.cancelIncomingCallNotification();
+        return;
+      }
+
+      await _handleIncomingOffer(incomingOffer);
+    } catch (_) {
+      if (mounted && !_closing) {
+        _showError('Arama kabul edilemedi.');
+      }
     }
+  }
+
+  Future<void> _handleIncomingOffer(String incomingOffer) async {
+    if (_closing) return;
 
     try {
       await _createPeerConnection();
@@ -2901,6 +3270,7 @@ class _CallScreenState extends State<CallScreen> {
         'type': 'callAnswer',
         'from': widget.myNick,
         'to': widget.targetNick,
+        'callId': widget.callId,
         'sdp': answer.sdp,
       });
 
@@ -2911,7 +3281,9 @@ class _CallScreenState extends State<CallScreen> {
 
         await _initProximitySensor();
       }
-    } catch (e) {
+
+      await ZeroLogPushService.cancelIncomingCallNotification();
+    } catch (_) {
       if (mounted && !_closing) {
         _showError('Arama kabul edilemedi.');
       }
@@ -2933,8 +3305,21 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
-    if (type == 'callAnswer') {
+    if (type == 'callAccepted') {
+      if (widget.outgoing) {
+        _startOutgoingOffer();
+      }
+    } else if (type == 'callRejected') {
+      _finish(sendSignal: false);
+    } else if (type == 'callAnswer') {
       _handleAnswer(data);
+    } else if (type == 'callOffer') {
+      if (!widget.outgoing && _accepted) {
+        final sdp = data['sdp']?.toString();
+        if (sdp != null && sdp.isNotEmpty) {
+          _handleIncomingOffer(sdp);
+        }
+      }
     } else if (type == 'callIce') {
       _handleIceCandidate(data);
     } else if (type == 'callEnded') {
@@ -3047,6 +3432,7 @@ class _CallScreenState extends State<CallScreen> {
       'type': 'callEnd',
       'from': widget.myNick,
       'to': widget.targetNick,
+      'callId': widget.callId,
     });
 
     _finish(sendSignal: false);
@@ -3056,6 +3442,8 @@ class _CallScreenState extends State<CallScreen> {
     if (_closing) return;
 
     _closing = true;
+
+    await ZeroLogPushService.cancelIncomingCallNotification();
 
     await _proximitySubscription?.cancel();
     _proximitySubscription = null;
