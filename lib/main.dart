@@ -7,6 +7,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:proximity_sensor/proximity_sensor.dart';
 
 const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
 
@@ -2503,11 +2504,32 @@ class _CallScreenState extends State<CallScreen> {
   bool _closing = false;
   bool _remoteDescriptionSet = false;
 
+  StreamSubscription<int>? _proximitySubscription;
+  bool _proximityScreenOffEnabled = false;
+
   @override
   void initState() {
     super.initState();
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
+
+    _proximitySubscription = ProximitySensor.events.listen((value) async {
+      if (!mounted || _closing || !_accepted) return;
+
+      final isNear = value > 0;
+
+      if (isNear && !_proximityScreenOffEnabled) {
+        try {
+          await ProximitySensor.setProximityScreenOff(true);
+          _proximityScreenOffEnabled = true;
+        } catch (_) {}
+      } else if (!isNear && _proximityScreenOffEnabled) {
+        try {
+          await ProximitySensor.setProximityScreenOff(false);
+          _proximityScreenOffEnabled = false;
+        } catch (_) {}
+      }
+    });
 
     if (widget.outgoing) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2865,6 +2887,16 @@ class _CallScreenState extends State<CallScreen> {
 
     _closing = true;
 
+    await _proximitySubscription?.cancel();
+    _proximitySubscription = null;
+
+    if (_proximityScreenOffEnabled) {
+      try {
+        await ProximitySensor.setProximityScreenOff(false);
+      } catch (_) {}
+      _proximityScreenOffEnabled = false;
+    }
+
     if (sendSignal) {
       WsClient.instance.send({
         'type': 'callEnd',
@@ -2919,6 +2951,12 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     _subscription.cancel();
+    _proximitySubscription?.cancel();
+
+    if (_proximityScreenOffEnabled) {
+      ProximitySensor.setProximityScreenOff(false);
+      _proximityScreenOffEnabled = false;
+    }
 
     final stream = _localStream;
     _localStream = null;
