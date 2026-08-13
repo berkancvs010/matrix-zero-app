@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -107,6 +108,23 @@ class ZeroLogPushService {
 
   static String? get currentToken => _currentToken;
 
+  static const MethodChannel _systemChannel =
+      MethodChannel('zerolog/system');
+
+  static Future<void> requestStartupPermissions() async {
+    try {
+      await _systemChannel.invokeMethod(
+        'requestStartupPermissions',
+      );
+
+      debugPrint('[PERMISSIONS] startup permission flow completed');
+    } catch (e) {
+      debugPrint(
+        '[PERMISSIONS] startup permission flow failed: $e',
+      );
+    }
+  }
+
   static Future<void> _initializeNotifications({
     required bool requestPermissions,
   }) async {
@@ -201,6 +219,11 @@ class ZeroLogPushService {
     FirebaseMessaging.onBackgroundMessage(
       _firebaseMessagingBackgroundHandler,
     );
+
+    // Android native runtime permissions:
+    // notification + microphone.
+    // This runs immediately when the application starts.
+    await requestStartupPermissions();
 
     await _initializeNotifications(
       requestPermissions: true,
