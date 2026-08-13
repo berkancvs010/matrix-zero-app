@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "341080102399",
+    "project_id": "zerolog-f076b",
+    "storage_bucket": "zerolog-f076b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:341080102399:android:3e387d8a46ef628ac0c3ca",
+        "android_client_info": {
+          "package_name": "com.zerolog.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVkE49PXElk_YKZLjV-0Oxltbj2X1uNq4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
