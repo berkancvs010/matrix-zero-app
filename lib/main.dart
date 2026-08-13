@@ -1965,6 +1965,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   int _selectedIndex = 0;
 
+  final TextEditingController _contactSearchController =
+      TextEditingController();
+
+  String _contactSearchQuery = '';
+
   @override
   void initState() {
     super.initState();
@@ -2226,9 +2231,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _selectTheme(ZeroLogTheme theme) async {
-    await ThemeController.instance.setTheme(theme);
-  }
 
   Future<void> _logout() async {
     await WsClient.instance.disconnect();
@@ -2322,6 +2324,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _subscription.cancel();
+    _contactSearchController.dispose();
     super.dispose();
   }
 
@@ -2538,6 +2541,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Widget _buildContactsPage() {
     final theme = ThemeController.instance.data;
+    final query = _contactSearchQuery.trim().toLowerCase();
+
+    final filteredUsers = query.isEmpty
+        ? _onlineUsers
+        : _onlineUsers
+            .where((user) => user.toLowerCase().contains(query))
+            .toList();
+
+    final exactUser = query.isEmpty
+        ? null
+        : _onlineUsers.cast<String?>().firstWhere(
+              (user) => user!.toLowerCase() == query,
+              orElse: () => null,
+            );
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 110),
@@ -2551,104 +2568,149 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             borderRadius: BorderRadius.circular(18),
           ),
           child: TextField(
-            decoration: InputDecoration(
+            controller: _contactSearchController,
+            textInputAction: TextInputAction.search,
+            decoration: const InputDecoration(
               hintText: 'Rumuz ara…',
-              prefixIcon: const Icon(Icons.search_rounded),
+              prefixIcon: Icon(Icons.search_rounded),
               border: InputBorder.none,
               filled: false,
+              suffixIcon: Icon(Icons.person_search_outlined),
             ),
-            onSubmitted: (value) {
-              final target = value.trim();
-              if (target.isNotEmpty &&
-                  target.toLowerCase() != widget.nickname.toLowerCase()) {
-                _openPrivate(target);
-              }
+            onChanged: (value) {
+              setState(() {
+                _contactSearchQuery = value;
+              });
             },
           ),
         ),
 
-        _sectionTitle(
-          'Çevrimiçi',
-          action: '${_onlineUsers.length} kişi',
-        ),
+        if (query.isNotEmpty) ...[
+          _sectionTitle('Arama sonucu'),
 
-        if (_onlineUsers.isEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 30, 24, 20),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.people_outline_rounded,
-                  size: 48,
-                  color: theme.text.withValues(alpha: 0.58),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Şu anda çevrimiçi kullanıcı yok.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: theme.text.withValues(alpha: 0.58),
-                    fontSize: 14,
+          if (exactUser != null)
+            _contactResultCard(exactUser)
+          else if (filteredUsers.isNotEmpty)
+            ...filteredUsers.map(_contactResultCard)
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.person_search_outlined,
+                    size: 48,
+                    color: theme.text.withValues(alpha: 0.45),
                   ),
-                ),
-              ],
-            ),
-          )
-        else
-          ..._onlineUsers.map(
-            (user) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Material(
-                color: theme.surface,
-                borderRadius: BorderRadius.circular(17),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 11,
+                  const SizedBox(height: 12),
+                  Text(
+                    'Bu rumuz çevrimiçi değil veya bulunamadı.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.58),
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      _avatar(user, online: true),
-                      const SizedBox(width: 13),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              user,
-                              style: TextStyle(
-                                color: theme.text,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Çevrimiçi',
-                              style: TextStyle(
-                                color: theme.text.withValues(alpha: 0.58),
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Mesaj',
-                        icon: const Icon(Icons.chat_bubble_outline_rounded),
-                        onPressed: () => _openPrivate(user),
-                      ),
-                      IconButton(
-                        tooltip: 'Sesli ara',
-                        icon: const Icon(Icons.call_outlined),
-                        onPressed: () => _call(user),
-                      ),
-                    ],
-                  ),
-                ),
+                ],
               ),
             ),
+        ] else ...[
+          _sectionTitle(
+            'Çevrimiçi',
+            action: '${_onlineUsers.length} kişi',
           ),
+
+          if (_onlineUsers.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 30, 24, 20),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.people_outline_rounded,
+                    size: 48,
+                    color: theme.text.withValues(alpha: 0.58),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Şu anda çevrimiçi kullanıcı yok.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.58),
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._onlineUsers.map(
+              (user) => _contactResultCard(user),
+            ),
+        ],
       ],
+    );
+  }
+
+  Widget _contactResultCard(String user) {
+    final theme = ThemeController.instance.data;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Material(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 12,
+          ),
+          child: Row(
+            children: [
+              _avatar(user, online: _onlineUsers.any(
+                (u) => u.toLowerCase() == user.toLowerCase(),
+              )),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user,
+                      style: TextStyle(
+                        color: theme.text,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _onlineUsers.any(
+                        (u) => u.toLowerCase() == user.toLowerCase(),
+                      )
+                          ? 'Çevrimiçi'
+                          : 'Kullanıcı',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.55),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Mesaj gönder',
+                icon: const Icon(Icons.chat_bubble_outline_rounded),
+                onPressed: () => _openPrivate(user),
+              ),
+              IconButton(
+                tooltip: 'Sesli ara',
+                icon: const Icon(Icons.call_outlined),
+                color: theme.primary,
+                onPressed: () => _call(user),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2759,44 +2821,52 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           child: Material(
             color: theme.surface,
             borderRadius: BorderRadius.circular(20),
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Row(
-                children: [
-                  _avatar(widget.nickname),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.nickname,
-                          style: TextStyle(
-                            color: theme.text,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: _openAccountMenu,
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    _avatar(widget.nickname),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.nickname,
+                            style: TextStyle(
+                              color: theme.text,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          _connected ? 'Bağlı' : 'Bağlantı bekleniyor',
-                          style: TextStyle(
-                            color: _connected
-                                ? Colors.greenAccent
-                                : theme.text.withValues(alpha: 0.58),
-                            fontSize: 12,
+                          const SizedBox(height: 3),
+                          Text(
+                            _connected ? 'Bağlı' : 'Bağlantı bekleniyor',
+                            style: TextStyle(
+                              color: _connected
+                                  ? Colors.greenAccent
+                                  : theme.text.withValues(alpha: 0.58),
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: theme.text.withValues(alpha: 0.45),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
 
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
 
         _settingsTile(
           icon: Icons.person_outline_rounded,
@@ -2830,30 +2900,28 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        ...ZeroLogTheme.values.map(
-                          (value) {
-                            final data = zeroLogThemes[value]!;
-                            return ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: CircleAvatar(
-                                backgroundColor: data.primary,
-                                radius: 10,
-                              ),
-                              title: Text(data.name),
-                              trailing:
-                                  ThemeController.instance.current == value
-                                      ? Icon(
-                                          Icons.check_rounded,
-                                          color: theme.primary,
-                                        )
-                                      : null,
-                              onTap: () {
-                                Navigator.pop(context);
-                                _selectTheme(value);
-                              },
-                            );
-                          },
-                        ),
+                        ...ZeroLogTheme.values.map((value) {
+                          final data = zeroLogThemes[value]!;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: CircleAvatar(
+                              backgroundColor: data.primary,
+                              radius: 10,
+                            ),
+                            title: Text(data.name),
+                            trailing:
+                                ThemeController.instance.current == value
+                                    ? Icon(
+                                        Icons.check_rounded,
+                                        color: data.primary,
+                                      )
+                                    : null,
+                            onTap: () {
+                              ThemeController.instance.setTheme(value);
+                              Navigator.pop(context);
+                            },
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -2867,16 +2935,162 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           icon: Icons.notifications_none_rounded,
           title: 'Bildirimler',
           subtitle: 'Mesaj ve çağrı bildirimleri',
-          onTap: () {},
+          onTap: _openNotificationSettings,
         ),
 
         _settingsTile(
           icon: Icons.lock_outline_rounded,
           title: 'Gizlilik',
           subtitle: 'ZeroLog gizlilik seçenekleri',
-          onTap: () {},
+          onTap: _openPrivacySettings,
+        ),
+
+        const SizedBox(height: 18),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 22),
+          child: Text(
+            'ZeroLog • özel ve güvenli iletişim',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: theme.text.withValues(alpha: 0.38),
+              fontSize: 11,
+            ),
+          ),
         ),
       ],
+    );
+  }
+
+  void _openNotificationSettings() {
+    final theme = ThemeController.instance.data;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: theme.background,
+          appBar: AppBar(
+            title: const Text('Bildirimler'),
+          ),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _settingsTile(
+                icon: Icons.notifications_active_outlined,
+                title: 'Mesaj bildirimleri',
+                subtitle: 'Özel mesaj bildirimleri',
+                onTap: () async {
+                  await ZeroLogPushService.initialize();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Mesaj bildirim kanalı hazır.',
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+              _settingsTile(
+                icon: Icons.call_outlined,
+                title: 'Çağrı bildirimleri',
+                subtitle: 'Gelen sesli çağrılar',
+                onTap: () async {
+                  await ZeroLogPushService.initialize();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Çağrı bildirim kanalı hazır.',
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 18),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  'Android bildirim izinleri ve ZeroLog bildirim kanalları '
+                  'buradan kontrol edilir.',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.58),
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openPrivacySettings() {
+    final theme = ThemeController.instance.data;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: theme.background,
+          appBar: AppBar(
+            title: const Text('Gizlilik'),
+          ),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _settingsTile(
+                icon: Icons.visibility_off_outlined,
+                title: 'Çevrimiçi durum',
+                subtitle: 'Çevrimiçi kullanıcı bilgileri',
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Gizlilik seçeneği sonraki aşamada etkinleştirilecek.',
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _settingsTile(
+                icon: Icons.lock_outline_rounded,
+                title: 'Özel mesajlar',
+                subtitle: 'Özel iletişim ve mesaj geçmişi',
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Özel mesaj gizlilik ayarları sonraki aşamada etkinleştirilecek.',
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _settingsTile(
+                icon: Icons.delete_outline_rounded,
+                title: 'Verilerimi sil',
+                subtitle: 'Hesap ve kayıtları yönet',
+                onTap: () => _deleteAccount(allData: true),
+              ),
+              const SizedBox(height: 18),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  'ZeroLog gizlilik seçenekleri bu bölüm altında '
+                  'merkezi olarak yönetilecek.',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.58),
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2975,13 +3189,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Hesap',
-            icon: const Icon(Icons.person_outline_rounded),
-            onPressed: _openAccountMenu,
-          ),
-        ],
+        actions: const [],
       ),
       body: IndexedStack(
         index: _selectedIndex,
