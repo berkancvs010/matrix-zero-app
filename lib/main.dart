@@ -31,9 +31,18 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp();
-  await ZeroLogPushService.initialize();
 
   runApp(const MatrixZeroApp());
+
+  // Push/bildirim başlatma UI'ın açılışını bloke etmemeli.
+  Future.microtask(() async {
+    try {
+      await ZeroLogPushService.initialize();
+    } catch (e, stack) {
+      debugPrint('[FCM] initialization failed: $e');
+      debugPrint('$stack');
+    }
+  });
 }
 
 
