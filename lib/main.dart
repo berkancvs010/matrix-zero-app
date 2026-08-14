@@ -2609,37 +2609,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _sectionTitle(String title, {String? action}) {
-    final theme = ThemeController.instance.data;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                color: theme.text,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          if (action != null)
-            Text(
-              action,
-              style: TextStyle(
-                color: theme.primary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _connectionBanner() {
     final theme = ThemeController.instance.data;
 
@@ -2679,58 +2648,164 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final theme = ThemeController.instance.data;
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 110),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 110),
       children: [
         _connectionBanner(),
 
-        _sectionTitle('Sohbetler'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Mesajlaşmaya başlayın',
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.lock_outline_rounded,
+                      size: 14,
+                      color: theme.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Güvenli',
+                      style: TextStyle(
+                        color: theme.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
 
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Material(
             color: theme.surface,
             borderRadius: BorderRadius.circular(18),
-          ),
-          child: TextField(
-            readOnly: true,
-            onTap: () {
-              setState(() {
-                _selectedIndex = 1;
-              });
-            },
-            decoration: InputDecoration(
-              hintText: 'Rumuz veya sohbet ara',
-              prefixIcon: const Icon(Icons.search_rounded),
-              border: InputBorder.none,
-              filled: false,
-              contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () {
+                setState(() {
+                  _selectedIndex = 1;
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 15,
+                  vertical: 13,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: theme.primary.withValues(alpha: 0.10),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.search_rounded,
+                        color: theme.primary,
+                        size: 21,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Rumuz veya kişi ara',
+                        style: TextStyle(
+                          color: theme.text.withValues(alpha: 0.52),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 15,
+                      color: theme.text.withValues(alpha: 0.35),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
 
-        _sectionTitle('Sohbet odaları'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 26, 20, 10),
+          child: Row(
+            children: [
+              Text(
+                'Sohbet odaları',
+                style: TextStyle(
+                  color: theme.text,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${rooms.length}',
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: 0.42),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
 
         ...rooms.map(
           (room) => Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Material(
               color: theme.surface,
-              borderRadius: BorderRadius.circular(17),
+              borderRadius: BorderRadius.circular(18),
               child: InkWell(
-                borderRadius: BorderRadius.circular(17),
+                borderRadius: BorderRadius.circular(18),
                 onTap: () => _openRoom(room),
                 child: Padding(
-                  padding: const EdgeInsets.all(15),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 15,
+                    vertical: 13,
+                  ),
                   child: Row(
                     children: [
                       Container(
-                        width: 46,
-                        height: 46,
+                        width: 48,
+                        height: 48,
                         decoration: BoxDecoration(
                           color: theme.primary.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        child: Icon(Icons.tag_rounded, color: theme.primary),
+                        child: Icon(
+                          Icons.tag_rounded,
+                          color: theme.primary,
+                          size: 23,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -2739,26 +2814,42 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           children: [
                             Text(
                               room,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: theme.text,
-                                fontWeight: FontWeight.w700,
                                 fontSize: 15,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              'Sohbet odası',
-                              style: TextStyle(
-                                color: theme.text.withValues(alpha: 0.58),
-                                fontSize: 12,
-                              ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: theme.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Sohbet odası',
+                                  style: TextStyle(
+                                    color: theme.text.withValues(alpha: 0.52),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
                       ),
+                      const SizedBox(width: 8),
                       Icon(
                         Icons.chevron_right_rounded,
-                        color: theme.text.withValues(alpha: 0.58),
+                        color: theme.text.withValues(alpha: 0.38),
                       ),
                     ],
                   ),
@@ -2789,36 +2880,90 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           );
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 110),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 110),
       children: [
-        _sectionTitle('Kişiler'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+          child: Text(
+            'İnsanları bulun ve iletişime geçin',
+            style: TextStyle(
+              color: theme.text,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
 
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Material(
             color: theme.surface,
             borderRadius: BorderRadius.circular(18),
-          ),
-          child: TextField(
-            controller: _contactSearchController,
-            textInputAction: TextInputAction.search,
-            decoration: const InputDecoration(
-              hintText: 'Rumuz ara…',
-              prefixIcon: Icon(Icons.search_rounded),
-              border: InputBorder.none,
-              filled: false,
-              suffixIcon: Icon(Icons.person_search_outlined),
+            child: TextField(
+              controller: _contactSearchController,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Rumuz ara…',
+                hintStyle: TextStyle(color: theme.text.withValues(alpha: 0.42)),
+                prefixIcon: Icon(Icons.search_rounded, color: theme.primary),
+                suffixIcon: query.isNotEmpty
+                    ? IconButton(
+                        tooltip: 'Temizle',
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: theme.text.withValues(alpha: 0.45),
+                        ),
+                        onPressed: () {
+                          _contactSearchController.clear();
+                          setState(() {
+                            _contactSearchQuery = '';
+                          });
+                        },
+                      )
+                    : Icon(
+                        Icons.person_search_outlined,
+                        color: theme.text.withValues(alpha: 0.35),
+                      ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 4,
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _contactSearchQuery = value;
+                });
+              },
             ),
-            onChanged: (value) {
-              setState(() {
-                _contactSearchQuery = value;
-              });
-            },
           ),
         ),
 
         if (query.isNotEmpty) ...[
-          _sectionTitle('Arama sonucu'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 26, 20, 10),
+            child: Row(
+              children: [
+                Text(
+                  'Arama sonucu',
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${filteredUsers.length}',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.42),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
           if (exactUser != null)
             _contactResultCard(exactUser)
@@ -2826,43 +2971,105 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ...filteredUsers.map(_contactResultCard)
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+              padding: const EdgeInsets.fromLTRB(24, 36, 24, 24),
               child: Column(
                 children: [
-                  Icon(
-                    Icons.person_search_outlined,
-                    size: 48,
-                    color: theme.text.withValues(alpha: 0.45),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: theme.surface,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.person_search_outlined,
+                      size: 30,
+                      color: theme.text.withValues(alpha: 0.42),
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   Text(
                     'Kullanıcı bulunamadı.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: theme.text.withValues(alpha: 0.58)),
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Farklı bir rumuz deneyin.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.48),
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
             ),
         ] else ...[
-          _sectionTitle('Kişiler', action: '${_knownUsers.length} kişi'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 26, 20, 10),
+            child: Row(
+              children: [
+                Text(
+                  'Kişiler',
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${_knownUsers.length} kişi',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.42),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
           if (_knownUsers.isEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 30, 24, 20),
+              padding: const EdgeInsets.fromLTRB(24, 36, 24, 24),
               child: Column(
                 children: [
-                  Icon(
-                    Icons.people_outline_rounded,
-                    size: 48,
-                    color: theme.text.withValues(alpha: 0.58),
+                  Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: theme.surface,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.people_outline_rounded,
+                      size: 34,
+                      color: theme.text.withValues(alpha: 0.42),
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   Text(
                     'Henüz kayıtlı kullanıcı bulunamadı.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: theme.text.withValues(alpha: 0.58),
-                      fontSize: 14,
+                      color: theme.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Bir kullanıcı arayarak başlayabilirsiniz.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.48),
+                      fontSize: 12,
                     ),
                   ),
                 ],
@@ -2877,62 +3084,122 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Widget _contactResultCard(String user) {
     final theme = ThemeController.instance.data;
+    final online = _onlineUsers.any(
+      (u) => u.toLowerCase() == user.toLowerCase(),
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Material(
         color: theme.surface,
         borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              _avatar(
-                user,
-                online: _onlineUsers.any(
-                  (u) => u.toLowerCase() == user.toLowerCase(),
-                ),
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => _openPrivate(user),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+            child: Row(
+              children: [
+                Stack(
+                  alignment: Alignment.bottomRight,
                   children: [
-                    Text(
-                      user,
-                      style: TextStyle(
-                        color: theme.text,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _onlineUsers.any(
-                            (u) => u.toLowerCase() == user.toLowerCase(),
-                          )
-                          ? 'Çevrimiçi'
-                          : 'Kullanıcı',
-                      style: TextStyle(
-                        color: theme.text.withValues(alpha: 0.55),
-                        fontSize: 12,
+                    _avatar(user, online: online),
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: online
+                            ? theme.primary
+                            : theme.text.withValues(alpha: 0.22),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: theme.surface, width: 2),
                       ),
                     ),
                   ],
                 ),
-              ),
-              IconButton(
-                tooltip: 'Mesaj gönder',
-                icon: const Icon(Icons.chat_bubble_outline_rounded),
-                onPressed: () => _openPrivate(user),
-              ),
-              IconButton(
-                tooltip: 'Sesli ara',
-                icon: const Icon(Icons.call_outlined),
-                color: theme.primary,
-                onPressed: () => _call(user),
-              ),
-            ],
+                const SizedBox(width: 13),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        user,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            online ? Icons.circle : Icons.circle_outlined,
+                            size: 8,
+                            color: online
+                                ? theme.primary
+                                : theme.text.withValues(alpha: 0.35),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            online ? 'Çevrimiçi' : 'Çevrimdışı',
+                            style: TextStyle(
+                              color: theme.text.withValues(alpha: 0.52),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: theme.primary.withValues(alpha: 0.10),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Mesaj gönder',
+                    icon: Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 19,
+                      color: theme.primary,
+                    ),
+                    onPressed: () => _openPrivate(user),
+                  ),
+                ),
+
+                const SizedBox(width: 6),
+
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: theme.primary.withValues(alpha: 0.10),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Sesli ara',
+                    icon: Icon(
+                      Icons.call_rounded,
+                      size: 19,
+                      color: theme.primary,
+                    ),
+                    onPressed: () => _call(user),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2942,103 +3209,315 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget _buildCallsPage() {
     final theme = ThemeController.instance.data;
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 110),
-      children: [
-        _sectionTitle('Çağrılar'),
-
-        Container(
-          margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: theme.surface,
-            borderRadius: BorderRadius.circular(22),
+    final onlineUsers = _knownUsers
+        .where(
+          (user) => _onlineUsers.any(
+            (online) => online.toLowerCase() == user.toLowerCase(),
           ),
-          child: Column(
+        )
+        .take(5)
+        .toList();
+
+    final offlineUsers = _knownUsers
+        .where(
+          (user) => !_onlineUsers.any(
+            (online) => online.toLowerCase() == user.toLowerCase(),
+          ),
+        )
+        .take(3)
+        .toList();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 110),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+          child: Row(
             children: [
+              Expanded(
+                child: Text(
+                  'Sesli görüşmeler',
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
               Container(
-                width: 68,
-                height: 68,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: theme.primary.withValues(alpha: 0.10),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                child: Icon(Icons.call_rounded, size: 31, color: theme.primary),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Çağrı geçmişi',
-                style: TextStyle(
-                  color: theme.text,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 7),
-              Text(
-                'Yaptığınız ve aldığınız sesli çağrılar burada görünecek.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: theme.text.withValues(alpha: 0.58),
-                  height: 1.4,
-                  fontSize: 13,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.lock_outline_rounded,
+                      size: 14,
+                      color: theme.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Güvenli',
+                      style: TextStyle(
+                        color: theme.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
 
-        _sectionTitle('Hızlı arama'),
-
-        ..._knownUsers
-            .take(5)
-            .map(
-              (user) => Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: theme.surface,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: theme.text.withValues(alpha: 0.05)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: theme.primary.withValues(alpha: 0.11),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.call_rounded,
+                    size: 27,
+                    color: theme.primary,
+                  ),
                 ),
-                child: Material(
-                  color: theme.surface,
-                  borderRadius: BorderRadius.circular(17),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 4,
-                    ),
-                    leading: _avatar(
-                      user,
-                      online: _onlineUsers.any(
-                        (u) => u.toLowerCase() == user.toLowerCase(),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Çağrı geçmişi',
+                        style: TextStyle(
+                          color: theme.text,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    title: Text(
-                      user,
-                      style: TextStyle(
-                        color: theme.text,
-                        fontWeight: FontWeight.w700,
+                      const SizedBox(height: 5),
+                      Text(
+                        'Yaptığınız ve aldığınız çağrılar burada görünecek.',
+                        style: TextStyle(
+                          color: theme.text.withValues(alpha: 0.55),
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
                       ),
-                    ),
-                    subtitle: Text(
-                      _onlineUsers.any(
-                            (u) => u.toLowerCase() == user.toLowerCase(),
-                          )
-                          ? 'Çevrimiçi'
-                          : 'Çevrimdışı',
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
+          child: Row(
+            children: [
+              Text(
+                'Çevrimiçi kişiler',
+                style: TextStyle(
+                  color: theme.text,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              if (onlineUsers.isNotEmpty)
+                Text(
+                  '${onlineUsers.length}',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.42),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        if (onlineUsers.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: theme.surface,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.person_off_outlined,
+                    color: theme.text.withValues(alpha: 0.40),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Şu anda çevrimiçi bir kişi bulunmuyor.',
                       style: TextStyle(
                         color: theme.text.withValues(alpha: 0.58),
-                        fontSize: 12,
+                        fontSize: 13,
                       ),
                     ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.call_rounded),
-                      color: theme.primary,
-                      onPressed: () => _call(user),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ...onlineUsers.map(
+            (user) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Material(
+                color: theme.surface,
+                borderRadius: BorderRadius.circular(18),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => _call(user),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 11,
+                    ),
+                    child: Row(
+                      children: [
+                        _avatar(user, online: true),
+                        const SizedBox(width: 13),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                user,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: theme.text,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      color: theme.primary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Çevrimiçi',
+                                    style: TextStyle(
+                                      color: theme.text.withValues(alpha: 0.52),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: theme.primary.withValues(alpha: 0.10),
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            tooltip: 'Sesli ara',
+                            icon: Icon(
+                              Icons.call_rounded,
+                              size: 20,
+                              color: theme.primary,
+                            ),
+                            onPressed: () => _call(user),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
+          ),
+
+        if (offlineUsers.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 26, 20, 10),
+            child: Text(
+              'Diğer kişiler',
+              style: TextStyle(
+                color: theme.text,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          ...offlineUsers.map(
+            (user) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Material(
+                color: theme.surface,
+                borderRadius: BorderRadius.circular(18),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 3,
+                  ),
+                  leading: _avatar(user, online: false),
+                  title: Text(
+                    user,
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Çevrimdışı',
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.45),
+                      fontSize: 12,
+                    ),
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Sesli ara',
+                    icon: const Icon(Icons.call_outlined),
+                    color: theme.primary.withValues(alpha: 0.75),
+                    onPressed: () => _call(user),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -3047,17 +3526,61 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final theme = ThemeController.instance.data;
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 110),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 110),
       children: [
-        _sectionTitle('Ayarlar'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Uygulama ve hesap tercihleri',
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.shield_outlined, size: 14, color: theme.primary),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Gizlilik',
+                      style: TextStyle(
+                        color: theme.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
 
+        // ======================================================
+        // HESAP
+        // ======================================================
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Material(
             color: theme.surface,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(22),
             child: InkWell(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(22),
               onTap: _openAccountMenu,
               child: Padding(
                 padding: const EdgeInsets.all(18),
@@ -3071,28 +3594,55 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         children: [
                           Text(
                             widget.nickname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: theme.text,
                               fontSize: 17,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
-                          const SizedBox(height: 3),
-                          Text(
-                            _connected ? 'Bağlı' : 'Bağlantı bekleniyor',
-                            style: TextStyle(
-                              color: _connected
-                                  ? Colors.greenAccent
-                                  : theme.text.withValues(alpha: 0.58),
-                              fontSize: 12,
-                            ),
+                          const SizedBox(height: 5),
+                          Row(
+                            children: [
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: _connected
+                                      ? theme.primary
+                                      : theme.text.withValues(alpha: 0.35),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _connected ? 'Bağlı' : 'Bağlantı bekleniyor',
+                                style: TextStyle(
+                                  color: _connected
+                                      ? theme.primary
+                                      : theme.text.withValues(alpha: 0.50),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: theme.text.withValues(alpha: 0.45),
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: theme.primary.withValues(alpha: 0.09),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.chevron_right_rounded,
+                        color: theme.primary,
+                        size: 21,
+                      ),
                     ),
                   ],
                 ),
@@ -3101,7 +3651,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
         ),
 
-        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
+          child: Text(
+            'Hesap ve görünüm',
+            style: TextStyle(
+              color: theme.text,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
 
         _settingsTile(
           icon: Icons.person_outline_rounded,
@@ -3118,6 +3678,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             showModalBottomSheet(
               context: context,
               backgroundColor: theme.surface,
+              isScrollControlled: true,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+              ),
               builder: (_) {
                 return SafeArea(
                   child: Padding(
@@ -3126,31 +3690,98 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Center(
+                          child: Container(
+                            width: 38,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: theme.text.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
                         Text(
                           'Görünüm',
                           style: TextStyle(
                             color: theme.text,
                             fontSize: 20,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 5),
+                        Text(
+                          'ZeroLog için bir tema seçin.',
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.52),
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         ...ZeroLogTheme.values.map((value) {
                           final data = zeroLogThemes[value]!;
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: CircleAvatar(
-                              backgroundColor: data.primary,
-                              radius: 10,
+                          final selected =
+                              ThemeController.instance.current == value;
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Material(
+                              color: selected
+                                  ? data.primary.withValues(alpha: 0.09)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(16),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () {
+                                  ThemeController.instance.setTheme(value);
+                                  Navigator.pop(context);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 34,
+                                        height: 34,
+                                        decoration: BoxDecoration(
+                                          color: data.primary.withValues(
+                                            alpha: 0.12,
+                                          ),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          Icons.palette_outlined,
+                                          size: 18,
+                                          color: data.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          data.name,
+                                          style: TextStyle(
+                                            color: theme.text,
+                                            fontSize: 14,
+                                            fontWeight: selected
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                      if (selected)
+                                        Icon(
+                                          Icons.check_circle_rounded,
+                                          color: data.primary,
+                                          size: 21,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
-                            title: Text(data.name),
-                            trailing: ThemeController.instance.current == value
-                                ? Icon(Icons.check_rounded, color: data.primary)
-                                : null,
-                            onTap: () {
-                              ThemeController.instance.setTheme(value);
-                              Navigator.pop(context);
-                            },
                           );
                         }),
                       ],
@@ -3160,6 +3791,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               },
             );
           },
+        ),
+
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
+          child: Text(
+            'Bildirim ve gizlilik',
+            style: TextStyle(
+              color: theme.text,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
 
         _settingsTile(
@@ -3172,21 +3815,38 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _settingsTile(
           icon: Icons.lock_outline_rounded,
           title: 'Gizlilik',
-          subtitle: 'ZeroLog gizlilik seçenekleri',
+          subtitle: 'Çevrimiçi durum ve özel mesaj seçenekleri',
           onTap: _openPrivacySettings,
         ),
 
-        const SizedBox(height: 18),
-
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 22),
-          child: Text(
-            'ZeroLog • özel ve güvenli iletişim',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: theme.text.withValues(alpha: 0.38),
-              fontSize: 11,
-            ),
+          padding: const EdgeInsets.fromLTRB(24, 30, 24, 8),
+          child: Column(
+            children: [
+              Icon(
+                Icons.shield_outlined,
+                size: 25,
+                color: theme.primary.withValues(alpha: 0.55),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'ZeroLog',
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: 0.55),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Özel ve güvenli iletişim',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: 0.35),
+                  fontSize: 11,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -3412,74 +4072,168 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _buildSettingsPage(),
     ];
 
-    const titles = ['ZeroLog', 'Kişiler', 'Çağrılar', 'Ayarlar'];
+    const titles = ['Sohbetler', 'Kişiler', 'Çağrılar', 'Ayarlar'];
+
+    const selectedIcons = [
+      Icons.chat_bubble_rounded,
+      Icons.people_rounded,
+      Icons.call_rounded,
+      Icons.settings_rounded,
+    ];
+
+    const unselectedIcons = [
+      Icons.chat_bubble_outline_rounded,
+      Icons.people_outline_rounded,
+      Icons.call_outlined,
+      Icons.settings_outlined,
+    ];
 
     return Scaffold(
       backgroundColor: theme.background,
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: theme.background,
-        surfaceTintColor: Colors.transparent,
-        titleSpacing: 20,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
           children: [
-            Text(
-              titles[_selectedIndex],
-              style: TextStyle(
-                color: theme.text,
-                fontSize: 23,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            if (_selectedIndex == 0)
-              Text(
-                'Özel ve güvenli iletişim',
-                style: TextStyle(
-                  color: theme.text.withValues(alpha: 0.58),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w400,
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 13),
+              decoration: BoxDecoration(
+                color: theme.background,
+                border: Border(
+                  bottom: BorderSide(color: theme.text.withValues(alpha: 0.06)),
                 ),
               ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          titles[_selectedIndex],
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 26,
+                            height: 1.05,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.6,
+                          ),
+                        ),
+                        if (_selectedIndex == 0) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            'Özel ve güvenli iletişim',
+                            style: TextStyle(
+                              color: theme.text.withValues(alpha: 0.48),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: theme.surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: theme.text.withValues(alpha: 0.07),
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        widget.nickname.isEmpty
+                            ? 'Z'
+                            : widget.nickname.substring(0, 1).toUpperCase(),
+                        style: TextStyle(
+                          color: theme.primary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: IndexedStack(index: _selectedIndex, children: pages),
+            ),
           ],
         ),
-        actions: const [],
       ),
-      body: IndexedStack(index: _selectedIndex, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        backgroundColor: theme.surface,
-        indicatorColor: theme.primary.withValues(alpha: 0.14),
-        elevation: 0,
-        height: 72,
-        onDestinationSelected: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.chat_bubble_outline_rounded),
-            selectedIcon: Icon(Icons.chat_bubble_rounded, color: theme.primary),
-            label: 'Sohbetler',
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: theme.surface,
+          border: Border(
+            top: BorderSide(color: theme.text.withValues(alpha: 0.06)),
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.people_outline_rounded),
-            selectedIcon: Icon(Icons.people_rounded, color: theme.primary),
-            label: 'Kişiler',
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+            child: Row(
+              children: List.generate(4, (index) {
+                final selected = _selectedIndex == index;
+
+                return Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      if (_selectedIndex == index) return;
+
+                      setState(() {
+                        _selectedIndex = index;
+                      });
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? theme.primary.withValues(alpha: 0.12)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            selected
+                                ? selectedIcons[index]
+                                : unselectedIcons[index],
+                            size: 22,
+                            color: selected
+                                ? theme.primary
+                                : theme.text.withValues(alpha: 0.48),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            titles[index],
+                            style: TextStyle(
+                              color: selected
+                                  ? theme.primary
+                                  : theme.text.withValues(alpha: 0.48),
+                              fontSize: 10,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.call_outlined),
-            selectedIcon: Icon(Icons.call_rounded, color: theme.primary),
-            label: 'Çağrılar',
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings_rounded, color: theme.primary),
-            label: 'Ayarlar',
-          ),
-        ],
+        ),
       ),
     );
   }
