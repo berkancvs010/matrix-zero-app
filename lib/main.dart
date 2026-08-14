@@ -33,17 +33,17 @@ Future<void> main() async {
 
   await Firebase.initializeApp();
 
-  runApp(const MatrixZeroApp());
+  // FCM ve runtime izinleri uygulamanın giriş ekranı açılmadan
+  // önce hazırlanır. Böylece login paketine güncel FCM token
+  // kesin olarak dahil edilir.
+  try {
+    await ZeroLogPushService.initialize();
+  } catch (e, stack) {
+    debugPrint('[FCM] initialization failed: $e');
+    debugPrint('$stack');
+  }
 
-  // Push/bildirim başlatma UI'ın açılışını bloke etmemeli.
-  Future.microtask(() async {
-    try {
-      await ZeroLogPushService.initialize();
-    } catch (e, stack) {
-      debugPrint('[FCM] initialization failed: $e');
-      debugPrint('$stack');
-    }
-  });
+  runApp(const MatrixZeroApp());
 }
 
 
