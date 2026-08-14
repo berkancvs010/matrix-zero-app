@@ -19,7 +19,7 @@ import com.google.firebase.messaging.RemoteMessage
 class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CALL_CHANNEL_ID = "zerolog_calls_v2"
+        private const val CALL_CHANNEL_ID = "zerolog_calls_v3"
         private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v2"
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
@@ -52,6 +52,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
         when (type) {
             "callInvite" -> showCallNotification(message)
+            "callStatus" -> showCallStatusNotification(message)
             "privateMessage" -> {
                 // Mesajlarda notification payload bulunduğunda Android
                 // arka planda sistem bildirimi kendisi oluşturur.
@@ -200,6 +201,53 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             android.util.Log.e(
                 "ZeroLogFCM",
                 "Call notification permission denied",
+                e
+            )
+        }
+    }
+
+    private fun showCallStatusNotification(message: RemoteMessage) {
+        val title = message.data["title"]
+            ?.trim()
+            .orEmpty()
+            .ifEmpty { "ZeroLog çağrı" }
+
+        val body = message.data["body"]
+            ?.trim()
+            .orEmpty()
+
+        if (body.isEmpty()) return
+
+        try {
+            NotificationManagerCompat
+                .from(this)
+                .cancel(CALL_NOTIFICATION_ID)
+
+            val builder = NotificationCompat.Builder(
+                this,
+                CALL_CHANNEL_ID
+            )
+                .setSmallIcon(applicationInfo.icon)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setVibrate(longArrayOf(0, 500, 300, 500))
+                .setSound(
+                    Uri.parse(
+                        "android.resource://${packageName}/${R.raw.zerolog_call}"
+                    )
+                )
+
+            NotificationManagerCompat
+                .from(this)
+                .notify(9003, builder.build())
+        } catch (e: SecurityException) {
+            android.util.Log.e(
+                "ZeroLogFCM",
+                "Call status notification denied",
                 e
             )
         }

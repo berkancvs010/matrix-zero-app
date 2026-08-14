@@ -67,6 +67,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   if (type == 'callInvite') {
     await ZeroLogPushService.showIncomingCallNotification(message.data);
+  } else if (type == 'callStatus') {
+    await ZeroLogPushService.showCallStatusNotification(message);
   } else if (type == 'privateMessage') {
     await ZeroLogPushService.showPrivateMessageNotification(message);
   }
@@ -86,7 +88,7 @@ class ZeroLogPushService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String callChannelId = 'zerolog_calls_v2';
+  static const String callChannelId = 'zerolog_calls_v3';
   static const String messageChannelId = 'zerolog_messages_v2';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
@@ -318,6 +320,8 @@ class ZeroLogPushService {
         await showIncomingCallNotification(callData);
 
         WsClient.instance.emitExternalEvent(callData);
+      } else if (type == 'callStatus') {
+        await showCallStatusNotification(message);
       } else if (type == 'privateMessage') {
         await showPrivateMessageNotification(message);
       }
@@ -411,6 +415,40 @@ class ZeroLogPushService {
       notificationDetails: const NotificationDetails(android: androidDetails),
       payload: payload,
     );
+  }
+
+  static Future<void> showCallStatusNotification(RemoteMessage message) async {
+    try {
+      await _initializeNotifications(requestPermissions: false);
+      await cancelIncomingCallNotification();
+
+      final title = (message.data['title'] ?? 'ZeroLog çağrı')
+          .toString()
+          .trim();
+
+      final body = (message.data['body'] ?? '').toString().trim();
+
+      if (body.isEmpty) return;
+
+      const details = AndroidNotificationDetails(
+        messageChannelId,
+        'Mesajlar',
+        channelDescription: 'ZeroLog çağrı durum bildirimleri',
+        importance: Importance.high,
+        priority: Priority.high,
+        visibility: NotificationVisibility.public,
+        playSound: true,
+        enableVibration: true,
+        sound: RawResourceAndroidNotificationSound('zerolog_message'),
+      );
+
+      await _notifications.show(
+        id: 9003,
+        title: title,
+        body: body,
+        notificationDetails: const NotificationDetails(android: details),
+      );
+    } catch (_) {}
   }
 
   static Future<void> showPrivateMessageNotification(
@@ -2089,6 +2127,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // Android may suspend the WebSocket while the app is in background.
       // Force a presence/reconnect cycle when returning to foreground.
       WsClient.instance.onAppResumed();
+      _openPendingIncomingCall();
     }
   }
 
@@ -3919,7 +3958,7 @@ class _CallScreenState extends State<CallScreen> {
       _proximityScreenOffEnabled = true;
 
       _proximitySubscription = ProximitySensor.events.listen((value) {
-        if (!mounted || _closing || !_accepted) return;
+        if (!mounted || _closing) return;
 
         // 0 = uzak, >0 = yakın.
         // Ekran kontrolünü proximity_sensor'ın kendi mekanizması yapar.
@@ -4075,6 +4114,23 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _startOutgoingCall() async {
     if (_closing) return;
 
+    // Mikrofon iznini ve proximity sensörünü çağrı tuşuna
+    // basıldığı anda hazırla. Karşı tarafın cevap vermesini bekleme.
+    final microphoneGranted = await ZeroLogPushService.requestCallPermissions();
+
+    if (!microphoneGranted) {
+      if (mounted && !_closing) {
+        _showError('Mikrofon izni gerekli.');
+      }
+      return;
+    }
+
+    if (!_closing && mounted) {
+      await _initProximitySensor();
+    }
+
+    await ZeroLogPushService.startOutgoingCallTone();
+
     final callId = widget.callId;
     if (callId == null || callId.isEmpty) {
       if (mounted) {
@@ -4082,18 +4138,6 @@ class _CallScreenState extends State<CallScreen> {
       }
       return;
     }
-
-    final granted = await ZeroLogPushService.requestCallPermissions();
-
-    if (!granted) {
-      if (mounted) {
-        _showError('Arama için mikrofon izni gerekiyor.');
-      }
-      await _finish(sendSignal: false);
-      return;
-    }
-
-    await ZeroLogPushService.startOutgoingCallTone();
 
     WsClient.instance.send({
       'type': 'callInvite',
@@ -4103,16 +4147,23 @@ class _CallScreenState extends State<CallScreen> {
     });
 
     _outgoingTimeoutTimer?.cancel();
-    _outgoingTimeoutTimer = Timer(const Duration(seconds: 30), () {
+    _outgoingTimeoutTimer = Timer(const Duration(seconds: 60), () {
       if (_closing || !widget.outgoing) return;
 
       ZeroLogPushService.stopOutgoingCallTone();
+
+      WsClient.instance.send({
+        'type': 'callTimeout',
+        'from': widget.myNick,
+        'to': widget.targetNick,
+        'callId': widget.callId,
+      });
 
       if (mounted) {
         _showError('Cevap yok. Arama sonlandırıldı.');
       }
 
-      _finish(sendSignal: true);
+      _finish(sendSignal: false);
     });
   }
 
@@ -4301,6 +4352,15 @@ class _CallScreenState extends State<CallScreen> {
       }
     } else if (type == 'callIce') {
       _handleIceCandidate(data);
+    } else if (type == 'callTimeout') {
+      _outgoingTimeoutTimer?.cancel();
+      _outgoingTimeoutTimer = null;
+
+      await ZeroLogPushService.stopOutgoingCallTone();
+
+      if (!_closing) {
+        _finish(sendSignal: false);
+      }
     } else if (type == 'callEnded') {
       _finish(sendSignal: false);
     }
@@ -4408,7 +4468,7 @@ class _CallScreenState extends State<CallScreen> {
     if (_closing) return;
 
     WsClient.instance.send({
-      'type': 'callEnd',
+      'type': 'callReject',
       'from': widget.myNick,
       'to': widget.targetNick,
       'callId': widget.callId,
