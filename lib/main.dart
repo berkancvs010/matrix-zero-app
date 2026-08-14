@@ -97,6 +97,12 @@ class ZeroLogPushService {
 
   static String? get currentToken => _currentToken;
 
+  static void setCurrentToken(String token) {
+    final clean = token.trim();
+    if (clean.isEmpty) return;
+    _currentToken = clean;
+  }
+
   static const MethodChannel _systemChannel = MethodChannel('zerolog/system');
 
   static Future<void> requestStartupPermissions() async {
@@ -997,6 +1003,26 @@ class WsClient {
     nickname = this.username;
     _reconnectAttempt = 0;
     _reconnectTimer?.cancel();
+
+    // Login sırasında token yoksa FCM'den doğrudan tekrar al.
+    // Böylece başlangıçtaki token alma zamanlamasına bağlı kalmayız.
+    if (ZeroLogPushService.currentToken == null ||
+        ZeroLogPushService.currentToken!.trim().isEmpty) {
+      try {
+        final token = await FirebaseMessaging.instance.getToken();
+
+        if (token != null && token.trim().isNotEmpty) {
+          ZeroLogPushService.setCurrentToken(token.trim());
+          debugPrint(
+            '[FCM] login-time token acquired length=${token.trim().length}',
+          );
+        } else {
+          debugPrint('[FCM] login-time token is empty');
+        }
+      } catch (e) {
+        debugPrint('[FCM] login-time getToken failed: $e');
+      }
+    }
 
     return _connectInternal();
   }
