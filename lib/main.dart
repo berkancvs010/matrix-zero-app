@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -67,6 +68,7 @@ Future<void> _notificationTapBackground(
 Future<void> _firebaseMessagingBackgroundHandler(
   RemoteMessage message,
 ) async {
+  DartPluginRegistrant.ensureInitialized();
   await Firebase.initializeApp();
 
   final type = message.data['type'];
@@ -97,8 +99,8 @@ class ZeroLogPushService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String callChannelId = 'zerolog_calls';
-  static const String messageChannelId = 'zerolog_messages';
+  static const String callChannelId = 'zerolog_calls_v2';
+  static const String messageChannelId = 'zerolog_messages_v2';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
   static const String pendingCallKey = 'zerolog.pending_call';
@@ -215,6 +217,34 @@ class ZeroLogPushService {
     }
   }
 
+  static Future<String?> _getFcmTokenWithRetry() async {
+    for (var attempt = 1; attempt <= 5; attempt++) {
+      try {
+        final token = await _messaging
+            .getToken()
+            .timeout(const Duration(seconds: 10));
+
+        if (token != null && token.trim().isNotEmpty) {
+          return token.trim();
+        }
+
+        debugPrint(
+          '[FCM] getToken attempt $attempt returned empty',
+        );
+      } catch (e) {
+        debugPrint(
+          '[FCM] getToken attempt $attempt failed: $e',
+        );
+      }
+
+      if (attempt < 5) {
+        await Future.delayed(Duration(seconds: attempt));
+      }
+    }
+
+    return null;
+  }
+
   static Future<void> initialize() async {
     FirebaseMessaging.onBackgroundMessage(
       _firebaseMessagingBackgroundHandler,
@@ -229,6 +259,8 @@ class ZeroLogPushService {
       requestPermissions: true,
     );
 
+    await _messaging.setAutoInitEnabled(true);
+
     final settings = await _messaging.requestPermission(
       alert: true,
       badge: true,
@@ -240,18 +272,30 @@ class ZeroLogPushService {
       '[FCM] permission=${settings.authorizationStatus}',
     );
 
-    final token = await _messaging.getToken();
+    final token = await _getFcmTokenWithRetry();
 
     _currentToken = token;
 
-    debugPrint('[FCM] token=$token');
+    if (token == null || token.isEmpty) {
+      debugPrint(
+        '[FCM] ERROR: registration token could not be obtained',
+      );
+    } else {
+      debugPrint(
+        '[FCM] token acquired length=${token.length}',
+      );
+    }
 
     _messaging.onTokenRefresh.listen((newToken) {
       _currentToken = newToken;
 
-      debugPrint('[FCM] token_refresh=$newToken');
+      debugPrint(
+        '[FCM] token_refresh length=${newToken.length}',
+      );
 
       WsClient.instance.updateFcmToken(newToken);
+    }).onError((error) {
+      debugPrint('[FCM] token refresh error: $error');
     });
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
@@ -264,6 +308,10 @@ class ZeroLogPushService {
       );
 
       if (type == 'callInvite') {
+        await showIncomingCallNotification(
+          Map<String, dynamic>.from(message.data),
+        );
+
         WsClient.instance.emitExternalEvent(
           Map<String, dynamic>.from(message.data),
         );
@@ -325,8 +373,10 @@ class ZeroLogPushService {
       requestPermissions: false,
     );
 
-    final from = (data['from'] ?? '').toString().trim();
-    final to = (data['to'] ?? '').toString().trim();
+    final from =
+        (data['from'] ?? data['caller'] ?? '').toString().trim();
+    final to =
+        (data['to'] ?? data['callee'] ?? '').toString().trim();
     final callId = (data['callId'] ?? '').toString().trim();
 
     if (from.isEmpty || to.isEmpty || callId.isEmpty) {
@@ -885,8 +935,10 @@ class WsClient {
   }
 
   final Set<String> _onlineUsers = <String>{};
+  final Set<String> _knownUsers = <String>{};
 
   List<String> get onlineUsers => List.unmodifiable(_onlineUsers);
+  List<String> get knownUsers => List.unmodifiable(_knownUsers);
 
   String? nickname;
   String? username;
@@ -928,6 +980,18 @@ class WsClient {
 
     try {
       _channel!.sink.add(jsonEncode({'type': 'getPresence'}));
+    } catch (_) {
+      _handleConnectionLost();
+    }
+  }
+
+  void requestUserDirectory() {
+    if (!connected || _channel == null) return;
+
+    try {
+      _channel!.sink.add(
+        jsonEncode({'type': 'getUserDirectory'}),
+      );
     } catch (_) {
       _handleConnectionLost();
     }
@@ -1043,6 +1107,25 @@ class WsClient {
 
                 if (!authCompleter.isCompleted) {
                   authCompleter.complete(true);
+                }
+              }
+
+              if (data['type'] == 'userDirectory') {
+                final raw = data['users'];
+
+                if (raw is List) {
+                  _knownUsers
+                    ..clear()
+                    ..addAll(
+                      raw
+                          .map((e) => e.toString().trim())
+                          .where((e) => e.isNotEmpty)
+                          .where(
+                            (e) =>
+                                e.toLowerCase() !=
+                                (nickname ?? '').toLowerCase(),
+                          ),
+                    );
                 }
               }
 
@@ -2000,6 +2083,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   final List<String> _onlineUsers = [];
+  final List<String> _knownUsers = [];
 
   bool _connected = false;
   bool _reconnecting = false;
@@ -2023,9 +2107,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ..clear()
       ..addAll(WsClient.instance.onlineUsers);
 
+    _knownUsers
+      ..clear()
+      ..addAll(WsClient.instance.knownUsers);
+
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.requestPresence();
+    WsClient.instance.requestUserDirectory();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _openPendingIncomingCall();
@@ -2063,6 +2152,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       setState(() {
         _connected = data['success'] != false;
       });
+    }
+
+    if (type == 'userDirectory') {
+      final raw = data['users'];
+
+      if (raw is List) {
+        final users = raw
+            .map((e) => e.toString())
+            .where((e) => e.isNotEmpty)
+            .where(
+              (e) =>
+                  e.toLowerCase() != widget.nickname.toLowerCase(),
+            )
+            .toSet()
+            .toList()
+          ..sort(
+            (a, b) =>
+                a.toLowerCase().compareTo(b.toLowerCase()),
+          );
+
+        setState(() {
+          _knownUsers
+            ..clear()
+            ..addAll(users);
+        });
+      }
     }
 
     if (type == 'userList') {
@@ -2585,14 +2700,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final query = _contactSearchQuery.trim().toLowerCase();
 
     final filteredUsers = query.isEmpty
-        ? _onlineUsers
-        : _onlineUsers
+        ? _knownUsers
+        : _knownUsers
             .where((user) => user.toLowerCase().contains(query))
             .toList();
 
     final exactUser = query.isEmpty
         ? null
-        : _onlineUsers.cast<String?>().firstWhere(
+        : _knownUsers.cast<String?>().firstWhere(
               (user) => user!.toLowerCase() == query,
               orElse: () => null,
             );
@@ -2645,7 +2760,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Bu rumuz çevrimiçi değil veya bulunamadı.',
+                    'Kullanıcı bulunamadı.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: theme.text.withValues(alpha: 0.58),
@@ -2656,11 +2771,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ),
         ] else ...[
           _sectionTitle(
-            'Çevrimiçi',
-            action: '${_onlineUsers.length} kişi',
+            'Kişiler',
+            action: '${_knownUsers.length} kişi',
           ),
 
-          if (_onlineUsers.isEmpty)
+          if (_knownUsers.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 30, 24, 20),
               child: Column(
@@ -2672,7 +2787,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Şu anda çevrimiçi kullanıcı yok.',
+                    'Henüz kayıtlı kullanıcı bulunamadı.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: theme.text.withValues(alpha: 0.58),
@@ -2683,7 +2798,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
             )
           else
-            ..._onlineUsers.map(
+            ..._knownUsers.map(
               (user) => _contactResultCard(user),
             ),
         ],
@@ -2810,7 +2925,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         _sectionTitle('Hızlı arama'),
 
-        ..._onlineUsers.take(5).map(
+        ..._knownUsers.take(5).map(
           (user) => Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Material(
@@ -2821,7 +2936,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   horizontal: 15,
                   vertical: 4,
                 ),
-                leading: _avatar(user, online: true),
+                leading: _avatar(
+                  user,
+                  online: _onlineUsers.any(
+                    (u) =>
+                        u.toLowerCase() ==
+                        user.toLowerCase(),
+                  ),
+                ),
                 title: Text(
                   user,
                   style: TextStyle(
@@ -2830,7 +2952,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 subtitle: Text(
-                  'Çevrimiçi',
+                  _onlineUsers.any(
+                    (u) =>
+                        u.toLowerCase() ==
+                        user.toLowerCase(),
+                  )
+                      ? 'Çevrimiçi'
+                      : 'Çevrimdışı',
                   style: TextStyle(
                     color: theme.text.withValues(alpha: 0.58),
                     fontSize: 12,
