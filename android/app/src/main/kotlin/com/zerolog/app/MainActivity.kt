@@ -131,6 +131,33 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun clearCallLockScreen() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(false)
+                setTurnScreenOn(false)
+            }
+
+            window.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+            )
+
+            window.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+
+            window.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to clear call lock-screen state",
+                e
+            )
+        }
+    }
+
     private fun stopOutgoingCallTone() {
         try {
             outgoingCallPlayer?.stop()
@@ -169,6 +196,11 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
 
+                "clearCallLockScreen" -> {
+                    clearCallLockScreen()
+                    result.success(true)
+                }
+
                 "getDefaultRingtoneUri" -> {
                     try {
                         val uri: Uri? = RingtoneManager.getActualDefaultRingtoneUri(
@@ -189,6 +221,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         stopOutgoingCallTone()
+        clearCallLockScreen()
         super.onDestroy()
     }
 

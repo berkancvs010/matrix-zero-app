@@ -88,8 +88,8 @@ class ZeroLogPushService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String callChannelId = 'zerolog_calls_v3';
-  static const String messageChannelId = 'zerolog_messages_v2';
+  static const String callChannelId = 'zerolog_calls_v4';
+  static const String messageChannelId = 'zerolog_messages_v3';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
   static const String pendingCallKey = 'zerolog.pending_call';
@@ -140,6 +140,14 @@ class ZeroLogPushService {
     }
   }
 
+  static Future<void> clearCallLockScreen() async {
+    try {
+      await _systemChannel.invokeMethod('clearCallLockScreen');
+    } catch (e) {
+      debugPrint('[CALL] clear lock-screen state failed: $e');
+    }
+  }
+
   static Future<void> stopOutgoingCallTone() async {
     try {
       await _systemChannel.invokeMethod('stopOutgoingCallTone');
@@ -184,8 +192,6 @@ class ZeroLogPushService {
           playSound: true,
           enableVibration: true,
           showBadge: true,
-          sound: RawResourceAndroidNotificationSound('zerolog_call'),
-          audioAttributesUsage: AudioAttributesUsage.voiceCommunication,
         ),
       );
 
@@ -198,7 +204,6 @@ class ZeroLogPushService {
           playSound: true,
           enableVibration: true,
           showBadge: true,
-          sound: RawResourceAndroidNotificationSound('zerolog_message'),
         ),
       );
 
@@ -404,8 +409,6 @@ class ZeroLogPushService {
       ongoing: true,
       autoCancel: false,
       showWhen: false,
-      sound: RawResourceAndroidNotificationSound('zerolog_call'),
-      audioAttributesUsage: AudioAttributesUsage.voiceCommunication,
     );
 
     await _notifications.show(
@@ -439,7 +442,6 @@ class ZeroLogPushService {
         visibility: NotificationVisibility.public,
         playSound: true,
         enableVibration: true,
-        sound: RawResourceAndroidNotificationSound('zerolog_message'),
       );
 
       await _notifications.show(
@@ -476,7 +478,6 @@ class ZeroLogPushService {
         playSound: true,
         enableVibration: true,
         showWhen: true,
-        sound: RawResourceAndroidNotificationSound('zerolog_message'),
       );
 
       await _notifications.show(
@@ -494,6 +495,13 @@ class ZeroLogPushService {
     try {
       await _initializeNotifications(requestPermissions: false);
       await _notifications.cancel(id: callNotificationId);
+    } catch (_) {}
+  }
+
+  static Future<void> clearPendingCall() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(pendingCallKey);
     } catch (_) {}
   }
 
@@ -4441,6 +4449,9 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     if (type == 'callAccepted') {
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearCallLockScreen();
       if (widget.outgoing) {
         _outgoingTimeoutTimer?.cancel();
         _outgoingTimeoutTimer = null;
@@ -4450,6 +4461,9 @@ class _CallScreenState extends State<CallScreen> {
         _startOutgoingOffer();
       }
     } else if (type == 'callRejected') {
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearCallLockScreen();
       _outgoingTimeoutTimer?.cancel();
       _outgoingTimeoutTimer = null;
 
@@ -4477,6 +4491,9 @@ class _CallScreenState extends State<CallScreen> {
     } else if (type == 'callIce') {
       _handleIceCandidate(data);
     } else if (type == 'callTimeout') {
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearCallLockScreen();
       _outgoingTimeoutTimer?.cancel();
       _outgoingTimeoutTimer = null;
 
@@ -4486,6 +4503,9 @@ class _CallScreenState extends State<CallScreen> {
         _finish(sendSignal: false);
       }
     } else if (type == 'callEnded') {
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearCallLockScreen();
       _finish(sendSignal: false);
     }
   }
@@ -4611,6 +4631,7 @@ class _CallScreenState extends State<CallScreen> {
 
     await ZeroLogPushService.stopOutgoingCallTone();
     await ZeroLogPushService.cancelIncomingCallNotification();
+    await ZeroLogPushService.clearCallLockScreen();
 
     await _proximitySubscription?.cancel();
     _proximitySubscription = null;
@@ -4680,6 +4701,7 @@ class _CallScreenState extends State<CallScreen> {
     _outgoingTimeoutTimer = null;
 
     ZeroLogPushService.stopOutgoingCallTone();
+    ZeroLogPushService.clearCallLockScreen();
 
     _subscription.cancel();
     _proximitySubscription?.cancel();
