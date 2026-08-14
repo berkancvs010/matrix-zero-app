@@ -3,6 +3,7 @@ package com.zerolog.app
 import android.Manifest
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
@@ -13,6 +14,10 @@ class MainActivity : FlutterActivity() {
 
     private val channelName = "zerolog/system"
     private val startupPermissionRequestCode = 7401
+    private val callPermissionRequestCode = 7402
+    private var outgoingCallPlayer: MediaPlayer? = null
+    private var callPermissionResult:
+        io.flutter.plugin.common.MethodChannel.Result? = null
     private var startupPermissionResult:
         io.flutter.plugin.common.MethodChannel.Result? = null
 
@@ -29,13 +34,6 @@ class MainActivity : FlutterActivity() {
                 PackageManager.PERMISSION_GRANTED
         ) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
-        if (
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
-                PackageManager.PERMISSION_GRANTED
-        ) {
-            permissions.add(Manifest.permission.RECORD_AUDIO)
         }
 
         if (permissions.isEmpty()) {
@@ -69,6 +67,80 @@ class MainActivity : FlutterActivity() {
                 result.success(true)
             }
         }
+
+        if (requestCode == callPermissionRequestCode) {
+            val result = callPermissionResult
+            callPermissionResult = null
+
+            if (result != null) {
+                val granted = grantResults.isNotEmpty() &&
+                    grantResults.all {
+                        it == PackageManager.PERMISSION_GRANTED
+                    }
+
+                result.success(granted)
+            }
+        }
+    }
+
+    private fun requestCallPermissions(
+        result: io.flutter.plugin.common.MethodChannel.Result
+    ) {
+        callPermissionResult = result
+
+        val permissions = mutableListOf<String>()
+
+        if (
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            permissions.add(Manifest.permission.RECORD_AUDIO)
+        }
+
+        if (permissions.isEmpty()) {
+            callPermissionResult = null
+            result.success(true)
+            return
+        }
+
+        requestPermissions(
+            permissions.toTypedArray(),
+            callPermissionRequestCode
+        )
+    }
+
+    private fun startOutgoingCallTone() {
+        stopOutgoingCallTone()
+
+        try {
+            outgoingCallPlayer = MediaPlayer.create(
+                this,
+                R.raw.zerolog_call
+            )?.apply {
+                isLooping = true
+                setVolume(1.0f, 1.0f)
+                start()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Outgoing call tone failed",
+                e
+            )
+            stopOutgoingCallTone()
+        }
+    }
+
+    private fun stopOutgoingCallTone() {
+        try {
+            outgoingCallPlayer?.stop()
+        } catch (_: Exception) {}
+
+        try {
+            outgoingCallPlayer?.release()
+        } catch (_: Exception) {}
+
+        outgoingCallPlayer = null
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -81,6 +153,20 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "requestStartupPermissions" -> {
                     requestStartupPermissions(result)
+                }
+
+                "requestCallPermissions" -> {
+                    requestCallPermissions(result)
+                }
+
+                "startOutgoingCallTone" -> {
+                    startOutgoingCallTone()
+                    result.success(true)
+                }
+
+                "stopOutgoingCallTone" -> {
+                    stopOutgoingCallTone()
+                    result.success(true)
                 }
 
                 "getDefaultRingtoneUri" -> {
@@ -100,4 +186,10 @@ class MainActivity : FlutterActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        stopOutgoingCallTone()
+        super.onDestroy()
+    }
+
 }

@@ -115,6 +115,37 @@ class ZeroLogPushService {
     }
   }
 
+  static Future<bool> requestCallPermissions() async {
+    try {
+      final granted = await _systemChannel.invokeMethod<bool>(
+        'requestCallPermissions',
+      );
+
+      debugPrint('[PERMISSIONS] call microphone granted=$granted');
+
+      return granted == true;
+    } catch (e) {
+      debugPrint('[PERMISSIONS] call permission failed: $e');
+      return false;
+    }
+  }
+
+  static Future<void> startOutgoingCallTone() async {
+    try {
+      await _systemChannel.invokeMethod('startOutgoingCallTone');
+    } catch (e) {
+      debugPrint('[CALL] outgoing tone start failed: $e');
+    }
+  }
+
+  static Future<void> stopOutgoingCallTone() async {
+    try {
+      await _systemChannel.invokeMethod('stopOutgoingCallTone');
+    } catch (e) {
+      debugPrint('[CALL] outgoing tone stop failed: $e');
+    }
+  }
+
   static Future<void> _initializeNotifications({
     required bool requestPermissions,
   }) async {
@@ -3318,7 +3349,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     WsClient.instance.joinRoom(widget.roomName);
   }
 
-  void _handleEvent(Map<String, dynamic> data) {
+  Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
     if (data['type'] == 'roomHistory' && data['room'] == widget.roomName) {
@@ -3514,7 +3545,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
   }
 
-  void _handleEvent(Map<String, dynamic> data) {
+  Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
     if (data['type'] == 'privateHistory') {
@@ -3861,6 +3892,8 @@ class _CallScreenState extends State<CallScreen> {
   bool _closing = false;
   bool _remoteDescriptionSet = false;
 
+  Timer? _outgoingTimeoutTimer;
+
   StreamSubscription<int>? _proximitySubscription;
   bool _proximityScreenOffEnabled = false;
 
@@ -4050,11 +4083,36 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
+    final granted = await ZeroLogPushService.requestCallPermissions();
+
+    if (!granted) {
+      if (mounted) {
+        _showError('Arama için mikrofon izni gerekiyor.');
+      }
+      await _finish(sendSignal: false);
+      return;
+    }
+
+    await ZeroLogPushService.startOutgoingCallTone();
+
     WsClient.instance.send({
       'type': 'callInvite',
       'from': widget.myNick,
       'to': widget.targetNick,
       'callId': callId,
+    });
+
+    _outgoingTimeoutTimer?.cancel();
+    _outgoingTimeoutTimer = Timer(const Duration(seconds: 30), () {
+      if (_closing || !widget.outgoing) return;
+
+      ZeroLogPushService.stopOutgoingCallTone();
+
+      if (mounted) {
+        _showError('Cevap yok. Arama sonlandırıldı.');
+      }
+
+      _finish(sendSignal: true);
     });
   }
 
@@ -4100,6 +4158,16 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _acceptIncoming() async {
     if (_closing) return;
+
+    final granted = await ZeroLogPushService.requestCallPermissions();
+
+    if (!granted) {
+      if (mounted) {
+        _showError('Arama için mikrofon izni gerekiyor.');
+      }
+      await _finish(sendSignal: false);
+      return;
+    }
 
     final incomingOffer = widget.incomingOffer;
 
@@ -4182,7 +4250,7 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  void _handleEvent(Map<String, dynamic> data) {
+  Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted || _closing) return;
 
     final type = data['type'];
@@ -4199,15 +4267,34 @@ class _CallScreenState extends State<CallScreen> {
 
     if (type == 'callAccepted') {
       if (widget.outgoing) {
+        _outgoingTimeoutTimer?.cancel();
+        _outgoingTimeoutTimer = null;
+
+        await ZeroLogPushService.stopOutgoingCallTone();
+
         _startOutgoingOffer();
       }
     } else if (type == 'callRejected') {
-      _finish(sendSignal: false);
+      _outgoingTimeoutTimer?.cancel();
+      _outgoingTimeoutTimer = null;
+
+      await ZeroLogPushService.stopOutgoingCallTone();
+
+      if (mounted) {
+        _showError('Arama reddedildi.');
+      }
+
+      await Future.delayed(const Duration(milliseconds: 700));
+
+      if (!_closing) {
+        _finish(sendSignal: false);
+      }
     } else if (type == 'callAnswer') {
       _handleAnswer(data);
     } else if (type == 'callOffer') {
       if (!widget.outgoing && _accepted) {
         final sdp = data['sdp']?.toString();
+
         if (sdp != null && sdp.isNotEmpty) {
           _handleIncomingOffer(sdp);
         }
@@ -4335,6 +4422,10 @@ class _CallScreenState extends State<CallScreen> {
 
     _closing = true;
 
+    _outgoingTimeoutTimer?.cancel();
+    _outgoingTimeoutTimer = null;
+
+    await ZeroLogPushService.stopOutgoingCallTone();
     await ZeroLogPushService.cancelIncomingCallNotification();
 
     await _proximitySubscription?.cancel();
@@ -4352,6 +4443,7 @@ class _CallScreenState extends State<CallScreen> {
         'type': 'callEnd',
         'from': widget.myNick,
         'to': widget.targetNick,
+        'callId': widget.callId,
       });
     }
 
@@ -4400,6 +4492,11 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _outgoingTimeoutTimer?.cancel();
+    _outgoingTimeoutTimer = null;
+
+    ZeroLogPushService.stopOutgoingCallTone();
+
     _subscription.cancel();
     _proximitySubscription?.cancel();
 

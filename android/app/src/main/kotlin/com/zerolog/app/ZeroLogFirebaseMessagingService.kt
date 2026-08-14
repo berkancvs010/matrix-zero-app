@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import org.json.JSONObject
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -129,6 +130,24 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         ).trim()
 
         if (caller.isEmpty() || callId.isEmpty()) return
+
+        val pendingCall = JSONObject()
+            .put("type", "callInvite")
+            .put("from", caller)
+            .put("to", callee)
+            .put("callId", callId)
+            .toString()
+
+        getSharedPreferences(
+            "FlutterSharedPreferences",
+            MODE_PRIVATE
+        )
+            .edit()
+            .putString(
+                "flutter.zerolog.pending_call",
+                pendingCall
+            )
+            .apply()
 
         val intent = Intent(this, MainActivity::class.java).apply {
             action = "zerolog.incoming_call"
