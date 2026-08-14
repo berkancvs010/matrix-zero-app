@@ -1033,6 +1033,14 @@ class WsClient {
                 nickname = authenticatedName;
                 connected = true;
 
+                  final latestFcmToken =
+                      ZeroLogPushService.currentToken;
+
+                  if (latestFcmToken != null &&
+                      latestFcmToken.trim().isNotEmpty) {
+                    updateFcmToken(latestFcmToken);
+                  }
+
                 if (!authCompleter.isCompleted) {
                   authCompleter.complete(true);
                 }
