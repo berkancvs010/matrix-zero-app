@@ -1014,6 +1014,48 @@ class WsClient {
     }
   }
 
+  void requestPrivacySettings() {
+    send({'type': 'getPrivacySettings'});
+  }
+
+  void requestNotificationSettings() {
+    send({'type': 'getNotificationSettings'});
+  }
+
+  void setPrivacySettings({
+    bool? presenceVisible,
+    bool? privateMessagesEnabled,
+  }) {
+    final data = <String, dynamic>{'type': 'setPrivacySettings'};
+
+    if (presenceVisible != null) {
+      data['presenceVisible'] = presenceVisible;
+    }
+
+    if (privateMessagesEnabled != null) {
+      data['privateMessagesEnabled'] = privateMessagesEnabled;
+    }
+
+    send(data);
+  }
+
+  void setNotificationSettings({
+    bool? messageNotificationsEnabled,
+    bool? callNotificationsEnabled,
+  }) {
+    final data = <String, dynamic>{'type': 'setNotificationSettings'};
+
+    if (messageNotificationsEnabled != null) {
+      data['messageNotificationsEnabled'] = messageNotificationsEnabled;
+    }
+
+    if (callNotificationsEnabled != null) {
+      data['callNotificationsEnabled'] = callNotificationsEnabled;
+    }
+
+    send(data);
+  }
+
   void joinRoom(String room) {
     final id = room.trim();
     if (id.isEmpty) return;
@@ -2088,6 +2130,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _connected = false;
   bool _reconnecting = false;
 
+  bool _presenceVisible = true;
+  bool _privateMessagesEnabled = true;
+  bool _messageNotificationsEnabled = true;
+  bool _callNotificationsEnabled = true;
+
   int _selectedIndex = 0;
 
   final TextEditingController _contactSearchController =
@@ -2112,6 +2159,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ..addAll(WsClient.instance.knownUsers);
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
+    WsClient.instance.requestPrivacySettings();
+    WsClient.instance.requestNotificationSettings();
 
     WsClient.instance.requestPresence();
     WsClient.instance.requestUserDirectory();
@@ -2135,6 +2184,41 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (!mounted) return;
 
     final type = data['type'];
+
+    if (type == 'privacySettings') {
+      final presenceVisible = data['presenceVisible'];
+      final privateMessagesEnabled = data['privateMessagesEnabled'];
+
+      if (presenceVisible is bool || privateMessagesEnabled is bool) {
+        setState(() {
+          if (presenceVisible is bool) {
+            _presenceVisible = presenceVisible;
+          }
+
+          if (privateMessagesEnabled is bool) {
+            _privateMessagesEnabled = privateMessagesEnabled;
+          }
+        });
+      }
+    }
+
+    if (type == 'notificationSettings') {
+      final messageNotificationsEnabled = data['messageNotificationsEnabled'];
+      final callNotificationsEnabled = data['callNotificationsEnabled'];
+
+      if (messageNotificationsEnabled is bool ||
+          callNotificationsEnabled is bool) {
+        setState(() {
+          if (messageNotificationsEnabled is bool) {
+            _messageNotificationsEnabled = messageNotificationsEnabled;
+          }
+
+          if (callNotificationsEnabled is bool) {
+            _callNotificationsEnabled = callNotificationsEnabled;
+          }
+        });
+      }
+    }
 
     if (type == 'accountDeleted') {
       await SecureSession.clear();
@@ -3104,125 +3188,165 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void _openNotificationSettings() {
     final theme = ThemeController.instance.data;
 
+    var messageEnabled = _messageNotificationsEnabled;
+    var callEnabled = _callNotificationsEnabled;
+
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => Scaffold(
-          backgroundColor: theme.background,
-          appBar: AppBar(title: const Text('Bildirimler')),
-          body: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _settingsTile(
-                icon: Icons.notifications_active_outlined,
-                title: 'Mesaj bildirimleri',
-                subtitle: 'Özel mesaj bildirimleri',
-                onTap: () async {
-                  await ZeroLogPushService.initialize();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Mesaj bildirim kanalı hazır.'),
-                      ),
-                    );
-                  }
-                },
-              ),
-              _settingsTile(
-                icon: Icons.call_outlined,
-                title: 'Çağrı bildirimleri',
-                subtitle: 'Gelen sesli çağrılar',
-                onTap: () async {
-                  await ZeroLogPushService.initialize();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Çağrı bildirim kanalı hazır.'),
-                      ),
-                    );
-                  }
-                },
-              ),
-              const SizedBox(height: 18),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  'Android bildirim izinleri ve ZeroLog bildirim kanalları '
-                  'buradan kontrol edilir.',
-                  style: TextStyle(
-                    color: theme.text.withValues(alpha: 0.58),
-                    height: 1.45,
+        builder: (_) => StatefulBuilder(
+          builder: (context, setPageState) {
+            return Scaffold(
+              backgroundColor: theme.background,
+              appBar: AppBar(title: const Text('Bildirimler')),
+              body: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  SwitchListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    secondary: const Icon(Icons.notifications_active_outlined),
+                    title: const Text('Mesaj bildirimleri'),
+                    subtitle: const Text('Özel mesaj bildirimlerini göster'),
+                    value: messageEnabled,
+                    onChanged: (value) {
+                      setPageState(() {
+                        messageEnabled = value;
+                      });
+
+                      _messageNotificationsEnabled = value;
+
+                      WsClient.instance.setNotificationSettings(
+                        messageNotificationsEnabled: value,
+                      );
+                    },
                   ),
-                ),
+                  SwitchListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    secondary: const Icon(Icons.call_outlined),
+                    title: const Text('Çağrı bildirimleri'),
+                    subtitle: const Text(
+                      'Gelen sesli çağrı bildirimlerini göster',
+                    ),
+                    value: callEnabled,
+                    onChanged: (value) {
+                      setPageState(() {
+                        callEnabled = value;
+                      });
+
+                      _callNotificationsEnabled = value;
+
+                      WsClient.instance.setNotificationSettings(
+                        callNotificationsEnabled: value,
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      'Bildirim tercihleriniz hesabınıza kaydedilir ve '
+                      'ZeroLog sunucusuyla senkronize edilir.',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.58),
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
+
+    WsClient.instance.requestNotificationSettings();
   }
 
   void _openPrivacySettings() {
     final theme = ThemeController.instance.data;
 
+    var presenceVisible = _presenceVisible;
+    var privateMessagesEnabled = _privateMessagesEnabled;
+
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => Scaffold(
-          backgroundColor: theme.background,
-          appBar: AppBar(title: const Text('Gizlilik')),
-          body: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _settingsTile(
-                icon: Icons.visibility_off_outlined,
-                title: 'Çevrimiçi durum',
-                subtitle: 'Çevrimiçi kullanıcı bilgileri',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Gizlilik seçeneği sonraki aşamada etkinleştirilecek.',
-                      ),
+        builder: (_) => StatefulBuilder(
+          builder: (context, setPageState) {
+            return Scaffold(
+              backgroundColor: theme.background,
+              appBar: AppBar(title: const Text('Gizlilik')),
+              body: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  SwitchListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    secondary: const Icon(Icons.visibility_outlined),
+                    title: const Text('Çevrimiçi durum'),
+                    subtitle: const Text(
+                      'Çevrimiçi olduğumu diğer kullanıcılar görebilsin',
                     ),
-                  );
-                },
-              ),
-              _settingsTile(
-                icon: Icons.lock_outline_rounded,
-                title: 'Özel mesajlar',
-                subtitle: 'Özel iletişim ve mesaj geçmişi',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Özel mesaj gizlilik ayarları sonraki aşamada etkinleştirilecek.',
-                      ),
-                    ),
-                  );
-                },
-              ),
-              _settingsTile(
-                icon: Icons.delete_outline_rounded,
-                title: 'Verilerimi sil',
-                subtitle: 'Hesap ve kayıtları yönet',
-                onTap: () => _deleteAccount(allData: true),
-              ),
-              const SizedBox(height: 18),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  'ZeroLog gizlilik seçenekleri bu bölüm altında '
-                  'merkezi olarak yönetilecek.',
-                  style: TextStyle(
-                    color: theme.text.withValues(alpha: 0.58),
-                    height: 1.45,
+                    value: presenceVisible,
+                    onChanged: (value) {
+                      setPageState(() {
+                        presenceVisible = value;
+                      });
+
+                      _presenceVisible = value;
+
+                      WsClient.instance.setPrivacySettings(
+                        presenceVisible: value,
+                      );
+                    },
                   ),
-                ),
+                  SwitchListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    secondary: const Icon(Icons.lock_outline_rounded),
+                    title: const Text('Özel mesajlar'),
+                    subtitle: const Text(
+                      'Diğer kullanıcıların bana özel mesaj '
+                      'göndermesine izin ver',
+                    ),
+                    value: privateMessagesEnabled,
+                    onChanged: (value) {
+                      setPageState(() {
+                        privateMessagesEnabled = value;
+                      });
+
+                      _privateMessagesEnabled = value;
+
+                      WsClient.instance.setPrivacySettings(
+                        privateMessagesEnabled: value,
+                      );
+                    },
+                  ),
+                  _settingsTile(
+                    icon: Icons.delete_outline_rounded,
+                    title: 'Verilerimi sil',
+                    subtitle: 'Hesap ve kayıtları yönet',
+                    onTap: () => _deleteAccount(allData: true),
+                  ),
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      'Gizlilik tercihleriniz hesabınıza kaydedilir. '
+                      'Çevrimiçi durum kapatıldığında diğer kullanıcılar '
+                      'sizi çevrimiçi listesinde göremez.',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.58),
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
+
+    WsClient.instance.requestPrivacySettings();
   }
 
   Widget _settingsTile({
