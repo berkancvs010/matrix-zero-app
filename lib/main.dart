@@ -15,7 +15,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:proximity_sensor/proximity_sensor.dart';
 
 const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
-final GlobalKey<NavigatorState> zeroLogNavigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<NavigatorState> zeroLogNavigatorKey =
+    GlobalKey<NavigatorState>();
 
 const List<String> rooms = [
   'genel',
@@ -27,7 +28,6 @@ const List<String> rooms = [
   'spor',
   'gece',
 ];
-
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,40 +47,28 @@ Future<void> main() async {
   runApp(const MatrixZeroApp());
 }
 
-
 @pragma('vm:entry-point')
-Future<void> _notificationTapBackground(
-  NotificationResponse response,
-) async {
+Future<void> _notificationTapBackground(NotificationResponse response) async {
   final payload = response.payload;
   if (payload == null || payload.isEmpty) return;
 
   try {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      ZeroLogPushService.pendingCallKey,
-      payload,
-    );
+    await prefs.setString(ZeroLogPushService.pendingCallKey, payload);
   } catch (_) {}
 }
 
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(
-  RemoteMessage message,
-) async {
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   DartPluginRegistrant.ensureInitialized();
   await Firebase.initializeApp();
 
   final type = message.data['type'];
 
   if (type == 'callInvite') {
-    await ZeroLogPushService.showIncomingCallNotification(
-      message.data,
-    );
+    await ZeroLogPushService.showIncomingCallNotification(message.data);
   } else if (type == 'privateMessage') {
-    await ZeroLogPushService.showPrivateMessageNotification(
-      message,
-    );
+    await ZeroLogPushService.showPrivateMessageNotification(message);
   }
 
   debugPrint(
@@ -93,8 +81,7 @@ Future<void> _firebaseMessagingBackgroundHandler(
 class ZeroLogPushService {
   ZeroLogPushService._();
 
-  static final FirebaseMessaging _messaging =
-      FirebaseMessaging.instance;
+  static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
 
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
@@ -110,20 +97,15 @@ class ZeroLogPushService {
 
   static String? get currentToken => _currentToken;
 
-  static const MethodChannel _systemChannel =
-      MethodChannel('zerolog/system');
+  static const MethodChannel _systemChannel = MethodChannel('zerolog/system');
 
   static Future<void> requestStartupPermissions() async {
     try {
-      await _systemChannel.invokeMethod(
-        'requestStartupPermissions',
-      );
+      await _systemChannel.invokeMethod('requestStartupPermissions');
 
       debugPrint('[PERMISSIONS] startup permission flow completed');
     } catch (e) {
-      debugPrint(
-        '[PERMISSIONS] startup permission flow failed: $e',
-      );
+      debugPrint('[PERMISSIONS] startup permission flow failed: $e');
     }
   }
 
@@ -132,13 +114,10 @@ class ZeroLogPushService {
   }) async {
     if (_notificationsInitialized) return;
 
-    const androidSettings =
-        AndroidInitializationSettings('ic_launcher');
+    const androidSettings = AndroidInitializationSettings('ic_launcher');
 
     await _notifications.initialize(
-      settings: const InitializationSettings(
-        android: androidSettings,
-      ),
+      settings: const InitializationSettings(android: androidSettings),
       onDidReceiveNotificationResponse: (response) async {
         final payload = response.payload;
         if (payload == null || payload.isEmpty) return;
@@ -148,13 +127,13 @@ class ZeroLogPushService {
           await prefs.setString(pendingCallKey, payload);
         } catch (_) {}
       },
-      onDidReceiveBackgroundNotificationResponse:
-          _notificationTapBackground,
+      onDidReceiveBackgroundNotificationResponse: _notificationTapBackground,
     );
 
     final android = _notifications
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
 
     if (android != null) {
       await android.createNotificationChannel(
@@ -166,12 +145,10 @@ class ZeroLogPushService {
           playSound: true,
           enableVibration: true,
           showBadge: true,
-            sound: RawResourceAndroidNotificationSound('zerolog_call'),
-          audioAttributesUsage:
-              AudioAttributesUsage.voiceCommunication,
+          sound: RawResourceAndroidNotificationSound('zerolog_call'),
+          audioAttributesUsage: AudioAttributesUsage.voiceCommunication,
         ),
       );
-
 
       await android.createNotificationChannel(
         const AndroidNotificationChannel(
@@ -182,7 +159,7 @@ class ZeroLogPushService {
           playSound: true,
           enableVibration: true,
           showBadge: true,
-            sound: RawResourceAndroidNotificationSound('zerolog_message'),
+          sound: RawResourceAndroidNotificationSound('zerolog_message'),
         ),
       );
 
@@ -196,21 +173,16 @@ class ZeroLogPushService {
 
     if (requestPermissions) {
       try {
-        final launchDetails =
-            await _notifications.getNotificationAppLaunchDetails();
+        final launchDetails = await _notifications
+            .getNotificationAppLaunchDetails();
 
         if (launchDetails?.didNotificationLaunchApp == true) {
-          final payload =
-              launchDetails?.notificationResponse?.payload;
+          final payload = launchDetails?.notificationResponse?.payload;
 
           if (payload != null && payload.isNotEmpty) {
-            final prefs =
-                await SharedPreferences.getInstance();
+            final prefs = await SharedPreferences.getInstance();
 
-            await prefs.setString(
-              pendingCallKey,
-              payload,
-            );
+            await prefs.setString(pendingCallKey, payload);
           }
         }
       } catch (_) {}
@@ -220,21 +192,17 @@ class ZeroLogPushService {
   static Future<String?> _getFcmTokenWithRetry() async {
     for (var attempt = 1; attempt <= 5; attempt++) {
       try {
-        final token = await _messaging
-            .getToken()
-            .timeout(const Duration(seconds: 10));
+        final token = await _messaging.getToken().timeout(
+          const Duration(seconds: 10),
+        );
 
         if (token != null && token.trim().isNotEmpty) {
           return token.trim();
         }
 
-        debugPrint(
-          '[FCM] getToken attempt $attempt returned empty',
-        );
+        debugPrint('[FCM] getToken attempt $attempt returned empty');
       } catch (e) {
-        debugPrint(
-          '[FCM] getToken attempt $attempt failed: $e',
-        );
+        debugPrint('[FCM] getToken attempt $attempt failed: $e');
       }
 
       if (attempt < 5) {
@@ -245,19 +213,23 @@ class ZeroLogPushService {
     return null;
   }
 
+  static Map<String, dynamic> _normalizeCallData(Map<String, dynamic> data) {
+    final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
+    final to = (data['to'] ?? data['callee'] ?? '').toString().trim();
+    final callId = (data['callId'] ?? '').toString().trim();
+
+    return {'type': 'callInvite', 'from': from, 'to': to, 'callId': callId};
+  }
+
   static Future<void> initialize() async {
-    FirebaseMessaging.onBackgroundMessage(
-      _firebaseMessagingBackgroundHandler,
-    );
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
     // Android native runtime permissions:
     // notification + microphone.
     // This runs immediately when the application starts.
     await requestStartupPermissions();
 
-    await _initializeNotifications(
-      requestPermissions: true,
-    );
+    await _initializeNotifications(requestPermissions: true);
 
     await _messaging.setAutoInitEnabled(true);
 
@@ -268,35 +240,29 @@ class ZeroLogPushService {
       provisional: false,
     );
 
-    debugPrint(
-      '[FCM] permission=${settings.authorizationStatus}',
-    );
+    debugPrint('[FCM] permission=${settings.authorizationStatus}');
 
     final token = await _getFcmTokenWithRetry();
 
     _currentToken = token;
 
     if (token == null || token.isEmpty) {
-      debugPrint(
-        '[FCM] ERROR: registration token could not be obtained',
-      );
+      debugPrint('[FCM] ERROR: registration token could not be obtained');
     } else {
-      debugPrint(
-        '[FCM] token acquired length=${token.length}',
-      );
+      debugPrint('[FCM] token acquired length=${token.length}');
     }
 
-    _messaging.onTokenRefresh.listen((newToken) {
-      _currentToken = newToken;
+    _messaging.onTokenRefresh
+        .listen((newToken) {
+          _currentToken = newToken;
 
-      debugPrint(
-        '[FCM] token_refresh length=${newToken.length}',
-      );
+          debugPrint('[FCM] token_refresh length=${newToken.length}');
 
-      WsClient.instance.updateFcmToken(newToken);
-    }).onError((error) {
-      debugPrint('[FCM] token refresh error: $error');
-    });
+          WsClient.instance.updateFcmToken(newToken);
+        })
+        .onError((error) {
+          debugPrint('[FCM] token refresh error: $error');
+        });
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       final type = message.data['type'];
@@ -308,42 +274,39 @@ class ZeroLogPushService {
       );
 
       if (type == 'callInvite') {
-        await showIncomingCallNotification(
+        final callData = _normalizeCallData(
           Map<String, dynamic>.from(message.data),
         );
 
-        WsClient.instance.emitExternalEvent(
-          Map<String, dynamic>.from(message.data),
-        );
+        await showIncomingCallNotification(callData);
+
+        WsClient.instance.emitExternalEvent(callData);
       } else if (type == 'privateMessage') {
         await showPrivateMessageNotification(message);
       }
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen(
-      (RemoteMessage message) async {
-        debugPrint(
-          '[FCM][opened] '
-          'messageId=${message.messageId} '
-          'type=${message.data['type']}',
-        );
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
+      debugPrint(
+        '[FCM][opened] '
+        'messageId=${message.messageId} '
+        'type=${message.data['type']}',
+      );
 
-        if (message.data['type'] == 'callInvite') {
-          try {
-            final prefs =
-                await SharedPreferences.getInstance();
+      if (message.data['type'] == 'callInvite') {
+        try {
+          final prefs = await SharedPreferences.getInstance();
 
-            await prefs.setString(
-              pendingCallKey,
-              jsonEncode(message.data),
-            );
-          } catch (_) {}
-        }
-      },
-    );
+          final callData = _normalizeCallData(
+            Map<String, dynamic>.from(message.data),
+          );
 
-    final initialMessage =
-        await _messaging.getInitialMessage();
+          await prefs.setString(pendingCallKey, jsonEncode(callData));
+        } catch (_) {}
+      }
+    });
+
+    final initialMessage = await _messaging.getInitialMessage();
 
     if (initialMessage != null) {
       debugPrint(
@@ -354,13 +317,13 @@ class ZeroLogPushService {
 
       if (initialMessage.data['type'] == 'callInvite') {
         try {
-          final prefs =
-              await SharedPreferences.getInstance();
+          final prefs = await SharedPreferences.getInstance();
 
-          await prefs.setString(
-            pendingCallKey,
-            jsonEncode(initialMessage.data),
+          final callData = _normalizeCallData(
+            Map<String, dynamic>.from(initialMessage.data),
           );
+
+          await prefs.setString(pendingCallKey, jsonEncode(callData));
         } catch (_) {}
       }
     }
@@ -369,14 +332,10 @@ class ZeroLogPushService {
   static Future<void> showIncomingCallNotification(
     Map<String, dynamic> data,
   ) async {
-    await _initializeNotifications(
-      requestPermissions: false,
-    );
+    await _initializeNotifications(requestPermissions: false);
 
-    final from =
-        (data['from'] ?? data['caller'] ?? '').toString().trim();
-    final to =
-        (data['to'] ?? data['callee'] ?? '').toString().trim();
+    final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
+    final to = (data['to'] ?? data['callee'] ?? '').toString().trim();
     final callId = (data['callId'] ?? '').toString().trim();
 
     if (from.isEmpty || to.isEmpty || callId.isEmpty) {
@@ -404,18 +363,15 @@ class ZeroLogPushService {
       ongoing: true,
       autoCancel: false,
       showWhen: false,
-        sound: RawResourceAndroidNotificationSound('zerolog_call'),
-      audioAttributesUsage:
-          AudioAttributesUsage.voiceCommunication,
+      sound: RawResourceAndroidNotificationSound('zerolog_call'),
+      audioAttributesUsage: AudioAttributesUsage.voiceCommunication,
     );
 
     await _notifications.show(
       id: callNotificationId,
       title: 'Gelen ZeroLog çağrısı',
       body: '$from sizi arıyor',
-      notificationDetails: const NotificationDetails(
-        android: androidDetails,
-      ),
+      notificationDetails: const NotificationDetails(android: androidDetails),
       payload: payload,
     );
   }
@@ -424,21 +380,15 @@ class ZeroLogPushService {
     RemoteMessage message,
   ) async {
     try {
-      await _initializeNotifications(
-        requestPermissions: false,
-      );
+      await _initializeNotifications(requestPermissions: false);
 
-      final from = (
-        message.data['from'] ??
-        message.notification?.title ??
-        ''
-      ).toString().trim();
+      final from = (message.data['from'] ?? message.notification?.title ?? '')
+          .toString()
+          .trim();
 
-      final text = (
-        message.data['text'] ??
-        message.notification?.body ??
-        ''
-      ).toString().trim();
+      final text = (message.data['text'] ?? message.notification?.body ?? '')
+          .toString()
+          .trim();
 
       if (from.isEmpty || text.isEmpty) return;
 
@@ -458,9 +408,7 @@ class ZeroLogPushService {
         id: messageNotificationId,
         title: from,
         body: text,
-        notificationDetails: const NotificationDetails(
-          android: androidDetails,
-        ),
+        notificationDetails: const NotificationDetails(android: androidDetails),
       );
     } catch (e) {
       debugPrint('[FCM] private message notification failed: $e');
@@ -469,12 +417,8 @@ class ZeroLogPushService {
 
   static Future<void> cancelIncomingCallNotification() async {
     try {
-      await _initializeNotifications(
-        requestPermissions: false,
-      );
-      await _notifications.cancel(
-        id: callNotificationId,
-      );
+      await _initializeNotifications(requestPermissions: false);
+      await _notifications.cancel(id: callNotificationId);
     } catch (_) {}
   }
 
@@ -989,9 +933,7 @@ class WsClient {
     if (!connected || _channel == null) return;
 
     try {
-      _channel!.sink.add(
-        jsonEncode({'type': 'getUserDirectory'}),
-      );
+      _channel!.sink.add(jsonEncode({'type': 'getUserDirectory'}));
     } catch (_) {
       _handleConnectionLost();
     }
@@ -1043,12 +985,9 @@ class WsClient {
   void updateFcmToken(String token) {
     final clean = token.trim();
 
-    if(clean.isEmpty) return;
+    if (clean.isEmpty) return;
 
-    send({
-      'type': 'fcmToken',
-      'token': clean,
-    });
+    send({'type': 'fcmToken', 'token': clean});
   }
 
   Future<bool> connect(String username, String password) async {
@@ -1097,13 +1036,12 @@ class WsClient {
                 nickname = authenticatedName;
                 connected = true;
 
-                  final latestFcmToken =
-                      ZeroLogPushService.currentToken;
+                final latestFcmToken = ZeroLogPushService.currentToken;
 
-                  if (latestFcmToken != null &&
-                      latestFcmToken.trim().isNotEmpty) {
-                    updateFcmToken(latestFcmToken);
-                  }
+                if (latestFcmToken != null &&
+                    latestFcmToken.trim().isNotEmpty) {
+                  updateFcmToken(latestFcmToken);
+                }
 
                 if (!authCompleter.isCompleted) {
                   authCompleter.complete(true);
@@ -1368,9 +1306,7 @@ class WsClient {
 class _ZeroLogWavePainter extends CustomPainter {
   final double progress;
 
-  const _ZeroLogWavePainter({
-    required this.progress,
-  });
+  const _ZeroLogWavePainter({required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1380,9 +1316,9 @@ class _ZeroLogWavePainter extends CustomPainter {
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.9
-        ..color = const Color(0xFF39FF88).withValues(
-          alpha: 0.08 + ((1 - (i / 20)) * 0.10),
-        );
+        ..color = const Color(
+          0xFF39FF88,
+        ).withValues(alpha: 0.08 + ((1 - (i / 20)) * 0.10));
 
       final path = Path();
 
@@ -1440,8 +1376,7 @@ class ZeroLogReferenceLogin extends StatefulWidget {
   });
 
   @override
-  State<ZeroLogReferenceLogin> createState() =>
-      _ZeroLogReferenceLoginState();
+  State<ZeroLogReferenceLogin> createState() => _ZeroLogReferenceLoginState();
 }
 
 class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
@@ -1465,6 +1400,7 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
     _waveController.dispose();
     super.dispose();
   }
+
   static const greenBright = Color(0xFF39FF88);
   static const fieldBg = Color(0xFF0D1410);
 
@@ -1480,31 +1416,18 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
         fontSize: 18,
         fontWeight: FontWeight.w500,
       ),
-      prefixIcon: Icon(
-        icon,
-        color: greenBright,
-        size: 30,
-      ),
+      prefixIcon: Icon(icon, color: greenBright, size: 30),
       suffixIcon: suffix,
       filled: true,
       fillColor: fieldBg,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 21,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 21),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: const BorderSide(
-          color: Color(0xFF244F38),
-          width: 1.4,
-        ),
+        borderSide: const BorderSide(color: Color(0xFF244F38), width: 1.4),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: const BorderSide(
-          color: greenBright,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: greenBright, width: 1.5),
       ),
     );
   }
@@ -1568,17 +1491,11 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
           backgroundColor: const Color(0xFF111613),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(
-              color: Color(0xFF2DFF82),
-              width: 1,
-            ),
+            side: const BorderSide(color: Color(0xFF2DFF82), width: 1),
           ),
           title: const Text(
             'UNUTMASAYDIN 🤣',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
           actions: [
             TextButton(
@@ -1647,10 +1564,7 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
         style: OutlinedButton.styleFrom(
           foregroundColor: Colors.white,
           backgroundColor: Colors.transparent,
-          side: const BorderSide(
-            color: greenBright,
-            width: 1.4,
-          ),
+          side: const BorderSide(color: greenBright, width: 1.4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
@@ -1667,9 +1581,7 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
             ),
             const SizedBox(width: 14),
             Text(
-              widget.registerMode
-                  ? 'Giriş ekranına dön'
-                  : 'Yeni hesap oluştur',
+              widget.registerMode ? 'Giriş ekranına dön' : 'Yeni hesap oluştur',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,
@@ -1682,7 +1594,6 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1692,13 +1603,10 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
-              keyboardDismissBehavior:
-                  ScrollViewKeyboardDismissBehavior.onDrag,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               physics: const ClampingScrollPhysics(),
               child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight,
-                ),
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(42, 30, 42, 28),
                   child: Column(
@@ -1709,10 +1617,7 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
                         height: 92,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(27),
-                          border: Border.all(
-                            color: greenBright,
-                            width: 2,
-                          ),
+                          border: Border.all(color: greenBright, width: 2),
                           boxShadow: [
                             BoxShadow(
                               color: greenBright.withValues(alpha: 0.18),
@@ -1798,8 +1703,7 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
                         ),
                       ),
 
-                      if (widget.registerMode)
-                        const SizedBox(height: 16),
+                      if (widget.registerMode) const SizedBox(height: 16),
 
                       _usernameField(),
 
@@ -1812,8 +1716,9 @@ class _ZeroLogReferenceLoginState extends State<ZeroLogReferenceLogin>
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed:
-                                widget.loading ? null : _showForgotDialog,
+                            onPressed: widget.loading
+                                ? null
+                                : _showForgotDialog,
                             child: const Text(
                               'Şifremi Unuttum?',
                               style: TextStyle(
@@ -2158,19 +2063,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final raw = data['users'];
 
       if (raw is List) {
-        final users = raw
-            .map((e) => e.toString())
-            .where((e) => e.isNotEmpty)
-            .where(
-              (e) =>
-                  e.toLowerCase() != widget.nickname.toLowerCase(),
-            )
-            .toSet()
-            .toList()
-          ..sort(
-            (a, b) =>
-                a.toLowerCase().compareTo(b.toLowerCase()),
-          );
+        final users =
+            raw
+                .map((e) => e.toString())
+                .where((e) => e.isNotEmpty)
+                .where((e) => e.toLowerCase() != widget.nickname.toLowerCase())
+                .toSet()
+                .toList()
+              ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
         setState(() {
           _knownUsers
@@ -2255,8 +2155,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (type == 'callInvite') {
-      final from = (data['from'] ?? '').toString().trim();
-      final to = (data['to'] ?? '').toString().trim();
+      final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
+      final to = (data['to'] ?? data['callee'] ?? '').toString().trim();
       final callId = (data['callId'] ?? '').toString().trim();
 
       if (from.isEmpty || to.isEmpty || callId.isEmpty) {
@@ -2360,8 +2260,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (!mounted || data == null) return;
 
-    final from = (data['from'] ?? '').toString().trim();
-    final to = (data['to'] ?? '').toString().trim();
+    final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
+    final to = (data['to'] ?? data['callee'] ?? '').toString().trim();
     final callId = (data['callId'] ?? '').toString().trim();
 
     if (from.isEmpty ||
@@ -2386,7 +2286,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ),
     );
   }
-
 
   Future<void> _logout() async {
     await WsClient.instance.disconnect();
@@ -2514,10 +2413,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               decoration: BoxDecoration(
                 color: Colors.greenAccent,
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: theme.background,
-                  width: 2,
-                ),
+                border: Border.all(color: theme.background, width: 2),
               ),
             ),
           ),
@@ -2569,9 +2465,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       decoration: BoxDecoration(
         color: theme.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: theme.primary.withValues(alpha: 0.16),
-        ),
+        border: Border.all(color: theme.primary.withValues(alpha: 0.16)),
       ),
       child: Row(
         children: [
@@ -2586,10 +2480,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           const SizedBox(width: 12),
           Text(
             _reconnecting ? 'Bağlantı yeniden kuruluyor…' : 'Bağlanıyor…',
-            style: TextStyle(
-              color: theme.text,
-              fontSize: 13,
-            ),
+            style: TextStyle(color: theme.text, fontSize: 13),
           ),
         ],
       ),
@@ -2651,10 +2542,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           color: theme.primary.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        child: Icon(
-                          Icons.tag_rounded,
-                          color: theme.primary,
-                        ),
+                        child: Icon(Icons.tag_rounded, color: theme.primary),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -2702,15 +2590,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final filteredUsers = query.isEmpty
         ? _knownUsers
         : _knownUsers
-            .where((user) => user.toLowerCase().contains(query))
-            .toList();
+              .where((user) => user.toLowerCase().contains(query))
+              .toList();
 
     final exactUser = query.isEmpty
         ? null
         : _knownUsers.cast<String?>().firstWhere(
-              (user) => user!.toLowerCase() == query,
-              orElse: () => null,
-            );
+            (user) => user!.toLowerCase() == query,
+            orElse: () => null,
+          );
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 110),
@@ -2762,18 +2650,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   Text(
                     'Kullanıcı bulunamadı.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: theme.text.withValues(alpha: 0.58),
-                    ),
+                    style: TextStyle(color: theme.text.withValues(alpha: 0.58)),
                   ),
                 ],
               ),
             ),
         ] else ...[
-          _sectionTitle(
-            'Kişiler',
-            action: '${_knownUsers.length} kişi',
-          ),
+          _sectionTitle('Kişiler', action: '${_knownUsers.length} kişi'),
 
           if (_knownUsers.isEmpty)
             Padding(
@@ -2798,9 +2681,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
             )
           else
-            ..._knownUsers.map(
-              (user) => _contactResultCard(user),
-            ),
+            ..._knownUsers.map((user) => _contactResultCard(user)),
         ],
       ],
     );
@@ -2815,15 +2696,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         color: theme.surface,
         borderRadius: BorderRadius.circular(18),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
-              _avatar(user, online: _onlineUsers.any(
-                (u) => u.toLowerCase() == user.toLowerCase(),
-              )),
+              _avatar(
+                user,
+                online: _onlineUsers.any(
+                  (u) => u.toLowerCase() == user.toLowerCase(),
+                ),
+              ),
               const SizedBox(width: 13),
               Expanded(
                 child: Column(
@@ -2840,8 +2721,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 3),
                     Text(
                       _onlineUsers.any(
-                        (u) => u.toLowerCase() == user.toLowerCase(),
-                      )
+                            (u) => u.toLowerCase() == user.toLowerCase(),
+                          )
                           ? 'Çevrimiçi'
                           : 'Kullanıcı',
                       style: TextStyle(
@@ -2894,11 +2775,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   color: theme.primary.withValues(alpha: 0.10),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  Icons.call_rounded,
-                  size: 31,
-                  color: theme.primary,
-                ),
+                child: Icon(Icons.call_rounded, size: 31, color: theme.primary),
               ),
               const SizedBox(height: 16),
               Text(
@@ -2925,54 +2802,55 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         _sectionTitle('Hızlı arama'),
 
-        ..._knownUsers.take(5).map(
-          (user) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Material(
-              color: theme.surface,
-              borderRadius: BorderRadius.circular(17),
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 15,
+        ..._knownUsers
+            .take(5)
+            .map(
+              (user) => Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
                   vertical: 4,
                 ),
-                leading: _avatar(
-                  user,
-                  online: _onlineUsers.any(
-                    (u) =>
-                        u.toLowerCase() ==
-                        user.toLowerCase(),
+                child: Material(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(17),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 15,
+                      vertical: 4,
+                    ),
+                    leading: _avatar(
+                      user,
+                      online: _onlineUsers.any(
+                        (u) => u.toLowerCase() == user.toLowerCase(),
+                      ),
+                    ),
+                    title: Text(
+                      user,
+                      style: TextStyle(
+                        color: theme.text,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _onlineUsers.any(
+                            (u) => u.toLowerCase() == user.toLowerCase(),
+                          )
+                          ? 'Çevrimiçi'
+                          : 'Çevrimdışı',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.58),
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.call_rounded),
+                      color: theme.primary,
+                      onPressed: () => _call(user),
+                    ),
                   ),
-                ),
-                title: Text(
-                  user,
-                  style: TextStyle(
-                    color: theme.text,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                subtitle: Text(
-                  _onlineUsers.any(
-                    (u) =>
-                        u.toLowerCase() ==
-                        user.toLowerCase(),
-                  )
-                      ? 'Çevrimiçi'
-                      : 'Çevrimdışı',
-                  style: TextStyle(
-                    color: theme.text.withValues(alpha: 0.58),
-                    fontSize: 12,
-                  ),
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.call_rounded),
-                  color: theme.primary,
-                  onPressed: () => _call(user),
                 ),
               ),
             ),
-          ),
-        ),
       ],
     );
   }
@@ -3078,13 +2956,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                               radius: 10,
                             ),
                             title: Text(data.name),
-                            trailing:
-                                ThemeController.instance.current == value
-                                    ? Icon(
-                                        Icons.check_rounded,
-                                        color: data.primary,
-                                      )
-                                    : null,
+                            trailing: ThemeController.instance.current == value
+                                ? Icon(Icons.check_rounded, color: data.primary)
+                                : null,
                             onTap: () {
                               ThemeController.instance.setTheme(value);
                               Navigator.pop(context);
@@ -3138,9 +3012,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => Scaffold(
           backgroundColor: theme.background,
-          appBar: AppBar(
-            title: const Text('Bildirimler'),
-          ),
+          appBar: AppBar(title: const Text('Bildirimler')),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -3153,9 +3025,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'Mesaj bildirim kanalı hazır.',
-                        ),
+                        content: Text('Mesaj bildirim kanalı hazır.'),
                       ),
                     );
                   }
@@ -3170,9 +3040,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'Çağrı bildirim kanalı hazır.',
-                        ),
+                        content: Text('Çağrı bildirim kanalı hazır.'),
                       ),
                     );
                   }
@@ -3204,9 +3072,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => Scaffold(
           backgroundColor: theme.background,
-          appBar: AppBar(
-            title: const Text('Gizlilik'),
-          ),
+          appBar: AppBar(title: const Text('Gizlilik')),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -3289,10 +3155,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
           title: Text(
             title,
-            style: TextStyle(
-              color: theme.text,
-              fontWeight: FontWeight.w600,
-            ),
+            style: TextStyle(color: theme.text, fontWeight: FontWeight.w600),
           ),
           subtitle: Text(
             subtitle,
@@ -3321,12 +3184,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _buildSettingsPage(),
     ];
 
-    const titles = [
-      'ZeroLog',
-      'Kişiler',
-      'Çağrılar',
-      'Ayarlar',
-    ];
+    const titles = ['ZeroLog', 'Kişiler', 'Çağrılar', 'Ayarlar'];
 
     return Scaffold(
       backgroundColor: theme.background,
@@ -3360,10 +3218,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ),
         actions: const [],
       ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: pages,
-      ),
+      body: IndexedStack(index: _selectedIndex, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         backgroundColor: theme.surface,
@@ -3378,34 +3233,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.chat_bubble_outline_rounded),
-            selectedIcon: Icon(
-              Icons.chat_bubble_rounded,
-              color: theme.primary,
-            ),
+            selectedIcon: Icon(Icons.chat_bubble_rounded, color: theme.primary),
             label: 'Sohbetler',
           ),
           NavigationDestination(
             icon: const Icon(Icons.people_outline_rounded),
-            selectedIcon: Icon(
-              Icons.people_rounded,
-              color: theme.primary,
-            ),
+            selectedIcon: Icon(Icons.people_rounded, color: theme.primary),
             label: 'Kişiler',
           ),
           NavigationDestination(
             icon: const Icon(Icons.call_outlined),
-            selectedIcon: Icon(
-              Icons.call_rounded,
-              color: theme.primary,
-            ),
+            selectedIcon: Icon(Icons.call_rounded, color: theme.primary),
             label: 'Çağrılar',
           ),
           NavigationDestination(
             icon: const Icon(Icons.settings_outlined),
-            selectedIcon: Icon(
-              Icons.settings_rounded,
-              color: theme.primary,
-            ),
+            selectedIcon: Icon(Icons.settings_rounded, color: theme.primary),
             label: 'Ayarlar',
           ),
         ],
