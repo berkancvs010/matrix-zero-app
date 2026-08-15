@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
@@ -19,10 +20,102 @@ import com.google.firebase.messaging.RemoteMessage
 class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CALL_CHANNEL_ID = "zerolog_calls_v3"
-        private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v2"
+        private const val CALL_CHANNEL_ID = "zerolog_calls_v5"
+        private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v4"
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
+
+        private var incomingCallPlayer: MediaPlayer? = null
+        private var incomingCallVibrator: Vibrator? = null
+
+        fun stopIncomingCallTone() {
+            try {
+                incomingCallPlayer?.stop()
+            } catch (_: Exception) {}
+
+            try {
+                incomingCallPlayer?.release()
+            } catch (_: Exception) {}
+
+            incomingCallPlayer = null
+
+            try {
+                incomingCallVibrator?.cancel()
+            } catch (_: Exception) {}
+
+            incomingCallVibrator = null
+        }
+    }
+
+    private fun startIncomingCallTone() {
+        stopIncomingCallTone()
+
+        try {
+            incomingCallPlayer = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(
+                            AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+                        )
+                        .setContentType(
+                            AudioAttributes.CONTENT_TYPE_SONIFICATION
+                        )
+                        .build()
+                )
+
+                setDataSource(
+                    this@ZeroLogFirebaseMessagingService,
+                    Uri.parse(
+                        "android.resource://${packageName}/${R.raw.zerolog_call}"
+                    )
+                )
+
+                isLooping = true
+                setVolume(1.0f, 1.0f)
+                prepare()
+                start()
+            }
+
+            val vibrator =
+                getSystemService(VIBRATOR_SERVICE) as Vibrator
+
+            incomingCallVibrator = vibrator
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(
+                    VibrationEffect.createWaveform(
+                        longArrayOf(
+                            0,
+                            500,
+                            300,
+                            500,
+                            300,
+                            700
+                        ),
+                        0
+                    )
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(
+                    longArrayOf(
+                        0,
+                        500,
+                        300,
+                        500,
+                        300,
+                        700
+                    ),
+                    0
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFCM",
+                "Incoming ringtone failed",
+                e
+            )
+        }
     }
 
     override fun onNewToken(token: String) {
@@ -88,9 +181,8 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "ZeroLog sesli arama bildirimleri"
-            setSound(callSound, audioAttributes)
-            enableVibration(true)
-            vibrationPattern = longArrayOf(0, 500, 300, 500, 300, 700)
+            setSound(null, null)
+            enableVibration(false)
             lockscreenVisibility =
                 android.app.Notification.VISIBILITY_PUBLIC
         }
@@ -131,6 +223,8 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         ).trim()
 
         if (caller.isEmpty() || callId.isEmpty()) return
+
+        startIncomingCallTone()
 
         val pendingCall = JSONObject()
             .put("type", "callInvite")
@@ -185,12 +279,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             .setAutoCancel(false)
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true)
-            .setVibrate(longArrayOf(0, 500, 300, 500, 300, 700))
-            .setSound(
-                Uri.parse(
-                    "android.resource://${packageName}/${R.raw.zerolog_call}"
-                )
-            )
+            .setSilent(true)
 
         try {
             NotificationManagerCompat.from(this).notify(
@@ -207,6 +296,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun showCallStatusNotification(message: RemoteMessage) {
+        stopIncomingCallTone()
         val title = message.data["title"]
             ?.trim()
             .orEmpty()
@@ -275,10 +365,31 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP
 
-            putExtra("from", sender)
-            putExtra("to", message.data["to"]?.trim().orEmpty())
+            putExtra(
+                "from",
+                (
+                    message.data["from"]
+                        ?: message.data["sender"]
+                        ?: sender
+                ).trim()
+            )
+            putExtra(
+                "to",
+                (
+                    message.data["to"]
+                        ?: message.data["recipient"]
+                        ?: ""
+                ).trim()
+            )
             putExtra("text", text)
-            putExtra("id", message.data["id"]?.trim().orEmpty())
+            putExtra(
+                "id",
+                (
+                    message.data["id"]
+                        ?: message.data["messageId"]
+                        ?: ""
+                ).trim()
+            )
             putExtra(
                 "clientMessageId",
                 message.data["clientMessageId"]?.trim().orEmpty()

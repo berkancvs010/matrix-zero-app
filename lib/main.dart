@@ -63,11 +63,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final type = message.data['type'];
 
   if (type == 'callInvite') {
-    await ZeroLogPushService.showIncomingCallNotification(message.data);
+    // Native FirebaseMessagingService çağrı bildirimi,
+    // looping zil sesi, titreşim ve full-screen intent'i yönetiyor.
   } else if (type == 'callStatus') {
     await ZeroLogPushService.showCallStatusNotification(message);
   } else if (type == 'privateMessage') {
-    await ZeroLogPushService.showPrivateMessageNotification(message);
+    // Data-only mesaj bildirimi native FCM service tarafından
+    // oluşturuluyor. Burada tekrar bildirim üretme.
   }
 
   debugPrint(
@@ -86,7 +88,7 @@ class ZeroLogPushService {
       FlutterLocalNotificationsPlugin();
 
   static const String callChannelId = 'zerolog_calls_v4';
-  static const String messageChannelId = 'zerolog_messages_v3';
+  static const String messageChannelId = 'zerolog_messages_v4';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
   static const String pendingCallKey = 'zerolog.pending_call';
@@ -529,10 +531,23 @@ class ZeroLogPushService {
 
       final payload = jsonEncode({
         'type': 'privateMessage',
-        'from': from,
-        'to': (message.data['to'] ?? '').toString().trim(),
+        'from': (message.data['from'] ?? message.data['sender'] ?? from)
+            .toString()
+            .trim(),
+        'sender': (message.data['sender'] ?? message.data['from'] ?? from)
+            .toString()
+            .trim(),
+        'to': (message.data['to'] ?? message.data['recipient'] ?? '')
+            .toString()
+            .trim(),
+        'recipient': (message.data['recipient'] ?? message.data['to'] ?? '')
+            .toString()
+            .trim(),
         'text': text,
-        'id': (message.data['id'] ?? '').toString(),
+        'id': (message.data['id'] ?? message.data['messageId'] ?? '')
+            .toString(),
+        'messageId': (message.data['messageId'] ?? message.data['id'] ?? '')
+            .toString(),
         'clientMessageId': (message.data['clientMessageId'] ?? '').toString(),
       });
 
@@ -2541,6 +2556,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (from.toLowerCase() == widget.nickname.toLowerCase()) return;
 
+    // Bildirimde gönderen rumuz kesin olarak hedef sohbetin kendisidir.
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) =>

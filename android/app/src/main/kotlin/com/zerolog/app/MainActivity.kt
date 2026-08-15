@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
 import android.media.MediaPlayer
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
@@ -17,6 +19,9 @@ class MainActivity : FlutterActivity() {
     private val startupPermissionRequestCode = 7401
     private val callPermissionRequestCode = 7402
     private var outgoingCallPlayer: MediaPlayer? = null
+    private var outgoingCallAudioManager: AudioManager? = null
+    private var outgoingCallPreviousMode: Int? = null
+    private var outgoingCallPreviousSpeaker: Boolean? = null
     private var callPermissionResult:
         io.flutter.plugin.common.MethodChannel.Result? = null
     private var startupPermissionResult:
@@ -114,12 +119,38 @@ class MainActivity : FlutterActivity() {
         stopOutgoingCallTone()
 
         try {
-            outgoingCallPlayer = MediaPlayer.create(
-                this,
-                R.raw.zerolog_call
-            )?.apply {
+            val audioManager =
+                getSystemService(AUDIO_SERVICE) as AudioManager
+
+            outgoingCallAudioManager = audioManager
+            outgoingCallPreviousMode = audioManager.mode
+            outgoingCallPreviousSpeaker = audioManager.isSpeakerphoneOn
+
+            audioManager.mode = AudioManager.MODE_NORMAL
+            audioManager.isSpeakerphoneOn = true
+
+            outgoingCallPlayer = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(
+                            AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+                        )
+                        .setContentType(
+                            AudioAttributes.CONTENT_TYPE_SONIFICATION
+                        )
+                        .build()
+                )
+
+                setDataSource(
+                    this@MainActivity,
+                    Uri.parse(
+                        "android.resource://${packageName}/${R.raw.zerolog_call}"
+                    )
+                )
+
                 isLooping = true
                 setVolume(1.0f, 1.0f)
+                prepare()
                 start()
             }
         } catch (e: Exception) {
@@ -169,6 +200,24 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {}
 
         outgoingCallPlayer = null
+
+        try {
+            val audioManager = outgoingCallAudioManager
+
+            if (audioManager != null) {
+                outgoingCallPreviousMode?.let {
+                    audioManager.mode = it
+                }
+
+                outgoingCallPreviousSpeaker?.let {
+                    audioManager.isSpeakerphoneOn = it
+                }
+            }
+        } catch (_: Exception) {}
+
+        outgoingCallAudioManager = null
+        outgoingCallPreviousMode = null
+        outgoingCallPreviousSpeaker = null
     }
 
     private fun persistIncomingCallIntent(incomingIntent: Intent?) {
@@ -376,6 +425,11 @@ class MainActivity : FlutterActivity() {
 
                 "stopOutgoingCallTone" -> {
                     stopOutgoingCallTone()
+                    result.success(true)
+                }
+
+                "stopIncomingCallTone" -> {
+                    ZeroLogFirebaseMessagingService.stopIncomingCallTone()
                     result.success(true)
                 }
 
