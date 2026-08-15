@@ -5599,13 +5599,33 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           if (item is Map) {
             final map = Map<String, dynamic>.from(item);
 
+            final messageId = (map['id'] ?? '').toString();
+            final clientMessageId =
+                (map['clientMessageId'] ?? '').toString();
+
+            final sender = (map['sender'] ?? map['from'] ?? '').toString();
+
+            final messageStatus =
+                sender.toLowerCase() == widget.myNick.toLowerCase()
+                    ? ((map['read'] == true)
+                        ? 'read'
+                        : (map['delivered'] == true)
+                            ? 'delivered'
+                            : 'stored')
+                    : 'read';
+
             final message = ChatMessage(
               id:
-                  (map['id'] ??
-                          'private-legacy-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['to'] ?? ''}-${map['text'] ?? ''}')
+                  (messageId.isNotEmpty
+                          ? messageId
+                          : (clientMessageId.isNotEmpty
+                              ? clientMessageId
+                              : 'private-legacy-${map['ts'] ?? ''}-$sender-${map['to'] ?? ''}-${map['text'] ?? ''}'))
                       .toString(),
-              sender: (map['sender'] ?? map['from'] ?? '').toString(),
+              sender: sender,
               text: (map['text'] ?? '').toString(),
+              clientMessageId: clientMessageId,
+              status: messageStatus,
             );
 
             if (message.text.isEmpty) continue;
@@ -5737,36 +5757,50 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           if (item is Map) {
             final map = Map<String, dynamic>.from(item);
 
-            final sender = (map['sender'] ?? map['from'] ?? '').toString();
+            final sender =
+                (map['sender'] ?? map['from'] ?? '').toString();
+            final target =
+                (map['to'] ?? map['target'] ?? '').toString();
 
-            final target = (map['to'] ?? map['target'] ?? '').toString();
-
-            if (sender.toLowerCase() != widget.targetNick.toLowerCase() ||
+            if (sender.toLowerCase() !=
+                    widget.targetNick.toLowerCase() ||
                 target.toLowerCase() != widget.myNick.toLowerCase()) {
               continue;
             }
 
-            final clientMessageId = (map['clientMessageId'] ?? '').toString();
+            final messageId = (map['id'] ?? '').toString();
+            final clientMessageId =
+                (map['clientMessageId'] ?? '').toString();
 
             _addMessage(
               ChatMessage(
                 id:
-                    (map['id'] ??
-                            (clientMessageId.isNotEmpty
+                    (messageId.isNotEmpty
+                            ? messageId
+                            : (clientMessageId.isNotEmpty
                                 ? clientMessageId
                                 : 'pending-${map['ts'] ?? ''}-$sender-${map['text'] ?? ''}'))
                         .toString(),
                 sender: sender,
                 text: (map['text'] ?? '').toString(),
                 clientMessageId: clientMessageId,
-                status: 'delivered',
+                status: 'read',
               ),
             );
 
+            // Offline gelen mesaj sohbet ekranında gösterildiği anda
+            // teslim edilmiş ve okunmuş kabul edilir.
             WsClient.instance.send({
               'type': 'messageDelivered',
               'from': sender,
-              'messageId': (map['id'] ?? '').toString(),
+              'messageId': messageId,
+              'clientMessageId': clientMessageId,
+            });
+
+            WsClient.instance.send({
+              'type': 'messageRead',
+              'from': sender,
+              'messageId': messageId,
               'clientMessageId': clientMessageId,
             });
           }
