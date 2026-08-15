@@ -52,10 +52,7 @@ Future<void> _notificationTapBackground(NotificationResponse response) async {
   final payload = response.payload;
   if (payload == null || payload.isEmpty) return;
 
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(ZeroLogPushService.pendingCallKey, payload);
-  } catch (_) {}
+  await ZeroLogPushService.storeNotificationPayload(payload);
 }
 
 @pragma('vm:entry-point')
@@ -93,11 +90,31 @@ class ZeroLogPushService {
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
   static const String pendingCallKey = 'zerolog.pending_call';
+  static const String pendingNotificationKey = 'zerolog.pending_notification';
 
   static String? _currentToken;
   static bool _notificationsInitialized = false;
 
   static String? get currentToken => _currentToken;
+
+  static Future<void> storeNotificationPayload(String payload) async {
+    if (payload.trim().isEmpty) return;
+
+    try {
+      final decoded = jsonDecode(payload);
+
+      if (decoded is! Map) return;
+
+      final type = decoded['type']?.toString();
+      final prefs = await SharedPreferences.getInstance();
+
+      if (type == 'callInvite') {
+        await prefs.setString(pendingCallKey, payload);
+      } else if (type == 'privateMessage') {
+        await prefs.setString(pendingNotificationKey, payload);
+      }
+    } catch (_) {}
+  }
 
   static void setCurrentToken(String token) {
     final clean = token.trim();
@@ -275,6 +292,34 @@ class ZeroLogPushService {
 
     await _initializeNotifications(requestPermissions: true);
 
+    // Android MainActivity üzerinden gelen full-screen çağrı intent'ini
+    // Flutter pending-call akışına aktar.
+    try {
+      final nativeCall = await _systemChannel.invokeMethod<dynamic>(
+        'getIncomingCallIntent',
+      );
+
+      if (nativeCall is Map) {
+        final normalized = _normalizeCallData(
+          Map<String, dynamic>.from(nativeCall),
+        );
+
+        if (normalized['from'].toString().isNotEmpty &&
+            normalized['to'].toString().isNotEmpty &&
+            normalized['callId'].toString().isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(pendingCallKey, jsonEncode(normalized));
+
+          debugPrint(
+            '[FCM][native-intent] pending incoming call stored '
+            'callId=${normalized['callId']}',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[FCM][native-intent] bridge failed: $e');
+    }
+
     await _messaging.setAutoInitEnabled(true);
 
     final settings = await _messaging.requestPermission(
@@ -339,16 +384,13 @@ class ZeroLogPushService {
         'type=${message.data['type']}',
       );
 
-      if (message.data['type'] == 'callInvite') {
-        try {
-          final prefs = await SharedPreferences.getInstance();
+      final data = Map<String, dynamic>.from(message.data);
 
-          final callData = _normalizeCallData(
-            Map<String, dynamic>.from(message.data),
-          );
-
-          await prefs.setString(pendingCallKey, jsonEncode(callData));
-        } catch (_) {}
+      if (data['type'] == 'callInvite') {
+        final callData = _normalizeCallData(data);
+        await storeNotificationPayload(jsonEncode(callData));
+      } else if (data['type'] == 'privateMessage') {
+        await storeNotificationPayload(jsonEncode(data));
       }
     });
 
@@ -361,16 +403,13 @@ class ZeroLogPushService {
         'type=${initialMessage.data['type']}',
       );
 
-      if (initialMessage.data['type'] == 'callInvite') {
-        try {
-          final prefs = await SharedPreferences.getInstance();
+      final data = Map<String, dynamic>.from(initialMessage.data);
 
-          final callData = _normalizeCallData(
-            Map<String, dynamic>.from(initialMessage.data),
-          );
-
-          await prefs.setString(pendingCallKey, jsonEncode(callData));
-        } catch (_) {}
+      if (data['type'] == 'callInvite') {
+        final callData = _normalizeCallData(data);
+        await storeNotificationPayload(jsonEncode(callData));
+      } else if (data['type'] == 'privateMessage') {
+        await storeNotificationPayload(jsonEncode(data));
       }
     }
   }
@@ -388,13 +427,6 @@ class ZeroLogPushService {
       return;
     }
 
-    final payload = jsonEncode({
-      'type': 'callInvite',
-      'from': from,
-      'to': to,
-      'callId': callId,
-    });
-
     const androidDetails = AndroidNotificationDetails(
       callChannelId,
       'Gelen çağrılar',
@@ -410,6 +442,13 @@ class ZeroLogPushService {
       autoCancel: false,
       showWhen: false,
     );
+
+    final payload = jsonEncode({
+      'type': 'callInvite',
+      'from': from,
+      'to': to,
+      'callId': callId,
+    });
 
     await _notifications.show(
       id: callNotificationId,
@@ -480,11 +519,21 @@ class ZeroLogPushService {
         showWhen: true,
       );
 
+      final payload = jsonEncode({
+        'type': 'privateMessage',
+        'from': from,
+        'to': (message.data['to'] ?? '').toString().trim(),
+        'text': text,
+        'id': (message.data['id'] ?? '').toString(),
+        'clientMessageId': (message.data['clientMessageId'] ?? '').toString(),
+      });
+
       await _notifications.show(
         id: messageNotificationId,
         title: from,
         body: text,
         notificationDetails: const NotificationDetails(android: androidDetails),
+        payload: payload,
       );
     } catch (e) {
       debugPrint('[FCM] private message notification failed: $e');
@@ -503,6 +552,27 @@ class ZeroLogPushService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(pendingCallKey);
     } catch (_) {}
+  }
+
+  static Future<Map<String, dynamic>?> takePendingNotification() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(pendingNotificationKey);
+
+      if (raw == null || raw.isEmpty) {
+        return null;
+      }
+
+      await prefs.remove(pendingNotificationKey);
+
+      final decoded = jsonDecode(raw);
+
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   static Future<Map<String, dynamic>?> takePendingCall() async {
@@ -2175,6 +2245,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _openPendingIncomingCall();
+      _openPendingPrivateMessage();
     });
   }
 
@@ -2185,6 +2256,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // Force a presence/reconnect cycle when returning to foreground.
       WsClient.instance.onAppResumed();
       _openPendingIncomingCall();
+      _openPendingPrivateMessage();
     }
   }
 
@@ -2439,6 +2511,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           outgoing: true,
           callId: callId,
         ),
+      ),
+    );
+  }
+
+  Future<void> _openPendingPrivateMessage() async {
+    final data = await ZeroLogPushService.takePendingNotification();
+
+    if (!mounted || data == null) return;
+
+    if ((data['type'] ?? '').toString() != 'privateMessage') return;
+
+    final from = (data['from'] ?? data['sender'] ?? '').toString().trim();
+    final to = (data['to'] ?? data['target'] ?? '').toString().trim();
+
+    if (from.isEmpty) return;
+
+    if (to.isNotEmpty && to.toLowerCase() != widget.nickname.toLowerCase()) {
+      return;
+    }
+
+    if (from.toLowerCase() == widget.nickname.toLowerCase()) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            PrivateChatScreen(myNick: widget.nickname, targetNick: from),
       ),
     );
   }
