@@ -126,14 +126,14 @@ class MainActivity : FlutterActivity() {
             outgoingCallPreviousMode = audioManager.mode
             outgoingCallPreviousSpeaker = audioManager.isSpeakerphoneOn
 
-            audioManager.mode = AudioManager.MODE_NORMAL
-            audioManager.isSpeakerphoneOn = true
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager.isSpeakerphoneOn = false
 
             outgoingCallPlayer = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(
-                            AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+                            AudioAttributes.USAGE_VOICE_COMMUNICATION
                         )
                         .setContentType(
                             AudioAttributes.CONTENT_TYPE_SONIFICATION
@@ -149,7 +149,7 @@ class MainActivity : FlutterActivity() {
                 )
 
                 isLooping = true
-                setVolume(1.0f, 1.0f)
+                setVolume(0.85f, 0.85f)
                 prepare()
                 start()
             }

@@ -5668,6 +5668,43 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       return;
     }
 
+    if (data['type'] == 'messageRead') {
+      final messageId = (data['messageId'] ?? '').toString();
+      final clientMessageId =
+          (data['clientMessageId'] ?? '').toString();
+
+      if (messageId.isEmpty && clientMessageId.isEmpty) {
+        return;
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        for (var i = 0; i < _messages.length; i++) {
+          final message = _messages[i];
+
+          final matches =
+              (clientMessageId.isNotEmpty &&
+                  message.clientMessageId == clientMessageId) ||
+              (messageId.isNotEmpty &&
+                  message.id == messageId);
+
+          if (matches) {
+            _messages[i] = message.copyWith(
+              id: messageId.isNotEmpty ? messageId : message.id,
+              clientMessageId: clientMessageId.isNotEmpty
+                  ? clientMessageId
+                  : message.clientMessageId,
+              status: 'read',
+            );
+            break;
+          }
+        }
+      });
+
+      return;
+    }
+
     if (data['type'] == 'pendingPrivateMessages') {
       final list = data['messages'];
 
@@ -5754,13 +5791,22 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         ),
       );
 
-      // Mesaj karşı cihaza ulaştığında server'a teslim bilgisi gönder.
-      if (sender.toLowerCase() == widget.targetNick.toLowerCase() &&
-          clientMessageId.isNotEmpty) {
+      // Aktif özel sohbet açık olduğu için mesaj hem teslim
+      // hem de okunmuş kabul edilir.
+      if (sender.toLowerCase() == widget.targetNick.toLowerCase()) {
+        final messageId = (data['id'] ?? '').toString();
+
         WsClient.instance.send({
           'type': 'messageDelivered',
           'from': sender,
-          'messageId': (data['id'] ?? '').toString(),
+          'messageId': messageId,
+          'clientMessageId': clientMessageId,
+        });
+
+        WsClient.instance.send({
+          'type': 'messageRead',
+          'from': sender,
+          'messageId': messageId,
           'clientMessageId': clientMessageId,
         });
       }
@@ -6074,11 +6120,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             if (mine && message.status.isNotEmpty) ...[
               const SizedBox(height: 3),
               Icon(
-                message.status == 'delivered'
+                message.status == 'read'
                     ? Icons.done_all_rounded
-                    : Icons.done_rounded,
+                    : message.status == 'delivered'
+                        ? Icons.done_all_rounded
+                        : Icons.done_rounded,
                 size: 14,
-                color: theme.primary.withValues(alpha: 0.78),
+                color: message.status == 'read'
+                    ? theme.primary
+                    : theme.primary.withValues(alpha: 0.78),
               ),
             ],
           ],

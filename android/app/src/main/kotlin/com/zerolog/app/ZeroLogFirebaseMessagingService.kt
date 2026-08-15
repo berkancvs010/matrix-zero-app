@@ -354,6 +354,17 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
+    private fun messageNotificationId(message: RemoteMessage): Int {
+        val key = (
+            message.data["id"]
+                ?: message.data["clientMessageId"]
+                ?: message.data["from"]
+                ?: System.currentTimeMillis().toString()
+        ).trim()
+
+        return 9100 + ((key.hashCode() and 0x7fffffff) % 9000)
+    }
+
     private fun showMessageNotification(message: RemoteMessage) {
         val sender = (
             message.data["sender"]
@@ -423,9 +434,11 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             )
         }
 
+        val notificationId = messageNotificationId(message)
+
         val pendingIntent = PendingIntent.getActivity(
             this,
-            MESSAGE_NOTIFICATION_ID,
+            notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or
                 PendingIntent.FLAG_IMMUTABLE
@@ -455,7 +468,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
         try {
             NotificationManagerCompat.from(this).notify(
-                MESSAGE_NOTIFICATION_ID,
+                notificationId,
                 builder.build()
             )
         } catch (e: SecurityException) {
