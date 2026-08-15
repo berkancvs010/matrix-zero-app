@@ -429,7 +429,8 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "stopIncomingCallTone" -> {
-                    ZeroLogFirebaseMessagingService.stopIncomingCallTone()
+                    ZeroLogFirebaseMessagingService
+                        .stopIncomingCallToneAndNotification(this)
                     result.success(true)
                 }
 

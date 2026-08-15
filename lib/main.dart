@@ -568,6 +568,12 @@ class ZeroLogPushService {
       await _initializeNotifications(requestPermissions: false);
       await _notifications.cancel(id: callNotificationId);
     } catch (_) {}
+
+    try {
+      await _systemChannel.invokeMethod('stopIncomingCallTone');
+    } catch (e) {
+      debugPrint('[CALL] native incoming tone stop failed: $e');
+    }
   }
 
   static Future<void> clearPendingCall() async {
@@ -575,6 +581,24 @@ class ZeroLogPushService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(pendingCallKey);
     } catch (_) {}
+  }
+
+  static Future<void> pullPendingNativeMessage() async {
+    try {
+      final nativeMessage = await _systemChannel.invokeMethod<dynamic>(
+        'getPendingMessageIntent',
+      );
+
+      if (nativeMessage is Map) {
+        final data = Map<String, dynamic>.from(nativeMessage);
+
+        if (data['type'] == 'privateMessage') {
+          await storeNotificationPayload(jsonEncode(data));
+        }
+      }
+    } catch (e) {
+      debugPrint('[FCM][native-message] pull failed: $e');
+    }
   }
 
   static Future<Map<String, dynamic>?> takePendingNotification() async {
@@ -2266,9 +2290,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WsClient.instance.requestPresence();
     WsClient.instance.requestUserDirectory();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _openPendingIncomingCall();
-      _openPendingPrivateMessage();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ZeroLogPushService.pullPendingNativeMessage();
+      await _openPendingIncomingCall();
+      await _openPendingPrivateMessage();
     });
   }
 
@@ -2278,8 +2303,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // Android may suspend the WebSocket while the app is in background.
       // Force a presence/reconnect cycle when returning to foreground.
       WsClient.instance.onAppResumed();
-      _openPendingIncomingCall();
-      _openPendingPrivateMessage();
+
+      Future<void>.delayed(const Duration(milliseconds: 250), () async {
+        if (!mounted) return;
+
+        await ZeroLogPushService.pullPendingNativeMessage();
+        await _openPendingIncomingCall();
+        await _openPendingPrivateMessage();
+      });
     }
   }
 
