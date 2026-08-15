@@ -170,6 +170,38 @@ class MainActivity : FlutterActivity() {
         outgoingCallPlayer = null
     }
 
+    private fun persistIncomingCallIntent(incomingIntent: Intent?) {
+        if (incomingIntent?.action != "zerolog.incoming_call" &&
+            incomingIntent?.getBooleanExtra("zerolog_call", false) != true
+        ) {
+            return
+        }
+
+        val from = incomingIntent.getStringExtra("from")?.trim().orEmpty()
+        val to = incomingIntent.getStringExtra("to")?.trim().orEmpty()
+        val callId = incomingIntent.getStringExtra("callId")?.trim().orEmpty()
+
+        if (from.isEmpty() || to.isEmpty() || callId.isEmpty()) return
+
+        getSharedPreferences("zerolog_native_call", MODE_PRIVATE)
+            .edit()
+            .putString("from", from)
+            .putString("to", to)
+            .putString("callId", callId)
+            .apply()
+    }
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        persistIncomingCallIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        persistIncomingCallIntent(intent)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -178,6 +210,53 @@ class MainActivity : FlutterActivity() {
             channelName
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                "getIncomingCallIntent" -> {
+                    val prefs =
+                        getSharedPreferences("zerolog_native_call", MODE_PRIVATE)
+
+                    val currentIntent = intent
+
+                    val hasCallIntent =
+                        currentIntent?.action == "zerolog.incoming_call" ||
+                        currentIntent?.getBooleanExtra("zerolog_call", false) == true
+
+                    val from = if (hasCallIntent) {
+                        currentIntent?.getStringExtra("from")?.trim().orEmpty()
+                    } else {
+                        prefs.getString("from", "")?.trim().orEmpty()
+                    }
+
+                    val to = if (hasCallIntent) {
+                        currentIntent?.getStringExtra("to")?.trim().orEmpty()
+                    } else {
+                        prefs.getString("to", "")?.trim().orEmpty()
+                    }
+
+                    val callId = if (hasCallIntent) {
+                        currentIntent?.getStringExtra("callId")?.trim().orEmpty()
+                    } else {
+                        prefs.getString("callId", "")?.trim().orEmpty()
+                    }
+
+                    val data =
+                        if (from.isNotEmpty() &&
+                            to.isNotEmpty() &&
+                            callId.isNotEmpty()
+                        ) {
+                            prefs.edit().clear().apply()
+
+                            mapOf(
+                                "type" to "callInvite",
+                                "from" to from,
+                                "to" to to,
+                                "callId" to callId,
+                            )
+                        } else {
+                            null
+                        }
+
+                    result.success(data)
+                }
                 "requestStartupPermissions" -> {
                     requestStartupPermissions(result)
                 }
