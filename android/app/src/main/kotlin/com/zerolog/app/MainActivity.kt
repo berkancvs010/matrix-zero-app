@@ -2,6 +2,7 @@ package com.zerolog.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
 import android.media.MediaPlayer
@@ -192,15 +193,84 @@ class MainActivity : FlutterActivity() {
             .apply()
     }
 
+    private fun applyIncomingCallLockScreen() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            }
+
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+            )
+
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to enable call lock-screen state",
+                e
+            )
+        }
+    }
+
+    private fun persistMessageIntent(incomingIntent: Intent?) {
+        if (incomingIntent?.action != "zerolog.message") {
+            return
+        }
+
+        val from = incomingIntent.getStringExtra("from")?.trim().orEmpty()
+        val to = incomingIntent.getStringExtra("to")?.trim().orEmpty()
+        val text = incomingIntent.getStringExtra("text")?.trim().orEmpty()
+        val id = incomingIntent.getStringExtra("id")?.trim().orEmpty()
+        val clientMessageId =
+            incomingIntent.getStringExtra("clientMessageId")?.trim().orEmpty()
+
+        if (from.isEmpty() || text.isEmpty()) return
+
+        getSharedPreferences("zerolog_native_message", MODE_PRIVATE)
+            .edit()
+            .putString("from", from)
+            .putString("to", to)
+            .putString("text", text)
+            .putString("id", id)
+            .putString("clientMessageId", clientMessageId)
+            .apply()
+    }
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (
+            intent?.action == "zerolog.incoming_call" ||
+            intent?.getBooleanExtra("zerolog_call", false) == true
+        ) {
+            applyIncomingCallLockScreen()
+        }
+
         persistIncomingCallIntent(intent)
+        persistMessageIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+
+        if (
+            intent.action == "zerolog.incoming_call" ||
+            intent.getBooleanExtra("zerolog_call", false)
+        ) {
+            applyIncomingCallLockScreen()
+        }
+
         persistIncomingCallIntent(intent)
+        persistMessageIntent(intent)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -258,6 +328,36 @@ class MainActivity : FlutterActivity() {
 
                     result.success(data)
                 }
+                "getPendingMessageIntent" -> {
+                    val prefs =
+                        getSharedPreferences("zerolog_native_message", MODE_PRIVATE)
+
+                    val from = prefs.getString("from", "")?.trim().orEmpty()
+                    val to = prefs.getString("to", "")?.trim().orEmpty()
+                    val text = prefs.getString("text", "")?.trim().orEmpty()
+                    val id = prefs.getString("id", "")?.trim().orEmpty()
+                    val clientMessageId =
+                        prefs.getString("clientMessageId", "")?.trim().orEmpty()
+
+                    val data =
+                        if (from.isNotEmpty() && text.isNotEmpty()) {
+                            prefs.edit().clear().apply()
+
+                            mapOf(
+                                "type" to "privateMessage",
+                                "from" to from,
+                                "to" to to,
+                                "text" to text,
+                                "id" to id,
+                                "clientMessageId" to clientMessageId,
+                            )
+                        } else {
+                            null
+                        }
+
+                    result.success(data)
+                }
+
                 "requestStartupPermissions" -> {
                     requestStartupPermissions(result)
                 }
