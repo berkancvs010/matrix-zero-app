@@ -103,6 +103,14 @@ class MainActivity : FlutterActivity() {
             permissions.add(Manifest.permission.RECORD_AUDIO)
         }
 
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+
         if (permissions.isEmpty()) {
             callPermissionResult = null
             result.success(true)

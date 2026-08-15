@@ -89,7 +89,7 @@ class ZeroLogPushService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String callChannelId = 'zerolog_calls_v4';
+  static const String callChannelId = 'zerolog_calls_v5';
   static const String messageChannelId = 'zerolog_messages_v4';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
@@ -378,8 +378,6 @@ class ZeroLogPushService {
         final callData = _normalizeCallData(
           Map<String, dynamic>.from(message.data),
         );
-
-        await showIncomingCallNotification(callData);
 
         WsClient.instance.emitExternalEvent(callData);
       } else if (type == 'callStatus') {
