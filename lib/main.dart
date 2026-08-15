@@ -5593,21 +5593,47 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final list = data['messages'];
 
       if (list is List) {
+        final historyMessages = <ChatMessage>[];
+
         for (final item in list) {
           if (item is Map) {
             final map = Map<String, dynamic>.from(item);
 
-            _addMessage(
-              ChatMessage(
-                id:
-                    (map['id'] ??
-                            'private-legacy-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['to'] ?? ''}-${map['text'] ?? ''}')
-                        .toString(),
-                sender: (map['sender'] ?? map['from'] ?? '').toString(),
-                text: (map['text'] ?? '').toString(),
-              ),
+            final message = ChatMessage(
+              id:
+                  (map['id'] ??
+                          'private-legacy-${map['ts'] ?? ''}-${map['from'] ?? map['sender'] ?? ''}-${map['to'] ?? ''}-${map['text'] ?? ''}')
+                      .toString(),
+              sender: (map['sender'] ?? map['from'] ?? '').toString(),
+              text: (map['text'] ?? '').toString(),
             );
+
+            if (message.text.isEmpty) continue;
+
+            final exists = _messages.any(
+              (m) => m.id == message.id,
+            );
+
+            if (!exists) {
+              historyMessages.add(message);
+            }
           }
+        }
+
+        if (historyMessages.isNotEmpty && mounted) {
+          setState(() {
+            _messages.addAll(historyMessages);
+          });
+
+          // Geçmiş mesajları animasyonla tek tek akıtma.
+          // Liste doğrudan son mesaja konumlanır.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!_scrollController.hasClients) return;
+
+            _scrollController.jumpTo(
+              _scrollController.position.maxScrollExtent,
+            );
+          });
         }
       }
     }
