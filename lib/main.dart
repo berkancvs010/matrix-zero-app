@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -518,6 +520,14 @@ class ZeroLogPushService {
 
       if (from.isEmpty || text.isEmpty) return;
 
+      final prefs = await SharedPreferences.getInstance();
+      final messagePreview =
+          prefs.getBool('zerolog.chat.message_preview') ?? true;
+
+      final notificationText = messagePreview
+          ? text
+          : 'Yeni bir ZeroLog mesajı';
+
       const androidDetails = AndroidNotificationDetails(
         messageChannelId,
         'Mesajlar',
@@ -554,7 +564,7 @@ class ZeroLogPushService {
       await _notifications.show(
         id: messageNotificationId,
         title: from,
-        body: text,
+        body: notificationText,
         notificationDetails: const NotificationDetails(android: androidDetails),
         payload: payload,
       );
@@ -883,6 +893,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   ];
 
   int _index = 0;
+
+  static const String _lastWelcomeAtKey = 'zerolog.last_welcome_at';
+  bool _welcomeShouldShow = true;
+
   late final Future<bool> _sessionRestoreFuture;
 
   @override
@@ -890,6 +904,32 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     super.initState();
 
     _sessionRestoreFuture = _restoreSession();
+
+    _checkWelcomeSchedule();
+  }
+
+  Future<void> _checkWelcomeSchedule() async {
+    final prefs = await SharedPreferences.getInstance();
+    final last = prefs.getInt(_lastWelcomeAtKey);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final shouldShow =
+        last == null || now - last >= const Duration(hours: 12).inMilliseconds;
+
+    if (!shouldShow) {
+      if (!mounted) return;
+
+      setState(() {
+        _welcomeShouldShow = false;
+      });
+
+      await _openLogin();
+      return;
+    }
+
+    await prefs.setInt(_lastWelcomeAtKey, now);
+
+    if (!mounted) return;
 
     _showNext();
   }
@@ -969,6 +1009,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = ThemeController.instance.data;
+
+    if (!_welcomeShouldShow) {
+      return Scaffold(
+        backgroundColor: theme.background,
+        body: Center(child: CircularProgressIndicator(color: theme.primary)),
+      );
+    }
 
     return Scaffold(
       backgroundColor: theme.background,
@@ -2245,6 +2292,236 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+  String? _profilePhotoPath;
+  String _profileAbout = '';
+
+  static const String _profilePhotoKey = 'zerolog.profile.photo';
+  static const String _profileAboutKey = 'zerolog.profile.about';
+
+  Future<void> _loadProfileData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (!mounted) return;
+
+    setState(() {
+      _profilePhotoPath = prefs.getString(_profilePhotoKey);
+      _profileAbout = prefs.getString(_profileAboutKey) ?? '';
+    });
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    final picker = ImagePicker();
+
+    final image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 900,
+      maxHeight: 900,
+      imageQuality: 88,
+    );
+
+    if (image == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(_profilePhotoKey, image.path);
+
+    if (!mounted) return;
+
+    setState(() {
+      _profilePhotoPath = image.path;
+    });
+  }
+
+  Future<void> _takeProfilePhoto() async {
+    final picker = ImagePicker();
+
+    final image = await picker.pickImage(
+      source: ImageSource.camera,
+      maxWidth: 900,
+      maxHeight: 900,
+      imageQuality: 88,
+      preferredCameraDevice: CameraDevice.front,
+    );
+
+    if (image == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_profilePhotoKey, image.path);
+
+    if (!mounted) return;
+
+    setState(() {
+      _profilePhotoPath = image.path;
+    });
+  }
+
+  Future<void> _editProfileAbout() async {
+    final controller = TextEditingController(text: _profileAbout);
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = ThemeController.instance.data;
+
+        return AlertDialog(
+          backgroundColor: theme.surface,
+          title: const Text('Hakkında'),
+          content: TextField(
+            controller: controller,
+            maxLines: 4,
+            maxLength: 160,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Kendiniz hakkında kısa bir bilgi',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('İptal'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, controller.text.trim());
+              },
+              child: const Text('Kaydet'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (result == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(_profileAboutKey, result);
+
+    if (!mounted) return;
+
+    setState(() {
+      _profileAbout = result;
+    });
+  }
+
+  Widget _profileAvatar({double radius = 25}) {
+    final theme = ThemeController.instance.data;
+
+    final path = _profilePhotoPath;
+
+    if (path != null && path.isNotEmpty) {
+      final file = File(path);
+
+      if (file.existsSync()) {
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: theme.primary.withValues(alpha: 0.14),
+          backgroundImage: FileImage(file),
+        );
+      }
+    }
+
+    final letter = widget.nickname.trim().isEmpty
+        ? '?'
+        : widget.nickname.trim().substring(0, 1).toUpperCase();
+
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: theme.primary.withValues(alpha: 0.14),
+      child: Text(
+        letter,
+        style: TextStyle(
+          color: theme.primary,
+          fontWeight: FontWeight.w800,
+          fontSize: radius * 0.68,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openProfileEditor() async {
+    final theme = ThemeController.instance.data;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.surface,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _profileAvatar(radius: 42),
+                const SizedBox(height: 12),
+                Text(
+                  widget.nickname,
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_outlined),
+                  title: const Text('Kamerayla fotoğraf çek'),
+                  subtitle: const Text('Yeni profil fotoğrafı oluştur'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _takeProfilePhoto();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: const Text('Profil fotoğrafı seç'),
+                  subtitle: const Text('Galeriden bir fotoğraf kullan'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _pickProfilePhoto();
+                  },
+                ),
+                if (_profilePhotoPath != null && _profilePhotoPath!.isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline_rounded),
+                    title: const Text('Profil fotoğrafını kaldır'),
+                    subtitle: const Text('Varsayılan avatarı kullan'),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.remove(_profilePhotoKey);
+                      if (!mounted) return;
+                      setState(() {
+                        _profilePhotoPath = null;
+                      });
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.edit_note_rounded),
+                  title: const Text('Hakkında bilgisi'),
+                  subtitle: Text(
+                    _profileAbout.isEmpty
+                        ? 'Henüz bir açıklama eklenmedi'
+                        : _profileAbout,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _editProfileAbout();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   final Set<String> _handledCallIds = <String>{};
 
   late final StreamSubscription<Map<String, dynamic>> _subscription;
@@ -2270,6 +2547,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _loadProfileData();
 
     WidgetsBinding.instance.addObserver(this);
 
@@ -2676,19 +2954,33 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ? '?'
         : name.trim().substring(0, 1).toUpperCase();
 
+    final isMyProfile =
+        name.trim().toLowerCase() == widget.nickname.trim().toLowerCase();
+
+    final profilePath = isMyProfile ? _profilePhotoPath : null;
+
+    final profileFile = profilePath == null || profilePath.isEmpty
+        ? null
+        : File(profilePath);
+
     return Stack(
       children: [
         CircleAvatar(
           radius: 25,
           backgroundColor: theme.primary.withValues(alpha: 0.14),
-          child: Text(
-            letter,
-            style: TextStyle(
-              color: theme.primary,
-              fontWeight: FontWeight.w700,
-              fontSize: 17,
-            ),
-          ),
+          backgroundImage: profileFile != null && profileFile.existsSync()
+              ? FileImage(profileFile)
+              : null,
+          child: profileFile != null && profileFile.existsSync()
+              ? null
+              : Text(
+                  letter,
+                  style: TextStyle(
+                    color: theme.primary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 17,
+                  ),
+                ),
         ),
         if (online)
           Positioned(
@@ -3719,54 +4011,100 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 110),
       children: [
-        // Profil kartı
         Material(
           color: theme.surface,
           borderRadius: BorderRadius.circular(24),
-          child: Padding(
-            padding: const EdgeInsets.all(17),
-            child: Row(
-              children: [
-                _avatar(widget.nickname, online: true),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: _openProfileEditor,
+            child: Padding(
+              padding: const EdgeInsets.all(17),
+              child: Row(
+                children: [
+                  Stack(
                     children: [
-                      Text(
-                        widget.nickname,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: theme.text,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.verified_user_outlined,
-                            size: 13,
-                            color: theme.primary,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            'Güvenli ZeroLog hesabı',
-                            style: TextStyle(
-                              color: theme.text.withValues(alpha: 0.48),
-                              fontSize: 11.5,
+                      _profileAvatar(radius: 25),
+                      Positioned(
+                        right: 0,
+                        bottom: 1,
+                        child: Container(
+                          width: 13,
+                          height: 13,
+                          decoration: BoxDecoration(
+                            color: Colors.greenAccent,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: theme.background,
+                              width: 2,
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.nickname,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          _profileAbout.trim().isEmpty
+                              ? 'Profilini düzenle'
+                              : _profileAbout.trim(),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.48),
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.edit_outlined,
+                    color: theme.text.withValues(alpha: 0.32),
+                    size: 20,
+                  ),
+                ],
+              ),
             ),
           ),
+        ),
+
+        const SizedBox(height: 8),
+
+        Row(
+          children: [
+            Expanded(
+              child: _profileSummaryCard(
+                icon: Icons.verified_user_outlined,
+                title: 'Hesap',
+                value: 'ZeroLog hesabı',
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _profileSummaryCard(
+                icon: Icons.info_outline_rounded,
+                title: 'Hakkında',
+                value: _profileAbout.trim().isEmpty
+                    ? 'Eklenmedi'
+                    : 'Düzenlendi',
+              ),
+            ),
+          ],
         ),
 
         sectionTitle('Görünüm'),
@@ -3829,7 +4167,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             if (sheetContext.mounted) {
                               Navigator.pop(sheetContext);
                             }
-                            if (mounted) setState(() {});
+                            if (mounted) {
+                              setState(() {});
+                            }
                           },
                         );
                       }),
@@ -3860,25 +4200,155 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         tile(
           icon: Icons.tune_rounded,
           title: 'Sohbet tercihleri',
-          subtitle: 'Mesajlaşma ve oda davranışlarını düzenle',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sohbet tercihleri yakında kullanılabilir.'),
-              ),
-            );
-          },
+          subtitle: 'Mesajlaşma ve sohbet davranışlarını düzenle',
+          onTap: _openChatPreferences,
         ),
 
         tile(
           icon: Icons.storage_outlined,
           title: 'Depolama ve veriler',
-          subtitle: 'Yerel sohbet verilerini ve önbelleği yönet',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Depolama yönetimi yakında kullanılabilir.'),
-              ),
+          subtitle: 'Profil ve yerel uygulama verilerini yönet',
+          onTap: () async {
+            final prefs = await SharedPreferences.getInstance();
+
+            if (!mounted) return;
+
+            await showModalBottomSheet<void>(
+              context: context,
+              backgroundColor: theme.surface,
+              showDragHandle: true,
+              builder: (sheetContext) {
+                return SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Depolama ve veriler',
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'ZeroLog bu cihazda tuttuğu yerel tercihleri burada yönetir.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.48),
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ListTile(
+                          leading: Icon(
+                            Icons.account_circle_outlined,
+                            color: theme.primary,
+                          ),
+                          title: const Text('Profil verileri'),
+                          subtitle: Text(
+                            (_profilePhotoPath != null &&
+                                        _profilePhotoPath!.isNotEmpty) ||
+                                    _profileAbout.trim().isNotEmpty
+                                ? 'Profil bilgileri kayıtlı'
+                                : 'Ek profil verisi bulunmuyor',
+                          ),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.cleaning_services_outlined),
+                          title: const Text('Profil verilerini temizle'),
+                          subtitle: const Text(
+                            'Profil fotoğrafı ve hakkında bilgisini kaldır',
+                          ),
+                          onTap: () async {
+                            final confirmed = await showDialog<bool>(
+                              context: sheetContext,
+                              builder: (dialogContext) {
+                                return AlertDialog(
+                                  title: const Text(
+                                    'Profil verileri silinsin mi?',
+                                  ),
+                                  content: const Text(
+                                    'Profil fotoğrafı ve hakkında bilgisi '
+                                    'bu cihazdan kaldırılacak.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dialogContext, false),
+                                      child: const Text('İptal'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dialogContext, true),
+                                      child: const Text('Temizle'),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+
+                            if (confirmed != true) return;
+
+                            await prefs.remove(_profilePhotoKey);
+                            await prefs.remove(_profileAboutKey);
+
+                            if (!mounted) return;
+
+                            setState(() {
+                              _profilePhotoPath = null;
+                              _profileAbout = '';
+                            });
+
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Profil verileri temizlendi.'),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(
+                            Icons.settings_backup_restore_rounded,
+                          ),
+                          title: const Text('Sohbet tercihlerini sıfırla'),
+                          subtitle: const Text(
+                            'Mesajlaşma ayarlarını varsayılana döndür',
+                          ),
+                          onTap: () async {
+                            await prefs.remove('zerolog.chat.enter_to_send');
+                            await prefs.remove('zerolog.chat.message_preview');
+                            await prefs.remove('zerolog.chat.auto_focus');
+
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Sohbet tercihleri sıfırlandı.',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             );
           },
         ),
@@ -3886,13 +4356,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         tile(
           icon: Icons.info_outline_rounded,
           title: 'ZeroLog hakkında',
-          subtitle: 'Sürüm ve uygulama bilgileri',
+          subtitle: 'Sürüm, geliştirici ve uygulama bilgileri',
+          onTap: _openAboutPage,
+        ),
+
+        tile(
+          icon: Icons.menu_book_outlined,
+          title: 'Açık kaynak lisansları',
+          subtitle: 'ZeroLog içinde kullanılan açık kaynak bileşenler',
           onTap: () {
-            showAboutDialog(
+            showLicensePage(
               context: context,
               applicationName: 'ZeroLog',
-              applicationVersion: '2.0.0',
-              applicationLegalese: 'Güvenli iletişim',
+              applicationVersion: '1.0.6',
+              applicationLegalese:
+                  'Bu program BerkanCVS tarafından hazırlanmıştır.',
             );
           },
         ),
@@ -3910,6 +4388,216 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
         ),
       ],
+    );
+  }
+
+  void _openAboutPage() {
+    final theme = ThemeController.instance.data;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) {
+          return Scaffold(
+            backgroundColor: theme.background,
+            appBar: AppBar(
+              backgroundColor: theme.background,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              title: const Text('ZeroLog hakkında'),
+            ),
+            body: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+              children: [
+                Center(
+                  child: Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      color: theme.primary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.shield_rounded,
+                      color: theme.primary,
+                      size: 46,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Center(
+                  child: Text(
+                    'ZeroLog',
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 25,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Center(
+                  child: Text(
+                    'Güvenli iletişim',
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.48),
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 26),
+                Material(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Uygulama hakkında',
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Bu program BerkanCVS tarafından hazırlanmıştır. '
+                          'Yazılımda emeği geçen İlay Kayra’ya sonsuz '
+                          'teşekkürlerimi sunarım.',
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.62),
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Material(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.system_update_outlined,
+                      color: theme.primary,
+                    ),
+                    title: Text(
+                      'Sürüm',
+                      style: TextStyle(
+                        color: theme.text,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'ZeroLog 1.0.6',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.48),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Material(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.menu_book_outlined,
+                      color: theme.primary,
+                    ),
+                    title: Text(
+                      'Açık kaynak lisansları',
+                      style: TextStyle(
+                        color: theme.text,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'ZeroLog içinde kullanılan bileşenler',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.48),
+                      ),
+                    ),
+                    trailing: Icon(
+                      Icons.chevron_right_rounded,
+                      color: theme.text.withValues(alpha: 0.28),
+                    ),
+                    onTap: () {
+                      showLicensePage(
+                        context: context,
+                        applicationName: 'ZeroLog',
+                        applicationVersion: '1.0.6',
+                        applicationLegalese:
+                            'Bu program BerkanCVS tarafından hazırlanmıştır.',
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _profileSummaryCard({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    final theme = ThemeController.instance.data;
+
+    return Material(
+      color: theme.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(13, 13, 10, 13),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: theme.primary.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, color: theme.primary, size: 18),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.45),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -4023,6 +4711,99 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openChatPreferences() async {
+    final theme = ThemeController.instance.data;
+    final prefs = await SharedPreferences.getInstance();
+
+    bool enterToSend = prefs.getBool('zerolog.chat.enter_to_send') ?? true;
+    bool messagePreview = prefs.getBool('zerolog.chat.message_preview') ?? true;
+    bool autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
+
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StatefulBuilder(
+          builder: (context, setPageState) {
+            Future<void> save(String key, bool value) async {
+              await prefs.setBool(key, value);
+            }
+
+            return Scaffold(
+              backgroundColor: theme.background,
+              appBar: AppBar(
+                backgroundColor: theme.background,
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                title: const Text('Sohbet tercihleri'),
+              ),
+              body: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                children: [
+                  Text(
+                    'Mesajlaşma deneyimi',
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Sohbet ekranının davranışını kullanımınıza göre ayarlayın.',
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.46),
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _settingsSectionCard(
+                    icon: Icons.keyboard_return_rounded,
+                    title: 'Enter ile gönder',
+                    subtitle: 'Klavyedeki Enter tuşu mesajı doğrudan göndersin',
+                    value: enterToSend,
+                    onChanged: (value) {
+                      setPageState(() => enterToSend = value);
+                      save('zerolog.chat.enter_to_send', value);
+                    },
+                  ),
+                  _settingsSectionCard(
+                    icon: Icons.visibility_outlined,
+                    title: 'Bildirim önizlemesi',
+                    subtitle: 'Mesaj bildirimlerinde mesaj içeriğini göster',
+                    value: messagePreview,
+                    onChanged: (value) {
+                      setPageState(() => messagePreview = value);
+                      save('zerolog.chat.message_preview', value);
+                    },
+                  ),
+                  _settingsSectionCard(
+                    icon: Icons.keyboard_alt_outlined,
+                    title: 'Sohbet açıldığında klavye',
+                    subtitle:
+                        'Yeni sohbet açıldığında mesaj alanına otomatik odaklan',
+                    value: autoFocus,
+                    onChanged: (value) {
+                      setPageState(() => autoFocus = value);
+                      save('zerolog.chat.auto_focus', value);
+                    },
+                  ),
+                  _settingsInfoCard(
+                    icon: Icons.tune_rounded,
+                    title: 'Tercihler cihazınızda saklanır',
+                    text:
+                        'Bu seçenekler uygulamayı yeniden açtığınızda korunur.',
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -4460,6 +5241,7 @@ class ChatRoomScreen extends StatefulWidget {
 
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _messageFocusNode = FocusNode();
 
   final ScrollController _scrollController = ScrollController();
 
@@ -4474,6 +5256,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.joinRoom(widget.roomName);
+    _applyAutoFocusPreference();
+  }
+
+  Future<void> _applyAutoFocusPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
+
+    if (!autoFocus || !mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _messageFocusNode.requestFocus();
+    });
   }
 
   Future<void> _handleEvent(Map<String, dynamic> data) async {
@@ -4571,6 +5366,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _subscription.cancel();
     _controller.dispose();
     _scrollController.dispose();
+    _messageFocusNode.dispose();
     super.dispose();
   }
 
@@ -4718,7 +5514,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     },
                   ),
           ),
-          MessageInput(controller: _controller, onSend: _send),
+          MessageInput(
+            controller: _controller,
+            onSend: _send,
+            focusNode: _messageFocusNode,
+          ),
         ],
       ),
     );
@@ -4744,6 +5544,8 @@ class PrivateChatScreen extends StatefulWidget {
 }
 
 class _PrivateChatScreenState extends State<PrivateChatScreen> {
+  final FocusNode _messageFocusNode = FocusNode();
+
   final TextEditingController _controller = TextEditingController();
 
   final ScrollController _scrollController = ScrollController();
@@ -4761,6 +5563,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     WsClient.instance.send({
       'type': 'privateHistory',
       'peer': widget.targetNick,
+    });
+
+    _applyAutoFocusPreference();
+  }
+
+  Future<void> _applyAutoFocusPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
+
+    if (!autoFocus || !mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _messageFocusNode.requestFocus();
     });
   }
 
@@ -5026,6 +5842,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+    _messageFocusNode.dispose();
   }
 
   @override
@@ -5119,7 +5936,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     },
                   ),
           ),
-          MessageInput(controller: _controller, onSend: _send),
+          MessageInput(
+            controller: _controller,
+            onSend: _send,
+            focusNode: _messageFocusNode,
+          ),
         ],
       ),
     );
@@ -6007,7 +6828,7 @@ class _CallScreenState extends State<CallScreen> {
           automaticallyImplyLeading: false,
           centerTitle: true,
           title: Text(
-            'Sesli arama',
+            'Şifreli Bağlantı',
             style: TextStyle(
               color: theme.text,
               fontSize: 17,
@@ -6254,15 +7075,220 @@ class _CallScreenState extends State<CallScreen> {
 // INPUT
 // ============================================================
 
-class MessageInput extends StatelessWidget {
+class MessageInput extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
+  final FocusNode? focusNode;
 
   const MessageInput({
     super.key,
     required this.controller,
     required this.onSend,
+    this.focusNode,
   });
+
+  @override
+  State<MessageInput> createState() => _MessageInputState();
+}
+
+class _MessageInputState extends State<MessageInput> {
+  bool _enterToSend = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (!mounted) return;
+
+    setState(() {
+      _enterToSend = prefs.getBool('zerolog.chat.enter_to_send') ?? true;
+    });
+  }
+
+  void _handleSubmitted(String value) {
+    if (!_enterToSend) return;
+    if (value.trim().isEmpty) return;
+
+    widget.onSend();
+  }
+
+  Future<void> _openAttachmentMenu() async {
+    final theme = ThemeController.instance.data;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.surface,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Ek seçenekler',
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: Icon(
+                    Icons.photo_library_outlined,
+                    color: theme.primary,
+                  ),
+                  title: const Text('Galeri'),
+                  subtitle: const Text('Galeriden fotoğraf seç'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+
+                    final picker = ImagePicker();
+
+                    await picker.pickImage(
+                      source: ImageSource.gallery,
+                      maxWidth: 1600,
+                      maxHeight: 1600,
+                      imageQuality: 88,
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.camera_alt_outlined,
+                    color: theme.primary,
+                  ),
+                  title: const Text('Kamera'),
+                  subtitle: const Text('Kamera ile fotoğraf çek'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+
+                    final picker = ImagePicker();
+
+                    await picker.pickImage(
+                      source: ImageSource.camera,
+                      maxWidth: 1600,
+                      maxHeight: 1600,
+                      imageQuality: 88,
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.emoji_emotions_outlined,
+                    color: theme.primary,
+                  ),
+                  title: const Text('Emoji'),
+                  subtitle: const Text('Mesaja emoji ekle'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _openEmojiPicker();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openEmojiPicker() async {
+    final theme = ThemeController.instance.data;
+
+    const emojis = [
+      '😀',
+      '😂',
+      '😍',
+      '🥰',
+      '😎',
+      '🤔',
+      '😢',
+      '😡',
+      '👍',
+      '👎',
+      '❤️',
+      '🔥',
+      '🎉',
+      '👏',
+      '🙏',
+      '💯',
+      '🚀',
+      '🔒',
+      '😊',
+      '😉',
+      '😄',
+      '😁',
+      '🤣',
+      '😇',
+    ];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.surface,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            child: GridView.builder(
+              shrinkWrap: true,
+              itemCount: emojis.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 6,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+              ),
+              itemBuilder: (_, index) {
+                final emoji = emojis[index];
+
+                return InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () {
+                    final value = widget.controller.text;
+                    final selection = widget.controller.selection;
+
+                    final start = selection.start >= 0
+                        ? selection.start
+                        : value.length;
+                    final end = selection.end >= 0
+                        ? selection.end
+                        : value.length;
+
+                    final newText = value.replaceRange(start, end, emoji);
+
+                    widget.controller.value = TextEditingValue(
+                      text: newText,
+                      selection: TextSelection.collapsed(
+                        offset: start + emoji.length,
+                      ),
+                    );
+
+                    Navigator.pop(sheetContext);
+
+                    widget.focusNode?.requestFocus();
+                  },
+                  child: Center(
+                    child: Text(emoji, style: const TextStyle(fontSize: 27)),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -6285,19 +7311,27 @@ class MessageInput extends StatelessWidget {
                   ),
                 ),
                 child: TextField(
-                  controller: controller,
+                  controller: widget.controller,
+                  focusNode: widget.focusNode,
                   minLines: 1,
                   maxLines: 5,
-                  textInputAction: TextInputAction.newline,
+                  onSubmitted: _handleSubmitted,
+                  textInputAction: _enterToSend
+                      ? TextInputAction.send
+                      : TextInputAction.newline,
                   decoration: InputDecoration(
                     hintText: 'Mesaj yaz…',
                     hintStyle: TextStyle(
                       color: theme.text.withValues(alpha: 0.38),
                       fontSize: 13.5,
                     ),
-                    prefixIcon: Icon(
-                      Icons.add_rounded,
-                      color: theme.text.withValues(alpha: 0.42),
+                    prefixIcon: IconButton(
+                      tooltip: 'Ek seçenekler',
+                      onPressed: _openAttachmentMenu,
+                      icon: Icon(
+                        Icons.add_rounded,
+                        color: theme.text.withValues(alpha: 0.42),
+                      ),
                     ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.fromLTRB(0, 12, 14, 12),
@@ -6315,7 +7349,7 @@ class MessageInput extends StatelessWidget {
               ),
               child: IconButton(
                 tooltip: 'Gönder',
-                onPressed: onSend,
+                onPressed: widget.onSend,
                 icon: Icon(
                   Icons.arrow_upward_rounded,
                   color: theme.background,

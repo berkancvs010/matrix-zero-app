@@ -369,6 +369,22 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
         if (text.isEmpty()) return
 
+        val prefs = getSharedPreferences(
+            "FlutterSharedPreferences",
+            MODE_PRIVATE
+        )
+
+        val messagePreview = prefs.getBoolean(
+            "flutter.zerolog.chat.message_preview",
+            true
+        )
+
+        val notificationText = if (messagePreview) {
+            text
+        } else {
+            "Yeni bir ZeroLog mesajı"
+        }
+
         val intent = Intent(this, MainActivity::class.java).apply {
             action = "zerolog.message"
             flags =
@@ -421,10 +437,10 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         )
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(sender)
-            .setContentText(text)
+            .setContentText(notificationText)
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .bigText(text)
+                    .bigText(notificationText)
             )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
