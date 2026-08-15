@@ -2,7 +2,6 @@ package com.zerolog.app
 
 import android.Manifest
 import android.content.Intent
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
 import android.media.MediaPlayer
@@ -282,6 +281,10 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getIncomingCallIntent" -> {
+                    // Cold start + notification tap + singleTop/onNewIntent
+                    // durumlarının tamamında aynı pending-call kaynağını kullan.
+                    persistIncomingCallIntent(intent)
+
                     val prefs =
                         getSharedPreferences("zerolog_native_call", MODE_PRIVATE)
 

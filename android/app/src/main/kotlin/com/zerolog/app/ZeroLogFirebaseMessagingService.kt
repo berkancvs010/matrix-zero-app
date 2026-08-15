@@ -274,6 +274,15 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP
+
+            putExtra("from", sender)
+            putExtra("to", message.data["to"]?.trim().orEmpty())
+            putExtra("text", text)
+            putExtra("id", message.data["id"]?.trim().orEmpty())
+            putExtra(
+                "clientMessageId",
+                message.data["clientMessageId"]?.trim().orEmpty()
+            )
         }
 
         val pendingIntent = PendingIntent.getActivity(

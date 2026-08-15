@@ -186,10 +186,7 @@ class ZeroLogPushService {
         final payload = response.payload;
         if (payload == null || payload.isEmpty) return;
 
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(pendingCallKey, payload);
-        } catch (_) {}
+        await storeNotificationPayload(payload);
       },
       onDidReceiveBackgroundNotificationResponse: _notificationTapBackground,
     );
@@ -240,11 +237,7 @@ class ZeroLogPushService {
         if (launchDetails?.didNotificationLaunchApp == true) {
           final payload = launchDetails?.notificationResponse?.payload;
 
-          if (payload != null && payload.isNotEmpty) {
-            final prefs = await SharedPreferences.getInstance();
-
-            await prefs.setString(pendingCallKey, payload);
-          }
+          if (payload != null && payload.isNotEmpty) {}
         }
       } catch (_) {}
     }
@@ -318,6 +311,21 @@ class ZeroLogPushService {
       }
     } catch (e) {
       debugPrint('[FCM][native-intent] bridge failed: $e');
+    }
+
+    // Native Android message PendingIntent -> Flutter pending notification
+    final nativeMessage = await _systemChannel.invokeMethod<dynamic>(
+      'getPendingMessageIntent',
+    );
+
+    if (nativeMessage is Map) {
+      final data = Map<String, dynamic>.from(nativeMessage);
+
+      if (data['type'] == 'privateMessage') {
+        await storeNotificationPayload(jsonEncode(data));
+
+        debugPrint('[FCM][native-message] pending private message stored');
+      }
     }
 
     await _messaging.setAutoInitEnabled(true);
