@@ -2522,6 +2522,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   final Set<String> _handledCallIds = <String>{};
 
+  AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
+
   late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   final List<String> _onlineUsers = [];
@@ -2575,6 +2577,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appLifecycleState = state;
+
     if (state == AppLifecycleState.resumed) {
       // Android may suspend the WebSocket while the app is in background.
       // Force a presence/reconnect cycle when returning to foreground.
@@ -2758,6 +2762,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
 
       if (_handledCallIds.contains(callId)) {
+        return;
+      }
+
+      // Uygulama arka plandayken WebSocket doğrudan Navigator'a
+      // dokunmamalı. FCM/full-screen intent ile yarışmasını önlemek
+      // için çağrıyı ortak pending kuyruğuna bırak.
+      if (_appLifecycleState != AppLifecycleState.resumed) {
+        await ZeroLogPushService.storeNotificationPayload(
+          jsonEncode({
+            'type': 'callInvite',
+            'from': from,
+            'to': to,
+            'callId': callId,
+          }),
+        );
         return;
       }
 
@@ -5628,9 +5647,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_scrollController.hasClients) return;
 
-        _scrollController.jumpTo(
-          _scrollController.position.maxScrollExtent,
-        );
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
       });
 
       return true;
@@ -5695,8 +5712,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             final map = Map<String, dynamic>.from(item);
 
             final messageId = (map['id'] ?? '').toString();
-            final clientMessageId =
-                (map['clientMessageId'] ?? '').toString();
+            final clientMessageId = (map['clientMessageId'] ?? '').toString();
 
             final sender = (map['sender'] ?? map['from'] ?? '').toString();
 
@@ -5708,20 +5724,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
             final messageStatus =
                 sender.toLowerCase() == widget.myNick.toLowerCase()
-                    ? ((map['read'] == true)
-                        ? 'read'
-                        : (map['delivered'] == true)
-                            ? 'delivered'
-                            : 'stored')
-                    : 'read';
+                ? ((map['read'] == true)
+                      ? 'read'
+                      : (map['delivered'] == true)
+                      ? 'delivered'
+                      : 'stored')
+                : 'read';
 
             final message = ChatMessage(
               id:
                   (messageId.isNotEmpty
                           ? messageId
                           : (clientMessageId.isNotEmpty
-                              ? clientMessageId
-                              : 'private-legacy-${map['ts'] ?? ''}-$sender-${map['to'] ?? ''}-${map['text'] ?? ''}'))
+                                ? clientMessageId
+                                : 'private-legacy-${map['ts'] ?? ''}-$sender-${map['to'] ?? ''}-${map['text'] ?? ''}'))
                       .toString(),
               sender: sender,
               text: (map['text'] ?? '').toString(),
@@ -5755,12 +5771,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         // server'ın read:false gönderdiği tüm karşı taraf mesajlarını
         // burada gerçekten okundu olarak işaretle.
         for (final map in unreadHistoryMessages) {
-          final sender =
-              (map['sender'] ?? map['from'] ?? '').toString();
+          final sender = (map['sender'] ?? map['from'] ?? '').toString();
 
           final messageId = (map['id'] ?? '').toString();
-          final clientMessageId =
-              (map['clientMessageId'] ?? '').toString();
+          final clientMessageId = (map['clientMessageId'] ?? '').toString();
 
           if (sender.isEmpty ||
               (messageId.isEmpty && clientMessageId.isEmpty)) {
@@ -5851,8 +5865,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     if (data['type'] == 'messageRead') {
       final messageId = (data['messageId'] ?? '').toString();
-      final clientMessageId =
-          (data['clientMessageId'] ?? '').toString();
+      final clientMessageId = (data['clientMessageId'] ?? '').toString();
 
       if (messageId.isEmpty && clientMessageId.isEmpty) {
         return;
@@ -5867,8 +5880,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           final matches =
               (clientMessageId.isNotEmpty &&
                   message.clientMessageId == clientMessageId) ||
-              (messageId.isNotEmpty &&
-                  message.id == messageId);
+              (messageId.isNotEmpty && message.id == messageId);
 
           if (matches) {
             _messages[i] = message.copyWith(
@@ -5896,20 +5908,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           if (item is Map) {
             final map = Map<String, dynamic>.from(item);
 
-            final sender =
-                (map['sender'] ?? map['from'] ?? '').toString();
-            final target =
-                (map['to'] ?? map['target'] ?? '').toString();
+            final sender = (map['sender'] ?? map['from'] ?? '').toString();
+            final target = (map['to'] ?? map['target'] ?? '').toString();
 
-            if (sender.toLowerCase() !=
-                    widget.targetNick.toLowerCase() ||
+            if (sender.toLowerCase() != widget.targetNick.toLowerCase() ||
                 target.toLowerCase() != widget.myNick.toLowerCase()) {
               continue;
             }
 
             final messageId = (map['id'] ?? '').toString();
-            final clientMessageId =
-                (map['clientMessageId'] ?? '').toString();
+            final clientMessageId = (map['clientMessageId'] ?? '').toString();
 
             _addMessage(
               ChatMessage(
@@ -5917,8 +5925,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     (messageId.isNotEmpty
                             ? messageId
                             : (clientMessageId.isNotEmpty
-                                ? clientMessageId
-                                : 'pending-${map['ts'] ?? ''}-$sender-${map['text'] ?? ''}'))
+                                  ? clientMessageId
+                                  : 'pending-${map['ts'] ?? ''}-$sender-${map['text'] ?? ''}'))
                         .toString(),
                 sender: sender,
                 text: (map['text'] ?? '').toString(),
@@ -6322,8 +6330,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 message.status == 'read'
                     ? Icons.done_all_rounded
                     : message.status == 'delivered'
-                        ? Icons.done_all_rounded
-                        : Icons.done_rounded,
+                    ? Icons.done_all_rounded
+                    : Icons.done_rounded,
                 size: 14,
                 color: message.status == 'read'
                     ? theme.primary
