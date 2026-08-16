@@ -656,7 +656,7 @@ class ZeroLogPushService {
 // THEMES
 // ============================================================
 
-enum ZeroLogTheme { black, matrix, whatsapp, pink, grey, midnight }
+enum ZeroLogTheme { black, matrix, whatsapp, pink, grey, midnight, mivi }
 
 class ZeroLogThemeData {
   final String name;
@@ -740,6 +740,16 @@ const Map<ZeroLogTheme, ZeroLogThemeData> zeroLogThemes = {
     text: Color(0xFFF3F7FF),
     bubbleMine: Color(0xFF183B5C),
     bubbleOther: Color(0xFF12263D),
+  ),
+  ZeroLogTheme.mivi: ZeroLogThemeData(
+    name: 'Mivi',
+    background: Color(0xFF140507),
+    surface: Color(0xFF2A0B0E),
+    primary: Color(0xFF4D8DFF),
+    secondary: Color(0xFFFF3B30),
+    text: Color(0xFF72A7FF),
+    bubbleMine: Color(0xFF4A1217),
+    bubbleOther: Color(0xFF2B0C10),
   ),
 };
 
