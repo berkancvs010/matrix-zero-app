@@ -1471,6 +1471,11 @@ class WsClient {
       if (!authenticated) {
         connected = false;
         await _closeCurrent();
+
+        // Auth timeout/gecikmesi bağlantıyı tamamen kilitlemesin.
+        // Bekleyen mesajlar queue'da korunur ve sonraki bağlantıda gönderilir.
+        _scheduleReconnect();
+
         return false;
       }
 
@@ -1547,16 +1552,40 @@ class WsClient {
     });
   }
 
+  bool _shouldQueueWhileDisconnected(Map<String, dynamic> data) {
+    final type = (data['type'] ?? '').toString();
+
+    // Bunlar bağlantı koptuğunda sonradan gönderilmemeli.
+    // Eski read/delivery/presence olaylarının reconnect sonrası
+    // yeni mesaj durumlarını ezmesini önler.
+    const transientTypes = <String>{
+      'messageRead',
+      'messageDelivered',
+      'getPresence',
+      'getUserDirectory',
+      'getPrivacySettings',
+      'getNotificationSettings',
+    };
+
+    return !transientTypes.contains(type);
+  }
+
   void send(Map<String, dynamic> data) {
+    final payload = Map<String, dynamic>.from(data);
+
     if (!connected || _channel == null) {
-      _outgoingQueue.add(Map<String, dynamic>.from(data));
+      if (_shouldQueueWhileDisconnected(payload)) {
+        _outgoingQueue.add(payload);
+      }
       return;
     }
 
     try {
-      _channel!.sink.add(jsonEncode(data));
+      _channel!.sink.add(jsonEncode(payload));
     } catch (_) {
-      _outgoingQueue.add(Map<String, dynamic>.from(data));
+      if (_shouldQueueWhileDisconnected(payload)) {
+        _outgoingQueue.add(payload);
+      }
       _handleConnectionLost();
     }
   }
@@ -5608,13 +5637,27 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
-  Future<void> _saveHistoryCache() async {
-    final prefs = await SharedPreferences.getInstance();
+  // Cache yazılarını sıraya al.
+  // ACK -> delivered -> read gibi hızlı ardışık event'lerde
+  // eski bir snapshot'ın yeni status'ü ezmesini önler.
+  Future<void> _cacheWriteQueue = Future<void>.value();
 
-    await prefs.setString(
-      _historyCacheKey,
-      jsonEncode(_messages.map(_messageToJson).toList()),
-    );
+  Future<void> _saveHistoryCache() {
+    // Snapshot'ı kuyruğa girmeden önce al.
+    // Böylece her yazma çağrısı o andaki mesaj durumunu korur.
+    final encoded = jsonEncode(_messages.map(_messageToJson).toList());
+
+    _cacheWriteQueue = _cacheWriteQueue.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+
+        await prefs.setString(_historyCacheKey, encoded);
+      } catch (_) {
+        // Cache yazma hatası mesajlaşmayı etkilememeli.
+      }
+    });
+
+    return _cacheWriteQueue;
   }
 
   Future<bool> _loadHistoryCache() async {
@@ -5695,6 +5738,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
+    // Sohbet socket kopukken açıldıysa privateHistory isteği queue'ya
+    // alınmaz. Bağlantı yeniden kurulduğunda güncel geçmişi tekrar iste.
+    if (data['type'] == 'connectionRestored' || data['type'] == 'registered') {
+      WsClient.instance.send({
+        'type': 'privateHistory',
+        'peer': widget.targetNick,
+      });
+      return;
+    }
+
     if (data['type'] == 'privateHistory') {
       final peer = (data['peer'] ?? data['with'] ?? data['target'] ?? '')
           .toString();
@@ -5711,62 +5764,101 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         final unreadHistoryMessages = <Map<String, dynamic>>[];
 
         for (final item in list) {
-          if (item is Map) {
-            final map = Map<String, dynamic>.from(item);
+          if (item is! Map) continue;
 
-            final messageId = (map['id'] ?? '').toString();
-            final clientMessageId = (map['clientMessageId'] ?? '').toString();
+          final map = Map<String, dynamic>.from(item);
 
-            final sender = (map['sender'] ?? map['from'] ?? '').toString();
+          final messageId = (map['id'] ?? '').toString();
+          final clientMessageId = (map['clientMessageId'] ?? '').toString();
+          final sender = (map['sender'] ?? map['from'] ?? '').toString();
+          final text = (map['text'] ?? '').toString();
 
-            if (sender.isNotEmpty &&
-                sender.toLowerCase() != widget.myNick.toLowerCase() &&
-                map['read'] != true) {
-              unreadHistoryMessages.add(map);
-            }
+          if (text.isEmpty) continue;
 
-            final messageStatus =
-                sender.toLowerCase() == widget.myNick.toLowerCase()
-                ? ((map['read'] == true)
-                      ? 'read'
-                      : (map['delivered'] == true)
-                      ? 'delivered'
-                      : 'stored')
-                : 'read';
+          if (sender.isNotEmpty &&
+              sender.toLowerCase() != widget.myNick.toLowerCase() &&
+              map['read'] != true) {
+            unreadHistoryMessages.add(map);
+          }
 
-            final message = ChatMessage(
-              id:
-                  (messageId.isNotEmpty
-                          ? messageId
-                          : (clientMessageId.isNotEmpty
-                                ? clientMessageId
-                                : 'private-legacy-${map['ts'] ?? ''}-$sender-${map['to'] ?? ''}-${map['text'] ?? ''}'))
-                      .toString(),
-              sender: sender,
-              text: (map['text'] ?? '').toString(),
-              clientMessageId: clientMessageId,
-              status: messageStatus,
+          final messageStatus =
+              sender.toLowerCase() == widget.myNick.toLowerCase()
+              ? ((map['read'] == true)
+                    ? 'read'
+                    : (map['delivered'] == true)
+                    ? 'delivered'
+                    : 'stored')
+              : 'read';
+
+          final message = ChatMessage(
+            id:
+                (messageId.isNotEmpty
+                        ? messageId
+                        : (clientMessageId.isNotEmpty
+                              ? clientMessageId
+                              : 'private-legacy-${map['ts'] ?? ''}-$sender-${map['to'] ?? ''}-$text'))
+                    .toString(),
+            sender: sender,
+            text: text,
+            clientMessageId: clientMessageId,
+            status: messageStatus,
+          );
+
+          final existingIndex = _messages.indexWhere(
+            (localMessage) =>
+                (clientMessageId.isNotEmpty &&
+                    localMessage.clientMessageId.isNotEmpty &&
+                    localMessage.clientMessageId == clientMessageId) ||
+                (messageId.isNotEmpty && localMessage.id == messageId),
+          );
+
+          if (existingIndex >= 0) {
+            // Server geçmişi authoritative kaynaktır.
+            // Özellikle sending -> stored -> delivered -> read geçişlerini
+            // cache'deki eski durumun üzerine uygula.
+            historyMessages.add(
+              message.copyWith(
+                id: message.id,
+                clientMessageId: message.clientMessageId,
+                status: message.status,
+              ),
             );
-
-            if (message.text.isEmpty) continue;
-
-            final exists = _messages.any(
-              (m) =>
-                  m.id == message.id ||
-                  (message.clientMessageId.isNotEmpty &&
-                      m.clientMessageId.isNotEmpty &&
-                      m.clientMessageId == message.clientMessageId),
-            );
-
-            if (!exists) {
-              historyMessages.add(message);
-            }
+          } else {
+            historyMessages.add(message);
           }
         }
 
         if (historyMessages.isNotEmpty && mounted) {
           setState(() {
-            _messages.addAll(historyMessages);
+            for (final serverMessage in historyMessages) {
+              final index = _messages.indexWhere(
+                (localMessage) =>
+                    (serverMessage.clientMessageId.isNotEmpty &&
+                        localMessage.clientMessageId.isNotEmpty &&
+                        localMessage.clientMessageId ==
+                            serverMessage.clientMessageId) ||
+                    (serverMessage.id.isNotEmpty &&
+                        localMessage.id == serverMessage.id),
+              );
+
+              if (index >= 0) {
+                _messages[index] = serverMessage;
+              } else {
+                _messages.add(serverMessage);
+              }
+            }
+          });
+        }
+
+        if (mounted) {
+          await _saveHistoryCache();
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!_scrollController.hasClients) return;
+
+            _scrollController.jumpTo(
+              _scrollController.position.maxScrollExtent,
+            );
           });
         }
 
