@@ -21,7 +21,7 @@ import com.google.firebase.messaging.RemoteMessage
 class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CALL_CHANNEL_ID = "zerolog_calls_v6"
+        private const val CALL_CHANNEL_ID = "zerolog_calls_v7"
         private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v5"
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
@@ -87,24 +87,38 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 start()
             }
 
-            val vibrator =
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager =
+                    getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                manager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
                 getSystemService(VIBRATOR_SERVICE) as Vibrator
+            }
 
             incomingCallVibrator = vibrator
 
+            val vibrationAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val effect = VibrationEffect.createWaveform(
+                    longArrayOf(
+                        0,
+                        500,
+                        300,
+                        500,
+                        300,
+                        700
+                    ),
+                    0
+                )
+
                 vibrator.vibrate(
-                    VibrationEffect.createWaveform(
-                        longArrayOf(
-                            0,
-                            500,
-                            300,
-                            500,
-                            300,
-                            700
-                        ),
-                        0
-                    )
+                    effect,
+                    vibrationAttributes
                 )
             } else {
                 @Suppress("DEPRECATION")
@@ -193,7 +207,8 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         ).apply {
             description = "ZeroLog sesli arama bildirimleri"
             setSound(null, null)
-            enableVibration(false)
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 500, 300, 500, 300, 700)
             lockscreenVisibility =
                 android.app.Notification.VISIBILITY_PUBLIC
         }
