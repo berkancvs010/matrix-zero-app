@@ -6761,6 +6761,14 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
+    final eventCallId = (data['callId'] ?? '').toString().trim();
+
+    if (widget.callId != null &&
+        widget.callId!.isNotEmpty &&
+        eventCallId != widget.callId) {
+      return;
+    }
+
     if (type == 'callAccepted') {
       ZeroLogPushService.clearPendingCall();
       ZeroLogPushService.cancelIncomingCallNotification();
