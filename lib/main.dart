@@ -5645,9 +5645,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
-    _loadHistoryCache().then((loaded) {
-      if (!mounted || loaded) return;
+    _loadHistoryCache().then((_) {
+      if (!mounted) return;
 
+      // Cache yalnızca sohbetin anında görünmesi içindir.
+      // Sunucudan güncel geçmiş her zaman alınır.
+      // Böylece offline/başka cihaz kaynaklı yeni mesajlar kaçırılmaz.
       WsClient.instance.send({
         'type': 'privateHistory',
         'peer': widget.targetNick,
@@ -5685,6 +5688,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       if (list is List) {
         final historyMessages = <ChatMessage>[];
+        final unreadHistoryMessages = <Map<String, dynamic>>[];
 
         for (final item in list) {
           if (item is Map) {
@@ -5695,6 +5699,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 (map['clientMessageId'] ?? '').toString();
 
             final sender = (map['sender'] ?? map['from'] ?? '').toString();
+
+            if (sender.isNotEmpty &&
+                sender.toLowerCase() != widget.myNick.toLowerCase() &&
+                map['read'] != true) {
+              unreadHistoryMessages.add(map);
+            }
 
             final messageStatus =
                 sender.toLowerCase() == widget.myNick.toLowerCase()
@@ -5722,7 +5732,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             if (message.text.isEmpty) continue;
 
             final exists = _messages.any(
-              (m) => m.id == message.id,
+              (m) =>
+                  m.id == message.id ||
+                  (message.clientMessageId.isNotEmpty &&
+                      m.clientMessageId.isNotEmpty &&
+                      m.clientMessageId == message.clientMessageId),
             );
 
             if (!exists) {
@@ -5735,6 +5749,34 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           setState(() {
             _messages.addAll(historyMessages);
           });
+        }
+
+        // Cache'de zaten bulunan mesajlar da dahil olmak üzere,
+        // server'ın read:false gönderdiği tüm karşı taraf mesajlarını
+        // burada gerçekten okundu olarak işaretle.
+        for (final map in unreadHistoryMessages) {
+          final sender =
+              (map['sender'] ?? map['from'] ?? '').toString();
+
+          final messageId = (map['id'] ?? '').toString();
+          final clientMessageId =
+              (map['clientMessageId'] ?? '').toString();
+
+          if (sender.isEmpty ||
+              (messageId.isEmpty && clientMessageId.isEmpty)) {
+            continue;
+          }
+
+          WsClient.instance.send({
+            'type': 'messageRead',
+            'from': sender,
+            'messageId': messageId,
+            'clientMessageId': clientMessageId,
+          });
+        }
+
+        if (historyMessages.isNotEmpty && mounted) {
+          await _saveHistoryCache();
 
           // Geçmiş mesajları animasyonla tek tek akıtma.
           // Liste doğrudan son mesaja konumlanır.
@@ -5768,6 +5810,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }
           }
         });
+
+        await _saveHistoryCache();
       }
 
       return;
@@ -5799,6 +5843,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           }
         }
       });
+
+      await _saveHistoryCache();
 
       return;
     }
@@ -5836,6 +5882,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           }
         }
       });
+
+      await _saveHistoryCache();
 
       return;
     }
