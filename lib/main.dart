@@ -5552,15 +5552,106 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   late final StreamSubscription<Map<String, dynamic>> _subscription;
 
+  String get _historyCacheKey {
+    final me = widget.myNick.trim().toLowerCase();
+    final peer = widget.targetNick.trim().toLowerCase();
+    return 'zerolog.private_history.$me.$peer';
+  }
+
+  Map<String, dynamic> _messageToJson(ChatMessage message) {
+    return {
+      'id': message.id,
+      'sender': message.sender,
+      'text': message.text,
+      'clientMessageId': message.clientMessageId,
+      'status': message.status,
+    };
+  }
+
+  ChatMessage? _messageFromJson(dynamic value) {
+    if (value is! Map) return null;
+
+    final map = Map<String, dynamic>.from(value);
+    final id = (map['id'] ?? '').toString();
+    final text = (map['text'] ?? '').toString();
+
+    if (id.isEmpty || text.isEmpty) return null;
+
+    return ChatMessage(
+      id: id,
+      sender: (map['sender'] ?? '').toString(),
+      text: text,
+      clientMessageId: (map['clientMessageId'] ?? '').toString(),
+      status: (map['status'] ?? 'stored').toString(),
+    );
+  }
+
+  Future<void> _saveHistoryCache() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(
+      _historyCacheKey,
+      jsonEncode(_messages.map(_messageToJson).toList()),
+    );
+  }
+
+  Future<bool> _loadHistoryCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_historyCacheKey);
+
+    if (raw == null || raw.isEmpty) return false;
+
+    try {
+      final decoded = jsonDecode(raw);
+
+      if (decoded is! List) return false;
+
+      final cached = <ChatMessage>[];
+
+      for (final item in decoded) {
+        final message = _messageFromJson(item);
+
+        if (message == null) continue;
+        if (cached.any((m) => m.id == message.id)) continue;
+
+        cached.add(message);
+      }
+
+      if (cached.isEmpty || !mounted) return false;
+
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(cached);
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+
+        _scrollController.jumpTo(
+          _scrollController.position.maxScrollExtent,
+        );
+      });
+
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
-    WsClient.instance.send({
-      'type': 'privateHistory',
-      'peer': widget.targetNick,
+    _loadHistoryCache().then((loaded) {
+      if (!mounted || loaded) return;
+
+      WsClient.instance.send({
+        'type': 'privateHistory',
+        'peer': widget.targetNick,
+      });
     });
 
     _applyAutoFocusPreference();
@@ -5887,6 +5978,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     setState(() {
       _messages.add(message);
     });
+
+    unawaited(_saveHistoryCache());
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
