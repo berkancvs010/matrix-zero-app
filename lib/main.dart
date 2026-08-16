@@ -2907,9 +2907,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if (_handledCallIds.contains(callId)) return;
+    // Pending çağrı ile WebSocket/FCM aynı anda gelirse tek CallScreen aç.
+    if (!_handledCallIds.add(callId)) {
+      return;
+    }
 
-    _handledCallIds.add(callId);
+    if (!mounted) return;
 
     Navigator.of(context).push(
       MaterialPageRoute(
