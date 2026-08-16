@@ -89,8 +89,8 @@ class ZeroLogPushService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String callChannelId = 'zerolog_calls_v5';
-  static const String messageChannelId = 'zerolog_messages_v4';
+  static const String callChannelId = 'zerolog_calls_v6';
+  static const String messageChannelId = 'zerolog_messages_v5';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
   static const String pendingCallKey = 'zerolog.pending_call';

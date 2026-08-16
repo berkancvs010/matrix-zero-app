@@ -21,8 +21,8 @@ import com.google.firebase.messaging.RemoteMessage
 class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CALL_CHANNEL_ID = "zerolog_calls_v5"
-        private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v4"
+        private const val CALL_CHANNEL_ID = "zerolog_calls_v6"
+        private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v5"
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
 
