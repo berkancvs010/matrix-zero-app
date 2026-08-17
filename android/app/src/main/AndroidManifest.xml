@@ -50,6 +50,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <activity
+            android:name=".IncomingCallActivity"
+            android:exported="false"
+            android:theme="@style/IncomingCallTheme"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
         <service
             android:name=".ZeroLogFirebaseMessagingService"
             android:exported="false">

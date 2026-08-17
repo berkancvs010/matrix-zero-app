@@ -103,7 +103,16 @@ class ZeroLogPushService {
   static String? _currentToken;
   static bool _notificationsInitialized = false;
 
+  static Future<void> Function(Map<String, dynamic>)?
+      _incomingCallHandler;
+
   static String? get currentToken => _currentToken;
+
+  static void setIncomingCallHandler(
+    Future<void> Function(Map<String, dynamic>)? handler,
+  ) {
+    _incomingCallHandler = handler;
+  }
 
   static Future<void> storeNotificationPayload(String payload) async {
     if (payload.trim().isEmpty) return;
@@ -285,6 +294,50 @@ class ZeroLogPushService {
 
   static Future<void> initialize() async {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    // Android full-screen incoming-call Activity -> Flutter bridge.
+    // Cold start durumunda event pending-call olarak saklanır;
+    // MainScreen hazır olduğunda mevcut pending-call akışı bunu tüketir.
+    _systemChannel.setMethodCallHandler((call) async {
+      if (call.method != 'incomingCallIntent') {
+        return null;
+      }
+
+      try {
+        final arguments = call.arguments;
+
+        if (arguments is Map) {
+          final normalized = _normalizeCallData(
+            Map<String, dynamic>.from(arguments),
+          );
+
+          final from = normalized['from'].toString();
+          final to = normalized['to'].toString();
+          final callId = normalized['callId'].toString();
+
+          if (from.isNotEmpty && to.isNotEmpty && callId.isNotEmpty) {
+            await storeNotificationPayload(jsonEncode(normalized));
+
+            final handler = _incomingCallHandler;
+
+            if (handler != null) {
+              await handler(normalized);
+            }
+
+            debugPrint(
+              '[FCM][native-intent] incoming call forwarded '
+              'to Flutter callId=$callId',
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint(
+          '[FCM][native-intent] incoming call callback failed: $e',
+        );
+      }
+
+      return null;
+    });
 
     // Android native runtime permissions:
     // notification + microphone.
@@ -2847,6 +2900,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ..addAll(WsClient.instance.knownUsers);
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
+
+    ZeroLogPushService.setIncomingCallHandler(
+      (data) => _openIncomingCallFromNative(data),
+    );
     WsClient.instance.requestPrivacySettings();
     WsClient.instance.requestNotificationSettings();
 
@@ -3176,10 +3233,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _openPendingIncomingCall() async {
-    final data = await ZeroLogPushService.takePendingCall();
+  Future<void> _openIncomingCallFromNative(
+    Map<String, dynamic> data,
+  ) async {
+    if (!mounted) return;
 
-    if (!mounted || data == null) return;
+    await _openIncomingCallData(data);
+  }
+
+  Future<void> _openIncomingCallData(
+    Map<String, dynamic> data,
+  ) async {
+    if (!mounted) return;
 
     final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
     final to = (data['to'] ?? data['callee'] ?? '').toString().trim();
@@ -3192,7 +3257,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
-    // Pending çağrı ile WebSocket/FCM aynı anda gelirse tek CallScreen aç.
+    // WebSocket, FCM pending veya native full-screen intent
+    // aynı çağrıyı farklı kanallardan bildirirse tek CallScreen aç.
     if (!_handledCallIds.add(callId)) {
       return;
     }
@@ -3209,6 +3275,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  Future<void> _openPendingIncomingCall() async {
+    final data = await ZeroLogPushService.takePendingCall();
+
+    if (!mounted || data == null) return;
+
+    await _openIncomingCallData(data);
   }
 
   Future<void> _deleteAccount({required bool allData}) async {

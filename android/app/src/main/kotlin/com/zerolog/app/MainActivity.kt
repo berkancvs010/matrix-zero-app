@@ -365,20 +365,51 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
 
-        if (
+        val isIncomingCall =
             intent.action == "zerolog.incoming_call" ||
-            intent.getBooleanExtra("zerolog_call", false)
-        ) {
+                intent.getBooleanExtra("zerolog_call", false)
+
+        if (isIncomingCall) {
             applyIncomingCallLockScreen()
         }
 
         persistIncomingCallIntent(intent)
         persistMessageIntent(intent)
 
-        if (
-            intent.action != "zerolog.incoming_call" &&
-            !intent.getBooleanExtra("zerolog_call", false)
-        ) {
+        if (isIncomingCall) {
+            val from = intent.getStringExtra("from")?.trim().orEmpty()
+            val to = intent.getStringExtra("to")?.trim().orEmpty()
+            val callId = intent.getStringExtra("callId")?.trim().orEmpty()
+
+            if (from.isNotEmpty() && to.isNotEmpty() && callId.isNotEmpty()) {
+                try {
+                    flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                        MethodChannel(messenger, channelName).invokeMethod(
+                            "incomingCallIntent",
+                            mapOf(
+                                "type" to "callInvite",
+                                "from" to from,
+                                "to" to to,
+                                "callId" to callId,
+                            ),
+                        )
+                    }
+
+                    android.util.Log.d(
+                        "ZeroLogCall",
+                        "Incoming call forwarded to Flutter: callId=$callId"
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e(
+                        "ZeroLogCall",
+                        "Failed to forward incoming call to Flutter",
+                        e
+                    )
+                }
+            }
+        }
+
+        if (!isIncomingCall) {
             clearCallLockScreen()
         }
     }

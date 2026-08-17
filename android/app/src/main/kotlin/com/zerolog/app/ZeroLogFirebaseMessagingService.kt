@@ -352,7 +352,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
         // Full-screen intent doğrudan gerçek çağrı ekranı olan
         // MainActivity'yi açar. Araya ikinci bir Activity koymuyoruz.
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = Intent(this, IncomingCallActivity::class.java).apply {
             action = "zerolog.incoming_call"
             flags =
                 Intent.FLAG_ACTIVITY_NEW_TASK or
