@@ -44,14 +44,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Java 17
-        run: |
-          JAVA_BIN="$(readlink -f "$(command -v java)")"
-          JAVA_HOME="$(dirname "$(dirname "$JAVA_BIN")")"
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
-          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
-          java -version
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
