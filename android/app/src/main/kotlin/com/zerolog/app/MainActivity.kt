@@ -9,6 +9,7 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -26,6 +27,40 @@ class MainActivity : FlutterActivity() {
         io.flutter.plugin.common.MethodChannel.Result? = null
     private var startupPermissionResult:
         io.flutter.plugin.common.MethodChannel.Result? = null
+
+    private fun requestFullScreenIntentPermission(
+        result: io.flutter.plugin.common.MethodChannel.Result
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            result.success(true)
+            return
+        }
+
+        try {
+            val notificationManager =
+                getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+
+            if (notificationManager.canUseFullScreenIntent()) {
+                result.success(true)
+                return
+            }
+
+            val intent = Intent(
+                Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                Uri.parse("package:$packageName")
+            )
+
+            startActivity(intent)
+            result.success(false)
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to open full-screen intent permission settings",
+                e
+            )
+            result.success(false)
+        }
+    }
 
     private fun requestStartupPermissions(
         result: io.flutter.plugin.common.MethodChannel.Result
@@ -420,6 +455,10 @@ class MainActivity : FlutterActivity() {
 
                 "requestStartupPermissions" -> {
                     requestStartupPermissions(result)
+                }
+
+                "requestFullScreenIntentPermission" -> {
+                    requestFullScreenIntentPermission(result)
                 }
 
                 "requestCallPermissions" -> {
