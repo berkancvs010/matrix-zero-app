@@ -93,7 +93,7 @@ class ZeroLogPushService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String callChannelId = 'zerolog_calls_v7';
+  static const String callChannelId = 'zerolog_calls_v8';
   static const String messageChannelId = 'zerolog_messages_v5';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
@@ -7060,6 +7060,12 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _startOutgoingOffer() async {
     if (_closing) return;
 
+    debugPrint(
+      '[CALL][OFFER] _startOutgoingOffer entered '
+      'from=${widget.myNick} to=${widget.targetNick} '
+      'callId=${widget.callId}',
+    );
+
     try {
       await _createPeerConnection();
 
@@ -7114,6 +7120,12 @@ class _CallScreenState extends State<CallScreen> {
 
     try {
       if (incomingOffer == null || incomingOffer.isEmpty) {
+        debugPrint(
+          '[CALL][ACCEPT] sending callAccept '
+          'from=${widget.myNick} to=${widget.targetNick} '
+          'callId=${widget.callId}',
+        );
+
         WsClient.instance.send({
           'type': 'callAccept',
           'from': widget.myNick,
@@ -7215,6 +7227,12 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     if (type == 'callAccepted') {
+      debugPrint(
+        '[CALL][ACCEPTED] received '
+        'from=$from to=$to callId=$eventCallId '
+        'outgoing=${widget.outgoing}',
+      );
+
       ZeroLogPushService.clearPendingCall();
       ZeroLogPushService.cancelIncomingCallNotification();
       ZeroLogPushService.clearCallLockScreen();
@@ -7224,7 +7242,12 @@ class _CallScreenState extends State<CallScreen> {
 
         await ZeroLogPushService.stopOutgoingCallTone();
 
-        _startOutgoingOffer();
+        debugPrint(
+          '[CALL][ACCEPTED] starting outgoing offer '
+          'callId=${widget.callId}',
+        );
+
+        await _startOutgoingOffer();
       }
     } else if (type == 'callRejected') {
       ZeroLogPushService.clearPendingCall();

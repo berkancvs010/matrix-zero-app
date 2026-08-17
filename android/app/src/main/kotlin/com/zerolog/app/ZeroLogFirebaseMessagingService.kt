@@ -22,7 +22,7 @@ import com.google.firebase.messaging.RemoteMessage
 class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CALL_CHANNEL_ID = "zerolog_calls_v7"
+        private const val CALL_CHANNEL_ID = "zerolog_calls_v8"
         private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v5"
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
@@ -350,12 +350,14 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             )
             .apply()
 
-        val intent = Intent(this, IncomingCallActivity::class.java).apply {
+        // Full-screen intent doğrudan gerçek çağrı ekranı olan
+        // MainActivity'yi açar. Araya ikinci bir Activity koymuyoruz.
+        val intent = Intent(this, MainActivity::class.java).apply {
             action = "zerolog.incoming_call"
             flags =
                 Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
 
             putExtra("zerolog_call", true)
             putExtra("from", caller)

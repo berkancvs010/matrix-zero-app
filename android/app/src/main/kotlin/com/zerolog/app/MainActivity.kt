@@ -525,7 +525,15 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         stopOutgoingCallTone()
-        clearCallLockScreen()
+
+        val incomingCallActive =
+            intent?.action == "zerolog.incoming_call" ||
+                intent?.getBooleanExtra("zerolog_call", false) == true
+
+        if (!incomingCallActive) {
+            clearCallLockScreen()
+        }
+
         super.onDestroy()
     }
 
