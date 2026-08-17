@@ -48,9 +48,14 @@ class MainActivity : FlutterActivity() {
             val intent = Intent(
                 Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
                 Uri.parse("package:$packageName")
-            )
+            ).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
 
             startActivity(intent)
+
+            // Android 14+ requires the user to explicitly allow
+            // USE_FULL_SCREEN_INTENT for call notifications.
             result.success(false)
         } catch (e: Exception) {
             android.util.Log.e(

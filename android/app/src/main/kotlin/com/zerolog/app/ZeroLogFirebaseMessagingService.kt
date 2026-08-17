@@ -3,6 +3,7 @@ package com.zerolog.app
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -296,13 +297,31 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             putExtra("callId", callId)
         }
 
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            CALL_NOTIFICATION_ID,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or
-                PendingIntent.FLAG_IMMUTABLE
-        )
+        val pendingIntent = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        ) {
+            val activityOptions = ActivityOptions.makeBasic().apply {
+                pendingIntentCreatorBackgroundActivityStartMode =
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            }
+
+            PendingIntent.getActivity(
+                this,
+                CALL_NOTIFICATION_ID,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE,
+                activityOptions.toBundle()
+            )
+        } else {
+            PendingIntent.getActivity(
+                this,
+                CALL_NOTIFICATION_ID,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE
+            )
+        }
 
         val builder = NotificationCompat.Builder(
             this,
