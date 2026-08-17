@@ -725,13 +725,15 @@ const Map<ZeroLogTheme, ZeroLogThemeData> zeroLogThemes = {
   ),
   ZeroLogTheme.mivi: ZeroLogThemeData(
     name: 'Mivi',
-    background: Color(0xFF140507),
-    surface: Color(0xFF2A0B0E),
-    primary: Color(0xFF4D8DFF),
-    secondary: Color(0xFFFF3B30),
-    text: Color(0xFF72A7FF),
-    bubbleMine: Color(0xFF4A1217),
-    bubbleOther: Color(0xFF2B0C10),
+    // Mivi: Türk bayrağından ilham alan beyaz/kırmızı
+    // zemin ve güçlü lacivert tipografi.
+    background: Color(0xFFFFF8F8),
+    surface: Color(0xFFFFFFFF),
+    primary: Color(0xFFD90429),
+    secondary: Color(0xFF174A7E),
+    text: Color(0xFF12365A),
+    bubbleMine: Color(0xFFFFE8EC),
+    bubbleOther: Color(0xFFF2F6FA),
   ),
 };
 
@@ -766,6 +768,122 @@ class ThemeController extends ChangeNotifier {
 
   ZeroLogThemeData get data => zeroLogThemes[current]!;
 }
+
+// ============================================================
+// MIVI DESIGN SYSTEM
+// ============================================================
+
+class MiviThemeFrame extends StatelessWidget {
+  final Widget child;
+
+  const MiviThemeFrame({
+    super.key,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isMivi = ThemeController.instance.current == ZeroLogTheme.mivi;
+
+    if (!isMivi) {
+      return child;
+    }
+
+    return Column(
+      children: [
+        const MiviFlagBar(),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+class MiviFlagBar extends StatelessWidget {
+  const MiviFlagBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 30,
+      width: double.infinity,
+      child: CustomPaint(
+        painter: _MiviFlagPainter(),
+      ),
+    );
+  }
+}
+
+class _MiviFlagPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final red = Paint()
+      ..color = const Color(0xFFD90429)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawRect(
+      Offset.zero & size,
+      red,
+    );
+
+    final center = Offset(
+      size.width * 0.50,
+      size.height * 0.50,
+    );
+
+    final radius = size.height * 0.34;
+
+    final white = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
+    // Crescent.
+    canvas.drawCircle(center, radius, white);
+
+    final cutout = Paint()
+      ..color = const Color(0xFFD90429)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawCircle(
+      Offset(
+        center.dx + radius * 0.38,
+        center.dy - radius * 0.04,
+      ),
+      radius * 0.82,
+      cutout,
+    );
+
+    // Minimal five-point star.
+    final starCenter = Offset(
+      center.dx + radius * 1.55,
+      center.dy,
+    );
+
+    final path = Path();
+
+    for (int i = 0; i < 10; i++) {
+      final angle = -math.pi / 2 + (math.pi * i / 5);
+      final r = i.isEven ? radius * 0.43 : radius * 0.18;
+
+      final point = Offset(
+        starCenter.dx + math.cos(angle) * r,
+        starCenter.dy + math.sin(angle) * r,
+      );
+
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+
+    path.close();
+    canvas.drawPath(path, white);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 
 // ============================================================
 // APP
@@ -848,13 +966,159 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
         appBarTheme: AppBarTheme(
           backgroundColor: t.surface,
           foregroundColor: t.text,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: false,
+          titleTextStyle: TextStyle(
+            color: t.text,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.2,
+          ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: t.surface,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 15,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(17),
+            borderSide: BorderSide(
+              color: t.text.withValues(alpha: 0.07),
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(17),
+            borderSide: BorderSide(
+              color: t.text.withValues(alpha: 0.07),
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(17),
+            borderSide: BorderSide(
+              color: t.primary,
+              width: 1.5,
+            ),
+          ),
+          labelStyle: TextStyle(color: t.text.withValues(alpha: 0.55)),
+          hintStyle: TextStyle(color: t.text.withValues(alpha: 0.35)),
+        ),
+        cardTheme: CardThemeData(
+          color: t.surface,
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: t.surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(26),
+          ),
+          titleTextStyle: TextStyle(
+            color: t.text,
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        bottomSheetTheme: BottomSheetThemeData(
+          backgroundColor: t.surface,
+          surfaceTintColor: Colors.transparent,
+          showDragHandle: true,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(28),
+            ),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: t.primary,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(52),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(17),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: t.secondary,
+            minimumSize: const Size.fromHeight(50),
+            side: BorderSide(
+              color: t.secondary.withValues(alpha: 0.35),
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(17),
+            ),
+          ),
+        ),
+        chipTheme: ChipThemeData(
+          backgroundColor: t.surface,
+          selectedColor: t.primary.withValues(alpha: 0.12),
+          labelStyle: TextStyle(
+            color: t.text,
+            fontWeight: FontWeight.w700,
+          ),
+          side: BorderSide(
+            color: t.text.withValues(alpha: 0.07),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        dividerTheme: DividerThemeData(
+          color: t.text.withValues(alpha: 0.07),
+          thickness: 1,
+          space: 1,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: t.surface,
+          surfaceTintColor: Colors.transparent,
+          indicatorColor: t.primary.withValues(alpha: 0.12),
+          labelTextStyle: WidgetStatePropertyAll(
+            TextStyle(
+              color: t.text,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: t.primary,
+          foregroundColor: Colors.white,
+          elevation: 3,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+        snackBarTheme: SnackBarThemeData(
+          backgroundColor: t.secondary,
+          contentTextStyle: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
         ),
         useMaterial3: true,
       ),
+      builder: (context, child) {
+        return MiviThemeFrame(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const WelcomeScreen(),
     );
   }
@@ -4148,6 +4412,71 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ],
         ),
 
+        if (ThemeController.instance.current == ZeroLogTheme.mivi) ...[
+          const SizedBox(height: 2),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
+            margin: const EdgeInsets.only(bottom: 4),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFFFFF0F2),
+                  Color(0xFFFFFFFF),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: Color(0xFFD90429),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD90429),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: const Icon(
+                    Icons.flag_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Mivi',
+                        style: TextStyle(
+                          color: Color(0xFF12365A),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Kırmızı, beyaz ve lacivert ile yeniden tasarlandı.',
+                        style: TextStyle(
+                          color: theme.text.withValues(alpha: 0.58),
+                          fontSize: 11.5,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
         sectionTitle('Görünüm'),
 
         tile(
@@ -4182,14 +4511,35 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 4,
                           ),
-                          leading: Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: zeroLogThemes[value]!.primary,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
+                          leading: value == ZeroLogTheme.mivi
+                              ? Container(
+                                  width: 48,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(9),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.08,
+                                        ),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: CustomPaint(
+                                    painter: _MiviFlagPainter(),
+                                  ),
+                                )
+                              : Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: zeroLogThemes[value]!.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
                           title: Text(
                             zeroLogThemes[value]!.name,
                             style: TextStyle(
