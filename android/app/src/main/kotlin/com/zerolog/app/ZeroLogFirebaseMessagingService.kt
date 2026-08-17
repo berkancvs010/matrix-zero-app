@@ -219,7 +219,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         val callChannel = NotificationChannel(
             CALL_CHANNEL_ID,
             "Gelen çağrılar",
-            NotificationManager.IMPORTANCE_HIGH
+            NotificationManager.IMPORTANCE_MAX
         ).apply {
             description = "ZeroLog sesli arama bildirimleri"
             setSound(null, null)
