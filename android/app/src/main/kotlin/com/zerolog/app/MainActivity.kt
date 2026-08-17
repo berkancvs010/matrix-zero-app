@@ -352,6 +352,13 @@ class MainActivity : FlutterActivity() {
 
         persistIncomingCallIntent(intent)
         persistMessageIntent(intent)
+
+        if (
+            intent?.action != "zerolog.incoming_call" &&
+            intent?.getBooleanExtra("zerolog_call", false) != true
+        ) {
+            clearCallLockScreen()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -367,6 +374,13 @@ class MainActivity : FlutterActivity() {
 
         persistIncomingCallIntent(intent)
         persistMessageIntent(intent)
+
+        if (
+            intent.action != "zerolog.incoming_call" &&
+            !intent.getBooleanExtra("zerolog_call", false)
+        ) {
+            clearCallLockScreen()
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

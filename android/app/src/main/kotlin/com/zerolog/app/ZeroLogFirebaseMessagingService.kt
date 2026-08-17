@@ -27,6 +27,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
         private const val CALL_STATUS_NOTIFICATION_ID = 9003
+        private const val ACTIVE_CALL_ID_KEY = "flutter.zerolog.active_call_id"
 
         private var incomingCallPlayer: MediaPlayer? = null
         private var incomingCallVibrator: Vibrator? = null
@@ -67,6 +68,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 )
                     .edit()
                     .remove("flutter.zerolog.pending_call")
+                    .remove(ACTIVE_CALL_ID_KEY)
                     .apply()
             } catch (_: Exception) {}
         }
@@ -264,6 +266,32 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
         if (caller.isEmpty() || callId.isEmpty()) return
 
+        val callPrefs = getSharedPreferences(
+            "FlutterSharedPreferences",
+            MODE_PRIVATE
+        )
+
+        val activeCallId = callPrefs
+            .getString(ACTIVE_CALL_ID_KEY, "")
+            ?.trim()
+            .orEmpty()
+
+        if (activeCallId == callId) {
+            return
+        }
+
+        if (activeCallId.isNotEmpty()) {
+            stopIncomingCallTone()
+            NotificationManagerCompat.from(this).cancel(
+                CALL_NOTIFICATION_ID
+            )
+        }
+
+        callPrefs
+            .edit()
+            .putString(ACTIVE_CALL_ID_KEY, callId)
+            .apply()
+
         startIncomingCallTone()
 
         val pendingCall = JSONObject()
@@ -284,7 +312,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             )
             .apply()
 
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = Intent(this, IncomingCallActivity::class.java).apply {
             action = "zerolog.incoming_call"
             flags =
                 Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -350,6 +378,16 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 "Call notification permission denied",
                 e
             )
+
+            stopIncomingCallToneAndNotification(this)
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFCM",
+                "Call notification failed",
+                e
+            )
+
+            stopIncomingCallToneAndNotification(this)
         }
     }
 
