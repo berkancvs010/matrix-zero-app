@@ -93,7 +93,7 @@ class ZeroLogPushService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String callChannelId = 'zerolog_calls_v8';
+  static const String callChannelId = 'zerolog_calls_v9';
   static const String messageChannelId = 'zerolog_messages_v5';
   static const int callNotificationId = 9001;
   static const int messageNotificationId = 9002;
@@ -148,6 +148,22 @@ class ZeroLogPushService {
       debugPrint('[PERMISSIONS] startup permission flow completed');
     } catch (e) {
       debugPrint('[PERMISSIONS] startup permission flow failed: $e');
+    }
+  }
+
+  static Future<void> requestFullScreenIntentPermission() async {
+    try {
+      final granted = await _systemChannel.invokeMethod<bool>(
+        'requestFullScreenIntentPermission',
+      );
+
+      debugPrint(
+        '[PERMISSIONS] full-screen intent granted=$granted',
+      );
+    } catch (e) {
+      debugPrint(
+        '[PERMISSIONS] full-screen intent permission failed: $e',
+      );
     }
   }
 
@@ -345,6 +361,11 @@ class ZeroLogPushService {
     await requestStartupPermissions();
 
     await _initializeNotifications(requestPermissions: true);
+
+    // Android 14+ çağrı bildiriminin gerçek tam ekran olarak
+    // açılabilmesi için USE_FULL_SCREEN_INTENT iznini kontrol et.
+    // İzin zaten varsa hiçbir ayar ekranı açılmaz.
+    await requestFullScreenIntentPermission();
 
     // Android MainActivity üzerinden gelen full-screen çağrı intent'ini
     // Flutter pending-call akışına aktar.

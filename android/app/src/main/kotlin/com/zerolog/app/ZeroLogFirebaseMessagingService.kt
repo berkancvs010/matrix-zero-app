@@ -22,7 +22,7 @@ import com.google.firebase.messaging.RemoteMessage
 class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CALL_CHANNEL_ID = "zerolog_calls_v8"
+        private const val CALL_CHANNEL_ID = "zerolog_calls_v9"
         private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v5"
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
@@ -405,7 +405,6 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             .setAutoCancel(false)
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true)
-            .setSilent(true)
 
         try {
             NotificationManagerCompat.from(this).notify(
@@ -447,8 +446,20 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             )
                 .edit()
                 .remove("flutter.zerolog.pending_call")
+                .remove(ACTIVE_CALL_ID_KEY)
                 .apply()
-        } catch (_: Exception) {}
+
+            android.util.Log.d(
+                "ZeroLogCall",
+                "Incoming call state cleared after callStatus"
+            )
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to clear incoming call state",
+                e
+            )
+        }
     }
 
     private fun messageNotificationId(message: RemoteMessage): Int {
