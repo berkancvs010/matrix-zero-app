@@ -68,7 +68,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     // Native FirebaseMessagingService çağrı bildirimi,
     // looping zil sesi, titreşim ve full-screen intent'i yönetiyor.
   } else if (type == 'callStatus') {
-    await ZeroLogPushService.showCallStatusNotification(message);
+    // callStatus is a lifecycle/control event.
+    // Native Android FCM service owns the background call cleanup.
+    // Do not create a second notification from the Flutter background isolate.
+    await ZeroLogPushService.cancelIncomingCallNotification();
+    await ZeroLogPushService.clearPendingCall();
   } else if (type == 'privateMessage') {
     // Data-only mesaj bildirimi native FCM service tarafından
     // oluşturuluyor. Burada tekrar bildirim üretme.
@@ -381,7 +385,10 @@ class ZeroLogPushService {
 
         WsClient.instance.emitExternalEvent(callData);
       } else if (type == 'callStatus') {
-        await showCallStatusNotification(message);
+        // Lifecycle/control event only. Stop any local incoming-call state;
+        // never create a status notification for call termination.
+        await cancelIncomingCallNotification();
+        await clearPendingCall();
       } else if (type == 'privateMessage') {
         await showPrivateMessageNotification(message);
       }
@@ -470,37 +477,12 @@ class ZeroLogPushService {
   }
 
   static Future<void> showCallStatusNotification(RemoteMessage message) async {
-    try {
-      await _initializeNotifications(requestPermissions: false);
-      await cancelIncomingCallNotification();
-
-      final title = (message.data['title'] ?? 'ZeroLog çağrı')
-          .toString()
-          .trim();
-
-      final body = (message.data['body'] ?? '').toString().trim();
-
-      if (body.isEmpty) return;
-
-      const details = AndroidNotificationDetails(
-        messageChannelId,
-        'Mesajlar',
-        channelDescription: 'ZeroLog çağrı durum bildirimleri',
-        importance: Importance.high,
-        priority: Priority.high,
-        visibility: NotificationVisibility.public,
-        playSound: true,
-        enableVibration: true,
-      );
-
-      await _notifications.show(
-        id: 9003,
-        title: title,
-        body: body,
-        notificationDetails: const NotificationDetails(android: details),
-      );
-    } catch (_) {}
+    // Kept as a compatibility wrapper for existing callers.
+    // callStatus is a lifecycle/control event, not a user notification.
+    await cancelIncomingCallNotification();
+    await clearPendingCall();
   }
+
 
   static Future<void> showPrivateMessageNotification(
     RemoteMessage message,

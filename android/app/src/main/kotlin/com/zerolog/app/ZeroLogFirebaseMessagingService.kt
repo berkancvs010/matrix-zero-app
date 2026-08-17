@@ -25,6 +25,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         private const val MESSAGE_CHANNEL_ID = "zerolog_messages_v5"
         private const val CALL_NOTIFICATION_ID = 9001
         private const val MESSAGE_NOTIFICATION_ID = 9002
+        private const val CALL_STATUS_NOTIFICATION_ID = 9003
 
         private var incomingCallPlayer: MediaPlayer? = null
         private var incomingCallVibrator: Vibrator? = null
@@ -51,9 +52,21 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             stopIncomingCallTone()
 
             try {
-                NotificationManagerCompat
-                    .from(context)
-                    .cancel(CALL_NOTIFICATION_ID)
+                val notifications = NotificationManagerCompat.from(context)
+                notifications.cancel(CALL_NOTIFICATION_ID)
+                notifications.cancel(CALL_STATUS_NOTIFICATION_ID)
+            } catch (_: Exception) {}
+
+            // Remote call termination can arrive while the app is
+            // backgrounded/locked. Do not leave a stale pending call.
+            try {
+                context.getSharedPreferences(
+                    "FlutterSharedPreferences",
+                    Context.MODE_PRIVATE
+                )
+                    .edit()
+                    .remove("flutter.zerolog.pending_call")
+                    .apply()
             } catch (_: Exception) {}
         }
     }
@@ -323,50 +336,16 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     private fun showCallStatusNotification(message: RemoteMessage) {
         stopIncomingCallToneAndNotification(this)
-        val title = message.data["title"]
-            ?.trim()
-            .orEmpty()
-            .ifEmpty { "ZeroLog çağrı" }
-
-        val body = message.data["body"]
-            ?.trim()
-            .orEmpty()
-
-        if (body.isEmpty()) return
 
         try {
-            NotificationManagerCompat
-                .from(this)
-                .cancel(CALL_NOTIFICATION_ID)
-
-            val builder = NotificationCompat.Builder(
-                this,
-                CALL_CHANNEL_ID
+            getSharedPreferences(
+                "FlutterSharedPreferences",
+                MODE_PRIVATE
             )
-                .setSmallIcon(applicationInfo.icon)
-                .setContentTitle(title)
-                .setContentText(body)
-                .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setAutoCancel(true)
-                .setVibrate(longArrayOf(0, 500, 300, 500))
-                .setSound(
-                    Uri.parse(
-                        "android.resource://${packageName}/${R.raw.zerolog_call}"
-                    )
-                )
-
-            NotificationManagerCompat
-                .from(this)
-                .notify(9003, builder.build())
-        } catch (e: SecurityException) {
-            android.util.Log.e(
-                "ZeroLogFCM",
-                "Call status notification denied",
-                e
-            )
-        }
+                .edit()
+                .remove("flutter.zerolog.pending_call")
+                .apply()
+        } catch (_: Exception) {}
     }
 
     private fun messageNotificationId(message: RemoteMessage): Int {
