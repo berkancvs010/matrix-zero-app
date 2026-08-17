@@ -247,6 +247,44 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun showCallNotification(message: RemoteMessage) {
+
+        android.util.Log.d(
+            "ZeroLogCall",
+            "CALL INVITE received by native FCM: " +
+                message.data.toString()
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val notificationGranted =
+                checkSelfPermission(
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            android.util.Log.d(
+                "ZeroLogCall",
+                "POST_NOTIFICATIONS granted=$notificationGranted"
+            )
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                val notificationManager =
+                    getSystemService(NotificationManager::class.java)
+
+                android.util.Log.d(
+                    "ZeroLogCall",
+                    "FULL_SCREEN_INTENT allowed=" +
+                        notificationManager.canUseFullScreenIntent()
+                )
+            } catch (e: Exception) {
+                android.util.Log.e(
+                    "ZeroLogCall",
+                    "Unable to check FULL_SCREEN_INTENT",
+                    e
+                )
+            }
+        }
+
         val caller = (
             message.data["caller"]
                 ?: message.data["from"]
@@ -371,6 +409,12 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             NotificationManagerCompat.from(this).notify(
                 CALL_NOTIFICATION_ID,
                 builder.build()
+            )
+
+            android.util.Log.d(
+                "ZeroLogCall",
+                "CALL notification posted successfully. " +
+                    "id=$CALL_NOTIFICATION_ID"
             )
         } catch (e: SecurityException) {
             android.util.Log.e(
