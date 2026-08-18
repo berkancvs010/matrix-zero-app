@@ -151,6 +151,22 @@ class ZeroLogPushService {
     }
   }
 
+  static Future<void> requestMiuiCallPermissionSetup() async {
+    try {
+      final result = await _systemChannel.invokeMethod<bool>(
+        'requestMiuiCallPermissionSetup',
+      );
+
+      debugPrint(
+        '[PERMISSIONS] MIUI call permission setup result=$result',
+      );
+    } catch (e) {
+      debugPrint(
+        '[PERMISSIONS] MIUI call permission setup failed: $e',
+      );
+    }
+  }
+
   static Future<void> requestFullScreenIntentPermission() async {
     try {
       final granted = await _systemChannel.invokeMethod<bool>(
@@ -359,6 +375,9 @@ class ZeroLogPushService {
     // notification + microphone.
     // This runs immediately when the application starts.
     await requestStartupPermissions();
+
+    // Xiaomi / Android 11 (MIUI) çağrı izin kurulumunu başlangıçta kontrol et.
+    await requestMiuiCallPermissionSetup();
 
     await _initializeNotifications(requestPermissions: true);
 

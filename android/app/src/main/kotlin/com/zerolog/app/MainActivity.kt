@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import java.util.Locale
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -65,6 +66,108 @@ class MainActivity : FlutterActivity() {
             )
             result.success(false)
         }
+    }
+
+    private fun requestMiuiCallPermissionSetup(
+        result: io.flutter.plugin.common.MethodChannel.Result
+    ) {
+        // Bu akış yalnızca Xiaomi + Android 11 ve altı için çalışır.
+        // Android 12+ cihazlarda hiçbir davranış değişmez.
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.R) {
+            result.success(true)
+            return
+        }
+
+        val manufacturer = Build.MANUFACTURER
+            .lowercase(Locale.ROOT)
+
+        if (!manufacturer.contains("xiaomi")) {
+            result.success(true)
+            return
+        }
+
+        val setupPrefs = getSharedPreferences(
+            "zerolog_miui_setup",
+            MODE_PRIVATE
+        )
+
+        if (setupPrefs.getBoolean("prompted", false)) {
+            result.success(true)
+            return
+        }
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("ZeroLog çağrı izinleri")
+            .setMessage(
+                "Xiaomi cihazlarda gelen çağrıların kilit ekranında " +
+                    "tam ekran gösterilebilmesi için iki ek izin gerekiyor.\n\n" +
+                    "Bir sonraki ekranda ZeroLog için " +
+                    "\"Kilit ekranında görüntüle\" ve " +
+                    "\"Arka planda çalışırken açılır pencereleri görüntüle\" " +
+                    "izinlerini açın."
+            )
+            .setNegativeButton("Şimdi değil") { _, _ ->
+                result.success(false)
+            }
+            .setPositiveButton("İzinleri aç") { _, _ ->
+                setupPrefs
+                    .edit()
+                    .putBoolean("prompted", true)
+                    .apply()
+
+                openMiuiPermissionSettings()
+                result.success(true)
+            }
+            .setOnCancelListener {
+                result.success(false)
+            }
+            .show()
+    }
+
+    private fun openMiuiPermissionSettings(): Boolean {
+        val intents = listOf(
+            Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                setClassName(
+                    "com.miui.securitycenter",
+                    "com.miui.permcenter.permissions.PermissionsEditorActivity"
+                )
+                putExtra("extra_pkgname", packageName)
+            },
+            Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                setClassName(
+                    "com.miui.securitycenter",
+                    "com.miui.permcenter.permissions.AppPermissionsEditorActivity"
+                )
+                putExtra("extra_pkgname", packageName)
+            },
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName")
+            )
+        )
+
+        for (intent in intents) {
+            try {
+                startActivity(intent)
+
+                android.util.Log.d(
+                    "ZeroLogCall",
+                    "MIUI permission settings opened"
+                )
+
+                return true
+            } catch (_: Exception) {
+                // MIUI sürümüne göre activity adı değişebilir.
+                // Bir sonraki güvenli fallback denenir.
+            }
+        }
+
+        android.util.Log.e(
+            "ZeroLogCall",
+            "Unable to open MIUI permission settings"
+        )
+
+        return false
     }
 
     private fun requestStartupPermissions(
@@ -505,6 +608,10 @@ class MainActivity : FlutterActivity() {
 
                 "requestStartupPermissions" -> {
                     requestStartupPermissions(result)
+                }
+
+                "requestMiuiCallPermissionSetup" -> {
+                    requestMiuiCallPermissionSetup(result)
                 }
 
                 "requestFullScreenIntentPermission" -> {
