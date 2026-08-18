@@ -106,9 +106,7 @@ class MainActivity : FlutterActivity() {
                     "\"Arka planda çalışırken açılır pencereleri görüntüle\" " +
                     "izinlerini açın."
             )
-            .setNegativeButton("Şimdi değil") { _, _ ->
-                result.success(false)
-            }
+            .setNegativeButton("Şimdi değil", null)
             .setPositiveButton("İzinleri aç") { _, _ ->
                 setupPrefs
                     .edit()
@@ -116,12 +114,14 @@ class MainActivity : FlutterActivity() {
                     .apply()
 
                 openMiuiPermissionSettings()
-                result.success(true)
-            }
-            .setOnCancelListener {
-                result.success(false)
             }
             .show()
+
+        // Bu izin diyaloğu startup akışını BLOKLAMAMALI.
+        // Özellikle MIUI Android 11'de native dialog görünmezse
+        // Flutter'ın beyaz ekranda kalmasını önlemek için sonucu
+        // dialog açıldıktan hemen sonra döndürüyoruz.
+        result.success(true)
     }
 
     private fun openMiuiPermissionSettings(): Boolean {
