@@ -4056,12 +4056,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
                 IconButton(
                   tooltip: 'Ara',
-                  onPressed: online ? () => _call(user) : null,
+                  onPressed: () => _call(user),
                   icon: Icon(
                     Icons.call_rounded,
-                    color: online
-                        ? theme.primary
-                        : theme.text.withValues(alpha: 0.22),
+                    color: theme.primary,
                     size: 20,
                   ),
                 ),
@@ -4322,12 +4320,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                   trailing: IconButton(
                     tooltip: 'Ara',
-                    onPressed: online ? () => _call(user) : null,
+                    onPressed: () => _call(user),
                     icon: Icon(
                       Icons.call_outlined,
-                      color: online
-                          ? theme.primary
-                          : theme.text.withValues(alpha: 0.20),
+                      color: theme.primary,
                     ),
                   ),
                 ),
