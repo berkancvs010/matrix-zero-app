@@ -1475,8 +1475,13 @@ class WsClient {
   final Set<String> _onlineUsers = <String>{};
   final Set<String> _knownUsers = <String>{};
 
+  final Map<String, Map<String, dynamic>> _userProfiles =
+      <String, Map<String, dynamic>>{};
+
   List<String> get onlineUsers => List.unmodifiable(_onlineUsers);
   List<String> get knownUsers => List.unmodifiable(_knownUsers);
+  Map<String, Map<String, dynamic>> get userProfiles =>
+      Map.unmodifiable(_userProfiles);
 
   String? nickname;
   String? username;
@@ -1721,6 +1726,17 @@ class WsClient {
                           ),
                     );
                 }
+
+                final profiles = data['profiles'];
+
+                if (profiles is Map) {
+                  for (final entry in profiles.entries) {
+                    if (entry.value is Map) {
+                      _userProfiles[entry.key.toString()] =
+                          Map<String, dynamic>.from(entry.value as Map);
+                    }
+                  }
+                }
               }
 
               if (data['type'] == 'userList') {
@@ -1739,6 +1755,32 @@ class WsClient {
                                 (nickname ?? '').toLowerCase(),
                           ),
                     );
+                }
+
+                final profiles = data['profiles'];
+
+                if (profiles is Map) {
+                  _userProfiles.clear();
+
+                  for (final entry in profiles.entries) {
+                    if (entry.value is Map) {
+                      _userProfiles[entry.key.toString()] =
+                          Map<String, dynamic>.from(entry.value as Map);
+                    }
+                  }
+                }
+              }
+
+              if (data['type'] == 'profileUpdated') {
+                final name = (data['username'] ?? '')
+                    .toString()
+                    .trim();
+
+                if (name.isNotEmpty) {
+                  _userProfiles[name] = {
+                    'type': (data['profileType'] ?? 'avatar').toString(),
+                    'avatarId': data['avatarId'],
+                  };
                 }
               }
 
@@ -2669,18 +2711,56 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String? _profilePhotoPath;
+  int? _profileAvatarIndex;
   String _profileAbout = '';
 
   static const String _profilePhotoKey = 'zerolog.profile.photo';
+  static const String _profileAvatarKey = 'zerolog.profile.avatar';
   static const String _profileAboutKey = 'zerolog.profile.about';
+
+  static const List<String> _profileAvatarCategories = [
+    'Portre',
+    'Hayvan',
+    'Teknoloji',
+    'Oyun',
+    'Film & Dizi',
+    'Bilimkurgu',
+    'Sanat',
+  ];
+
+  static const List<int> _profileAvatarCategoryStarts = [
+    1,
+    11,
+    19,
+    27,
+    33,
+    39,
+    47,
+  ];
+
+  static const List<int> _profileAvatarCategoryCounts = [
+    10,
+    8,
+    8,
+    6,
+    6,
+    8,
+    4,
+  ];
 
   Future<void> _loadProfileData() async {
     final prefs = await SharedPreferences.getInstance();
 
     if (!mounted) return;
 
+    final storedAvatar = prefs.getInt(_profileAvatarKey);
+
     setState(() {
       _profilePhotoPath = prefs.getString(_profilePhotoKey);
+      _profileAvatarIndex =
+          storedAvatar != null && storedAvatar >= 1 && storedAvatar <= 50
+              ? storedAvatar
+              : null;
       _profileAbout = prefs.getString(_profileAboutKey) ?? '';
     });
   }
@@ -2700,11 +2780,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
 
     await prefs.setString(_profilePhotoKey, image.path);
+    await prefs.remove(_profileAvatarKey);
 
     if (!mounted) return;
 
     setState(() {
       _profilePhotoPath = image.path;
+      _profileAvatarIndex = null;
+    });
+
+    WsClient.instance.send({
+      'type': 'setProfile',
+      'profileType': 'photo',
+      'avatarId': null,
     });
   }
 
@@ -2723,12 +2811,191 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_profilePhotoKey, image.path);
+    await prefs.remove(_profileAvatarKey);
 
     if (!mounted) return;
 
     setState(() {
       _profilePhotoPath = image.path;
+      _profileAvatarIndex = null;
     });
+
+    WsClient.instance.send({
+      'type': 'setProfile',
+      'profileType': 'photo',
+      'avatarId': null,
+    });
+  }
+
+  Future<void> _openAvatarPicker() async {
+    final theme = ThemeController.instance.data;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final height = MediaQuery.of(sheetContext).size.height * 0.82;
+
+        return SafeArea(
+          child: SizedBox(
+            height: height,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.auto_awesome_rounded,
+                        color: theme.primary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Hareketli avatar seç',
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                  child: Text(
+                    '50 profesyonel animasyonlu avatar arasından seçim yap.',
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.52),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    itemCount: _profileAvatarCategories.length,
+                    itemBuilder: (context, categoryIndex) {
+                      final start = _profileAvatarCategoryStarts[categoryIndex];
+                      final count = _profileAvatarCategoryCounts[categoryIndex];
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 10, 4, 10),
+                            child: Text(
+                              _profileAvatarCategories[categoryIndex],
+                              style: TextStyle(
+                                color: theme.text,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: count,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 4,
+                              crossAxisSpacing: 10,
+                              mainAxisSpacing: 10,
+                              childAspectRatio: 1,
+                            ),
+                            itemBuilder: (context, index) {
+                              final avatarNumber = start + index;
+                              final selected =
+                                  _profileAvatarIndex == avatarNumber;
+
+                              return Material(
+                                color: theme.background.withValues(alpha: 0.45),
+                                borderRadius: BorderRadius.circular(18),
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: () async {
+                                    final prefs =
+                                        await SharedPreferences.getInstance();
+
+                                    await prefs.setInt(
+                                      _profileAvatarKey,
+                                      avatarNumber,
+                                    );
+                                    await prefs.remove(_profilePhotoKey);
+
+                                    if (!mounted) return;
+
+                                    setState(() {
+                                      _profileAvatarIndex = avatarNumber;
+                                      _profilePhotoPath = null;
+                                    });
+
+                                    WsClient.instance.send({
+                                      'type': 'setProfile',
+                                      'profileType': 'avatar',
+                                      'avatarId': avatarNumber,
+                                    });
+
+                                    if (sheetContext.mounted) {
+                                      Navigator.pop(sheetContext);
+                                    }
+                                  },
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.all(4),
+                                        child: Image.asset(
+                                          'assets/avatars/${avatarNumber.toString().padLeft(2, '0')}.gif',
+                                          fit: BoxFit.cover,
+                                          gaplessPlayback: true,
+                                        ),
+                                      ),
+                                      if (selected)
+                                        Positioned(
+                                          right: 6,
+                                          top: 6,
+                                          child: Container(
+                                            width: 25,
+                                            height: 25,
+                                            decoration: BoxDecoration(
+                                              color: theme.primary,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: theme.surface,
+                                                width: 2,
+                                              ),
+                                            ),
+                                            child: const Icon(
+                                              Icons.check_rounded,
+                                              color: Colors.white,
+                                              size: 16,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _editProfileAbout() async {
@@ -2784,6 +3051,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Widget _profileAvatar({double radius = 25}) {
     final theme = ThemeController.instance.data;
+
+    final avatarIndex = _profileAvatarIndex;
+
+    if (avatarIndex != null && avatarIndex >= 1 && avatarIndex <= 50) {
+      return ClipOval(
+        child: SizedBox(
+          width: radius * 2,
+          height: radius * 2,
+          child: Image.asset(
+            'assets/avatars/${avatarIndex.toString().padLeft(2, '0')}.gif',
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          ),
+        ),
+      );
+    }
 
     final path = _profilePhotoPath;
 
@@ -2843,6 +3126,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 18),
                 ListTile(
+                  leading: const Icon(Icons.auto_awesome_rounded),
+                  title: const Text('Hareketli avatar seç'),
+                  subtitle: Text(
+                    _profileAvatarIndex == null
+                        ? '50 profesyonel avatar arasından seçim yap'
+                        : 'Avatar ${_profileAvatarIndex!.toString().padLeft(2, '0')} seçili',
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _openAvatarPicker();
+                  },
+                ),
+                ListTile(
                   leading: const Icon(Icons.camera_alt_outlined),
                   title: const Text('Kamerayla fotoğraf çek'),
                   subtitle: const Text('Yeni profil fotoğrafı oluştur'),
@@ -2860,7 +3156,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     await _pickProfilePhoto();
                   },
                 ),
-                if (_profilePhotoPath != null && _profilePhotoPath!.isNotEmpty)
+                if ((_profilePhotoPath != null &&
+                        _profilePhotoPath!.isNotEmpty) ||
+                    _profileAvatarIndex != null)
                   ListTile(
                     leading: const Icon(Icons.delete_outline_rounded),
                     title: const Text('Profil fotoğrafını kaldır'),
@@ -2869,9 +3167,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       Navigator.pop(sheetContext);
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.remove(_profilePhotoKey);
+                      await prefs.remove(_profileAvatarKey);
                       if (!mounted) return;
                       setState(() {
                         _profilePhotoPath = null;
+                        _profileAvatarIndex = null;
+                      });
+
+                      WsClient.instance.send({
+                        'type': 'setProfile',
+                        'profileType': 'avatar',
+                        'avatarId': null,
                       });
                     },
                   ),
@@ -2906,6 +3212,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   final List<String> _onlineUsers = [];
   final List<String> _knownUsers = [];
+
+  final Map<String, Map<String, dynamic>> _userProfiles =
+      <String, Map<String, dynamic>>{};
 
   bool _connected = false;
   bool _reconnecting = false;
@@ -3037,6 +3346,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (type == 'userDirectory') {
       final raw = data['users'];
+      final profiles = data['profiles'];
+
+      final parsedProfiles = <String, Map<String, dynamic>>{};
+
+      if (profiles is Map) {
+        for (final entry in profiles.entries) {
+          if (entry.value is Map) {
+            parsedProfiles[entry.key.toString()] =
+                Map<String, dynamic>.from(entry.value as Map);
+          }
+        }
+      }
 
       if (raw is List) {
         final users =
@@ -3052,25 +3373,62 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _knownUsers
             ..clear()
             ..addAll(users);
+
+          for (final entry in parsedProfiles.entries) {
+            _userProfiles[entry.key] = entry.value;
+          }
         });
       }
     }
 
     if (type == 'userList') {
       final raw = data['users'];
+      final profiles = data['profiles'];
 
-      if (raw is List) {
-        final users = raw
-            .map((e) => e.toString())
-            .where((e) => e.isNotEmpty)
-            .where((e) => e.toLowerCase() != widget.nickname.toLowerCase())
-            .toSet()
-            .toList();
+      final users = raw is List
+          ? raw
+              .map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .where(
+                (e) => e.toLowerCase() != widget.nickname.toLowerCase(),
+              )
+              .toSet()
+              .toList()
+          : <String>[];
 
+      final parsedProfiles = <String, Map<String, dynamic>>{};
+
+      if (profiles is Map) {
+        for (final entry in profiles.entries) {
+          if (entry.value is Map) {
+            parsedProfiles[entry.key.toString()] =
+                Map<String, dynamic>.from(entry.value as Map);
+          }
+        }
+      }
+
+      setState(() {
+        _onlineUsers
+          ..clear()
+          ..addAll(users);
+
+        _userProfiles
+          ..clear()
+          ..addAll(parsedProfiles);
+      });
+    }
+
+    if (type == 'profileUpdated') {
+      final username = (data['username'] ?? '')
+          .toString()
+          .trim();
+
+      if (username.isNotEmpty && mounted) {
         setState(() {
-          _onlineUsers
-            ..clear()
-            ..addAll(users);
+          _userProfiles[username] = {
+            'type': (data['profileType'] ?? 'avatar').toString(),
+            'avatarId': data['avatarId'],
+          };
         });
       }
     }
@@ -3120,6 +3478,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _connected = false;
         _reconnecting = true;
         _onlineUsers.clear();
+        _userProfiles.clear();
       });
     }
 
@@ -3378,29 +3737,71 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final profilePath = isMyProfile ? _profilePhotoPath : null;
 
+    int? profileAvatarIndex;
+
+    if (isMyProfile) {
+      profileAvatarIndex = _profileAvatarIndex;
+    } else {
+      final remoteProfile = _userProfiles.entries
+          .where(
+            (entry) =>
+                entry.key.toLowerCase() == name.trim().toLowerCase(),
+          )
+          .map((entry) => entry.value)
+          .firstOrNull;
+
+      final rawAvatarId = remoteProfile?['avatarId'];
+
+      if (rawAvatarId is int) {
+        profileAvatarIndex = rawAvatarId;
+      } else if (rawAvatarId is num) {
+        profileAvatarIndex = rawAvatarId.toInt();
+      } else if (rawAvatarId != null) {
+        profileAvatarIndex = int.tryParse(rawAvatarId.toString());
+      }
+    }
+
     final profileFile = profilePath == null || profilePath.isEmpty
         ? null
         : File(profilePath);
 
+    final hasAnimatedAvatar =
+        profileAvatarIndex != null &&
+        profileAvatarIndex >= 1 &&
+        profileAvatarIndex <= 50;
+
     return Stack(
       children: [
-        CircleAvatar(
-          radius: 25,
-          backgroundColor: theme.primary.withValues(alpha: 0.14),
-          backgroundImage: profileFile != null && profileFile.existsSync()
-              ? FileImage(profileFile)
-              : null,
-          child: profileFile != null && profileFile.existsSync()
-              ? null
-              : Text(
-                  letter,
-                  style: TextStyle(
-                    color: theme.primary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 17,
+        if (hasAnimatedAvatar)
+          ClipOval(
+            child: SizedBox(
+              width: 50,
+              height: 50,
+              child: Image.asset(
+                'assets/avatars/${profileAvatarIndex.toString().padLeft(2, '0')}.gif',
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
+            ),
+          )
+        else
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: theme.primary.withValues(alpha: 0.14),
+            backgroundImage: profileFile != null && profileFile.existsSync()
+                ? FileImage(profileFile)
+                : null,
+            child: profileFile != null && profileFile.existsSync()
+                ? null
+                : Text(
+                    letter,
+                    style: TextStyle(
+                      color: theme.primary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 17,
+                    ),
                   ),
-                ),
-        ),
+          ),
         if (online)
           Positioned(
             right: 0,
@@ -4753,6 +5154,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           subtitle: Text(
                             (_profilePhotoPath != null &&
                                         _profilePhotoPath!.isNotEmpty) ||
+                                    _profileAvatarIndex != null ||
                                     _profileAbout.trim().isNotEmpty
                                 ? 'Profil bilgileri kayıtlı'
                                 : 'Ek profil verisi bulunmuyor',
@@ -4795,12 +5197,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             if (confirmed != true) return;
 
                             await prefs.remove(_profilePhotoKey);
+                            await prefs.remove(_profileAvatarKey);
                             await prefs.remove(_profileAboutKey);
 
                             if (!mounted) return;
 
                             setState(() {
                               _profilePhotoPath = null;
+                              _profileAvatarIndex = null;
                               _profileAbout = '';
                             });
 
