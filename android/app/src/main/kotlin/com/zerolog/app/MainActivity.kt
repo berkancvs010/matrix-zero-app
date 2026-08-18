@@ -97,12 +97,11 @@ class MainActivity : FlutterActivity() {
         }
 
         android.app.AlertDialog.Builder(this)
-            .setTitle("ZeroLog çağrı izinleri")
+            .setTitle("Çağrı izinleri")
             .setMessage(
-                "Xiaomi cihazlarda gelen çağrıların kilit ekranında " +
-                    "tam ekran gösterilebilmesi için iki ek izin gerekiyor.\n\n" +
-                    "Bir sonraki ekranda ZeroLog için " +
-                    "\"Kilit ekranında görüntüle\" ve " +
+                "Gelen çağrıların kilit ekranında tam ekran gösterilebilmesi " +
+                    "için bu cihazda bazı ek izinlerin açılması gerekiyor.\n\n" +
+                    "Bir sonraki ekranda \"Kilit ekranında görüntüle\" ve " +
                     "\"Arka planda çalışırken açılır pencereleri görüntüle\" " +
                     "izinlerini açın."
             )
