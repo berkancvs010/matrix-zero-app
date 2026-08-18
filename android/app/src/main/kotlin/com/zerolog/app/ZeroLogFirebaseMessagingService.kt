@@ -453,29 +453,52 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun showCallStatusNotification(message: RemoteMessage) {
-        stopIncomingCallToneAndNotification(this)
+        val callId = message.data["callId"]
+            ?.trim()
+            .orEmpty()
 
-        try {
-            getSharedPreferences(
-                "FlutterSharedPreferences",
-                MODE_PRIVATE
+        if (callId.isEmpty()) {
+            android.util.Log.w(
+                "ZeroLogCall",
+                "Ignoring callStatus without callId"
             )
-                .edit()
-                .remove("flutter.zerolog.pending_call")
-                .remove(ACTIVE_CALL_ID_KEY)
-                .apply()
+            return
+        }
 
+        val callPrefs = getSharedPreferences(
+            "FlutterSharedPreferences",
+            MODE_PRIVATE
+        )
+
+        val activeCallId = callPrefs
+            .getString(ACTIVE_CALL_ID_KEY, "")
+            ?.trim()
+            .orEmpty()
+
+        if (activeCallId.isEmpty()) {
             android.util.Log.d(
                 "ZeroLogCall",
-                "Incoming call state cleared after callStatus"
+                "Ignoring callStatus: no active incoming call"
             )
-        } catch (e: Exception) {
-            android.util.Log.e(
-                "ZeroLogCall",
-                "Failed to clear incoming call state",
-                e
-            )
+            return
         }
+
+        if (activeCallId != callId) {
+            android.util.Log.d(
+                "ZeroLogCall",
+                "Ignoring stale/mismatched callStatus " +
+                    "callId=$callId activeCallId=$activeCallId"
+            )
+            return
+        }
+
+        stopIncomingCallToneAndNotification(this)
+
+        android.util.Log.d(
+            "ZeroLogCall",
+            "Incoming call state cleared after matching callStatus " +
+                "callId=$callId"
+        )
     }
 
     private fun messageNotificationId(message: RemoteMessage): Int {
