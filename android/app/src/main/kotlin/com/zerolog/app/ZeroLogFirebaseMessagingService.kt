@@ -350,9 +350,25 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             )
             .apply()
 
-        // Full-screen intent doğrudan gerçek çağrı ekranı olan
-        // MainActivity'yi açar. Araya ikinci bir Activity koymuyoruz.
-        val intent = Intent(this, IncomingCallActivity::class.java).apply {
+        // Android 11 / MIUI uyumluluğu:
+        // Full-screen intent'i doğrudan MainActivity'ye ver.
+        //
+        // Android 11'de translucent trampoline Activity üzerinden
+        // full-screen launch bazı MIUI sürümlerinde kilit ekranında
+        // çağrı ekranının açılmasını engelleyebiliyor.
+        //
+        // Android 12+ mevcut çalışan IncomingCallActivity yolunu
+        // aynen koruyoruz; böylece 17 Ultra'daki çalışan davranış
+        // değiştirilmez.
+        val callActivityClass = if (
+            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R
+        ) {
+            MainActivity::class.java
+        } else {
+            IncomingCallActivity::class.java
+        }
+
+        val intent = Intent(this, callActivityClass).apply {
             action = "zerolog.incoming_call"
             flags =
                 Intent.FLAG_ACTIVITY_NEW_TASK or
