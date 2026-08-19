@@ -6,6 +6,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -1538,6 +1539,21 @@ class WsClient {
     }
   }
 
+  void requestProfile(String username) {
+    final name = username.trim();
+
+    if (name.isEmpty || !connected || _channel == null) return;
+
+    try {
+      _channel!.sink.add(jsonEncode({
+        'type': 'getProfile',
+        'username': name,
+      }));
+    } catch (_) {
+      _handleConnectionLost();
+    }
+  }
+
   void requestPrivacySettings() {
     send({'type': 'getPrivacySettings'});
   }
@@ -1780,6 +1796,8 @@ class WsClient {
                   _userProfiles[name] = {
                     'type': (data['profileType'] ?? 'avatar').toString(),
                     'avatarId': data['avatarId'],
+                    'about': (data['about'] ?? '').toString(),
+                    'photoData': (data['photoData'] ?? '').toString(),
                   };
                 }
               }
@@ -2748,6 +2766,110 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     4,
   ];
 
+  Future<void> _applyRemoteOwnProfile(
+    Map<String, dynamic> profile,
+  ) async {
+    final type = (profile['type'] ?? 'avatar').toString();
+
+    final rawAvatar = profile['avatarId'];
+
+    int? avatarId;
+
+    if (rawAvatar is int) {
+      avatarId = rawAvatar;
+    } else if (rawAvatar is num) {
+      avatarId = rawAvatar.toInt();
+    } else if (rawAvatar != null) {
+      avatarId = int.tryParse(rawAvatar.toString());
+    }
+
+    final about = (profile['about'] ?? '').toString();
+    final photoData = (profile['photoData'] ?? '').toString();
+
+    String? remotePhotoPath;
+
+    if (type == 'photo' && photoData.isNotEmpty) {
+      remotePhotoPath = await _saveRemoteProfilePhoto(
+        widget.nickname,
+        photoData,
+      );
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+
+    if (type == 'photo' &&
+        remotePhotoPath != null &&
+        remotePhotoPath.isNotEmpty) {
+      await prefs.setString(_profilePhotoKey, remotePhotoPath);
+      await prefs.remove(_profileAvatarKey);
+    }
+
+    if (type == 'avatar' &&
+        avatarId != null &&
+        avatarId >= 1 &&
+        avatarId <= 50) {
+      await prefs.setInt(_profileAvatarKey, avatarId);
+      await prefs.remove(_profilePhotoKey);
+    }
+
+    if (profile.containsKey('about')) {
+      await prefs.setString(_profileAboutKey, about);
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      if (type == 'avatar' &&
+          avatarId != null &&
+          avatarId >= 1 &&
+          avatarId <= 50) {
+        _profileAvatarIndex = avatarId;
+        _profilePhotoPath = null;
+      }
+
+      if (type == 'photo' &&
+          remotePhotoPath != null &&
+          remotePhotoPath.isNotEmpty) {
+        _profilePhotoPath = remotePhotoPath;
+        _profileAvatarIndex = null;
+      }
+
+      if (profile.containsKey('about')) {
+        _profileAbout = about;
+      }
+    });
+  }
+
+  Future<String?> _saveRemoteProfilePhoto(
+    String username,
+    String photoData,
+  ) async {
+    if (photoData.trim().isEmpty) return null;
+
+    try {
+      final bytes = base64Decode(photoData);
+
+      final directory = await Directory(
+        '${Directory.systemTemp.path}/zerolog_profiles',
+      ).create(recursive: true);
+
+      final safeName = username
+          .trim()
+          .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+
+      final file = File(
+        '${directory.path}/$safeName.jpg',
+      );
+
+      await file.writeAsBytes(bytes, flush: true);
+
+      return file.path;
+    } catch (e) {
+      debugPrint('[PROFILE] remote photo save failed: $e');
+      return null;
+    }
+  }
+
   Future<void> _loadProfileData() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -2763,6 +2885,57 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               : null;
       _profileAbout = prefs.getString(_profileAboutKey) ?? '';
     });
+  }
+
+  Future<String?> _encodeProfilePhoto(String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+
+      img.Image? decoded = img.decodeImage(bytes);
+
+      if (decoded == null) return null;
+
+      decoded = img.bakeOrientation(decoded);
+
+      if (decoded.width > 720 || decoded.height > 720) {
+        decoded = img.copyResize(
+          decoded,
+          width: decoded.width >= decoded.height ? 720 : null,
+          height: decoded.height > decoded.width ? 720 : null,
+          interpolation: img.Interpolation.average,
+        );
+      }
+
+      final jpg = img.encodeJpg(
+        decoded,
+        quality: 78,
+      );
+
+      if (jpg.length > 500000) {
+        final smaller = img.copyResize(
+          decoded,
+          width: decoded.width >= decoded.height ? 560 : null,
+          height: decoded.height > decoded.width ? 560 : null,
+          interpolation: img.Interpolation.average,
+        );
+
+        final smallerJpg = img.encodeJpg(
+          smaller,
+          quality: 68,
+        );
+
+        if (smallerJpg.length > 700000) {
+          return null;
+        }
+
+        return base64Encode(smallerJpg);
+      }
+
+      return base64Encode(jpg);
+    } catch (e) {
+      debugPrint('[PROFILE] photo encode failed: $e');
+      return null;
+    }
   }
 
   Future<void> _pickProfilePhoto() async {
@@ -2789,10 +2962,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _profileAvatarIndex = null;
     });
 
+    final photoData = await _encodeProfilePhoto(image.path);
+
+    if (photoData == null || photoData.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profil fotoğrafı hazırlanamadı.'),
+          ),
+        );
+      }
+      return;
+    }
+
     WsClient.instance.send({
       'type': 'setProfile',
       'profileType': 'photo',
       'avatarId': null,
+      'photoData': photoData,
+      'about': _profileAbout,
     });
   }
 
@@ -2820,10 +3008,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _profileAvatarIndex = null;
     });
 
+    final photoData = await _encodeProfilePhoto(image.path);
+
+    if (photoData == null || photoData.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profil fotoğrafı hazırlanamadı.'),
+          ),
+        );
+      }
+      return;
+    }
+
     WsClient.instance.send({
       'type': 'setProfile',
       'profileType': 'photo',
       'avatarId': null,
+      'photoData': photoData,
+      'about': _profileAbout,
     });
   }
 
@@ -2939,6 +3142,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                       'type': 'setProfile',
                                       'profileType': 'avatar',
                                       'avatarId': avatarNumber,
+                                      'about': _profileAbout,
                                     });
 
                                     if (sheetContext.mounted) {
@@ -3046,6 +3250,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     setState(() {
       _profileAbout = result;
+    });
+
+    WsClient.instance.send({
+      'type': 'setProfile',
+      'profileType': _profileAvatarIndex != null ? 'avatar' : 'photo',
+      'avatarId': _profileAvatarIndex,
+      'about': result,
     });
   }
 
@@ -3216,6 +3427,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final Map<String, Map<String, dynamic>> _userProfiles =
       <String, Map<String, dynamic>>{};
 
+  final Set<String> _profileFetchRequested = <String>{};
+
   bool _connected = false;
   bool _reconnecting = false;
 
@@ -3377,6 +3590,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           for (final entry in parsedProfiles.entries) {
             _userProfiles[entry.key] = entry.value;
           }
+
+          final ownProfile = parsedProfiles.entries
+              .where(
+                (entry) =>
+                    entry.key.toLowerCase() ==
+                    widget.nickname.toLowerCase(),
+              )
+              .map((entry) => entry.value)
+              .firstOrNull;
+
+          if (ownProfile != null) {
+            _applyRemoteOwnProfile(ownProfile);
+          }
         });
       }
     }
@@ -3418,18 +3644,84 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
     }
 
+    if (type == 'profile') {
+      final username = (data['username'] ?? '')
+          .toString()
+          .trim();
+
+      if (username.isNotEmpty && mounted) {
+        final profile = <String, dynamic>{
+          'type': (data['profileType'] ?? data['type'] ?? 'avatar')
+              .toString(),
+          'avatarId': data['avatarId'],
+          'about': (data['about'] ?? '').toString(),
+          'photoData': (data['photoData'] ?? '').toString(),
+        };
+
+        if (profile['type'] == 'photo' &&
+            (profile['photoData'] as String).isNotEmpty) {
+          final savedPath = await _saveRemoteProfilePhoto(
+            username,
+            profile['photoData'] as String,
+          );
+
+          if (savedPath != null && savedPath.isNotEmpty) {
+            profile['photoPath'] = savedPath;
+          }
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _userProfiles[username] = profile;
+          _profileFetchRequested.remove(username.toLowerCase());
+        });
+
+        if (username.toLowerCase() ==
+            widget.nickname.toLowerCase()) {
+          await _applyRemoteOwnProfile(profile);
+        }
+      }
+
+      return;
+    }
+
     if (type == 'profileUpdated') {
       final username = (data['username'] ?? '')
           .toString()
           .trim();
 
       if (username.isNotEmpty && mounted) {
+        final profile = <String, dynamic>{
+          'type': (data['profileType'] ?? 'avatar').toString(),
+          'avatarId': data['avatarId'],
+          'about': (data['about'] ?? '').toString(),
+          'photoData': (data['photoData'] ?? '').toString(),
+        };
+
+        if (profile['type'] == 'photo' &&
+            (profile['photoData'] as String).isNotEmpty) {
+          final savedPath = await _saveRemoteProfilePhoto(
+            username,
+            profile['photoData'] as String,
+          );
+
+          if (savedPath != null && savedPath.isNotEmpty) {
+            profile['photoPath'] = savedPath;
+          }
+        }
+
+        if (!mounted) return;
+
         setState(() {
-          _userProfiles[username] = {
-            'type': (data['profileType'] ?? 'avatar').toString(),
-            'avatarId': data['avatarId'],
-          };
+          _userProfiles[username] = profile;
+          _profileFetchRequested.remove(username.toLowerCase());
         });
+
+        if (username.toLowerCase() ==
+            widget.nickname.toLowerCase()) {
+          await _applyRemoteOwnProfile(profile);
+        }
       }
     }
 
@@ -3523,6 +3815,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       _handledCallIds.add(callId);
 
+      if (!mounted) return;
+
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => CallScreen(
@@ -3556,6 +3850,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (callId.isNotEmpty) {
         _handledCallIds.add(callId);
       }
+
+      if (!mounted) return;
 
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -3737,6 +4033,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final profilePath = isMyProfile ? _profilePhotoPath : null;
 
+    String? remotePhotoData;
+
     int? profileAvatarIndex;
 
     if (isMyProfile) {
@@ -3749,6 +4047,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           )
           .map((entry) => entry.value)
           .firstOrNull;
+
+      remotePhotoData =
+          (remoteProfile?['photoData'] ?? '').toString().trim();
+
+      final remoteType =
+          (remoteProfile?['type'] ?? 'avatar').toString();
+
+      final normalizedName = name.trim().toLowerCase();
+
+      if (remoteProfile == null &&
+          !_profileFetchRequested.contains(normalizedName)) {
+        _profileFetchRequested.add(normalizedName);
+        WsClient.instance.requestProfile(name);
+      } else if (remoteType == 'photo' &&
+          remotePhotoData.isEmpty &&
+          !_profileFetchRequested.contains(normalizedName)) {
+        _profileFetchRequested.add(normalizedName);
+        WsClient.instance.requestProfile(name);
+      }
 
       final rawAvatarId = remoteProfile?['avatarId'];
 
@@ -3765,14 +4082,59 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ? null
         : File(profilePath);
 
+    MemoryImage? remotePhotoImage;
+
+    if (!isMyProfile &&
+        remotePhotoData != null &&
+        remotePhotoData.isNotEmpty) {
+      try {
+        remotePhotoImage = MemoryImage(
+          base64Decode(remotePhotoData),
+        );
+      } catch (e) {
+        debugPrint('[PROFILE] avatar photo decode failed: $e');
+      }
+    }
+
+    final remoteProfile = !isMyProfile
+        ? _userProfiles.entries
+            .where(
+              (entry) =>
+                  entry.key.toLowerCase() ==
+                  name.trim().toLowerCase(),
+            )
+            .map((entry) => entry.value)
+            .firstOrNull
+        : null;
+
+    final remoteType =
+        (remoteProfile?['type'] ?? 'avatar').toString();
+
+    final hasRemotePhoto =
+        !isMyProfile &&
+        remoteType == 'photo' &&
+        remotePhotoImage != null;
+
     final hasAnimatedAvatar =
+        !hasRemotePhoto &&
         profileAvatarIndex != null &&
         profileAvatarIndex >= 1 &&
         profileAvatarIndex <= 50;
 
     return Stack(
       children: [
-        if (hasAnimatedAvatar)
+        if (hasRemotePhoto)
+          ClipOval(
+            child: SizedBox(
+              width: 50,
+              height: 50,
+              child: Image(
+                image: remotePhotoImage,
+                fit: BoxFit.cover,
+              ),
+            ),
+          )
+        else if (hasAnimatedAvatar)
           ClipOval(
             child: SizedBox(
               width: 50,
@@ -3788,12 +4150,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           CircleAvatar(
             radius: 25,
             backgroundColor: theme.primary.withValues(alpha: 0.14),
-            backgroundImage: profileFile != null && profileFile.existsSync()
-                ? FileImage(profileFile)
-                : null,
-            child: profileFile != null && profileFile.existsSync()
-                ? null
-                : Text(
+            backgroundImage:
+                remotePhotoImage ??
+                (profileFile != null && profileFile.existsSync()
+                    ? FileImage(profileFile)
+                    : null),
+            child:
+                remotePhotoImage != null ||
+                        (profileFile != null && profileFile.existsSync())
+                    ? null
+                    : Text(
                     letter,
                     style: TextStyle(
                       color: theme.primary,
@@ -4386,6 +4752,281 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _showContactAvatarActions(String user) async {
+    final theme = ThemeController.instance.data;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.surface,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+                child: Row(
+                  children: [
+                    _avatar(user, online: _onlineUsers.any(
+                      (u) => u.toLowerCase() == user.toLowerCase(),
+                    )),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Text(
+                        user,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.text,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.search_rounded,
+                  color: theme.primary,
+                ),
+                title: const Text('Ara'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _contactSearchController.text = user;
+                  setState(() {});
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  color: theme.primary,
+                ),
+                title: const Text('Mesaj at'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openPrivate(user);
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.person_outline_rounded,
+                  color: theme.primary,
+                ),
+                title: const Text('Profil'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openUserProfile(user);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openUserProfile(String user) async {
+    final theme = ThemeController.instance.data;
+
+    final profile = _userProfiles.entries
+        .where(
+          (entry) =>
+              entry.key.toLowerCase() == user.trim().toLowerCase(),
+        )
+        .map((entry) => entry.value)
+        .firstOrNull;
+
+    final about = (profile?['about'] ?? '').toString().trim();
+    final profileType = (profile?['type'] ?? 'avatar').toString();
+
+    final rawAvatarId = profile?['avatarId'];
+
+    int? avatarId;
+
+    if (rawAvatarId is int) {
+      avatarId = rawAvatarId;
+    } else if (rawAvatarId is num) {
+      avatarId = rawAvatarId.toInt();
+    } else if (rawAvatarId != null) {
+      avatarId = int.tryParse(rawAvatarId.toString());
+    }
+
+    final photoData = (profile?['photoData'] ?? '').toString().trim();
+
+    ImageProvider? photoImage;
+
+    if (profileType == 'photo' && photoData.isNotEmpty) {
+      try {
+        final bytes = base64Decode(photoData);
+        photoImage = MemoryImage(bytes);
+      } catch (e) {
+        debugPrint('[PROFILE] remote photo decode failed: $e');
+      }
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final online = _onlineUsers.any(
+          (u) => u.toLowerCase() == user.toLowerCase(),
+        );
+
+        Widget avatar;
+
+        if (photoImage != null) {
+          avatar = ClipOval(
+            child: SizedBox(
+              width: 92,
+              height: 92,
+              child: Image(
+                image: photoImage,
+                fit: BoxFit.cover,
+              ),
+            ),
+          );
+        } else if (avatarId != null &&
+            avatarId >= 1 &&
+            avatarId <= 50) {
+          avatar = ClipOval(
+            child: SizedBox(
+              width: 92,
+              height: 92,
+              child: Image.asset(
+                'assets/avatars/${avatarId.toString().padLeft(2, '0')}.gif',
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
+            ),
+          );
+        } else {
+          final letter = user.trim().isEmpty
+              ? '?'
+              : user.trim().substring(0, 1).toUpperCase();
+
+          avatar = CircleAvatar(
+            radius: 46,
+            backgroundColor: theme.primary.withValues(alpha: 0.14),
+            child: Text(
+              letter,
+              style: TextStyle(
+                color: theme.primary,
+                fontSize: 32,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          );
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                avatar,
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        user,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.text,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: online
+                            ? theme.primary
+                            : theme.text.withValues(alpha: 0.25),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  online ? 'Çevrimiçi' : 'Çevrimdışı',
+                  style: TextStyle(
+                    color: online
+                        ? theme.primary
+                        : theme.text.withValues(alpha: 0.45),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (about.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
+                    decoration: BoxDecoration(
+                      color: theme.background.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      about,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.78),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _openPrivate(user);
+                        },
+                        icon: const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                        ),
+                        label: const Text('Mesaj'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _call(user);
+                        },
+                        icon: const Icon(Icons.call_outlined),
+                        label: const Text('Ara'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _contactResultCard(String user) {
     final theme = ThemeController.instance.data;
     final online = _onlineUsers.any(
@@ -4404,7 +5045,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             padding: const EdgeInsets.all(13),
             child: Row(
               children: [
-                _avatar(user, online: online),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showContactAvatarActions(user),
+                  child: _avatar(user, online: online),
+                ),
                 const SizedBox(width: 13),
                 Expanded(
                   child: Column(
