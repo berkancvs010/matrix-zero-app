@@ -2729,10 +2729,12 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String? _profilePhotoPath;
+  String _profilePhotoData = '';
   int? _profileAvatarIndex;
   String _profileAbout = '';
 
   static const String _profilePhotoKey = 'zerolog.profile.photo';
+  static const String _profilePhotoDataKey = 'zerolog.profile.photo_data';
   static const String _profileAvatarKey = 'zerolog.profile.avatar';
   static const String _profileAboutKey = 'zerolog.profile.about';
 
@@ -2786,21 +2788,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final about = (profile['about'] ?? '').toString();
     final photoData = (profile['photoData'] ?? '').toString();
 
-    String? remotePhotoPath;
-
-    if (type == 'photo' && photoData.isNotEmpty) {
-      remotePhotoPath = await _saveRemoteProfilePhoto(
-        widget.nickname,
-        photoData,
-      );
-    }
-
     final prefs = await SharedPreferences.getInstance();
 
-    if (type == 'photo' &&
-        remotePhotoPath != null &&
-        remotePhotoPath.isNotEmpty) {
-      await prefs.setString(_profilePhotoKey, remotePhotoPath);
+    if (type == 'photo' && photoData.isNotEmpty) {
+      await prefs.setString(_profilePhotoDataKey, photoData);
+      await prefs.remove(_profilePhotoKey);
       await prefs.remove(_profileAvatarKey);
     }
 
@@ -2810,6 +2802,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         avatarId <= 50) {
       await prefs.setInt(_profileAvatarKey, avatarId);
       await prefs.remove(_profilePhotoKey);
+      await prefs.remove(_profilePhotoDataKey);
     }
 
     if (profile.containsKey('about')) {
@@ -2827,10 +2820,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _profilePhotoPath = null;
       }
 
-      if (type == 'photo' &&
-          remotePhotoPath != null &&
-          remotePhotoPath.isNotEmpty) {
-        _profilePhotoPath = remotePhotoPath;
+      if (type == 'photo' && photoData.isNotEmpty) {
+        _profilePhotoPath = null;
+        _profilePhotoData = photoData;
         _profileAvatarIndex = null;
       }
 
@@ -2840,36 +2832,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     });
   }
 
-  Future<String?> _saveRemoteProfilePhoto(
-    String username,
-    String photoData,
-  ) async {
-    if (photoData.trim().isEmpty) return null;
-
-    try {
-      final bytes = base64Decode(photoData);
-
-      final directory = await Directory(
-        '${Directory.systemTemp.path}/zerolog_profiles',
-      ).create(recursive: true);
-
-      final safeName = username
-          .trim()
-          .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-
-      final file = File(
-        '${directory.path}/$safeName.jpg',
-      );
-
-      await file.writeAsBytes(bytes, flush: true);
-
-      return file.path;
-    } catch (e) {
-      debugPrint('[PROFILE] remote photo save failed: $e');
-      return null;
-    }
-  }
-
   Future<void> _loadProfileData() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -2877,8 +2839,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final storedAvatar = prefs.getInt(_profileAvatarKey);
 
+    final storedPhotoData =
+        prefs.getString(_profilePhotoDataKey) ?? '';
+
     setState(() {
       _profilePhotoPath = prefs.getString(_profilePhotoKey);
+      _profilePhotoData = storedPhotoData;
       _profileAvatarIndex =
           storedAvatar != null && storedAvatar >= 1 && storedAvatar <= 50
               ? storedAvatar
@@ -2950,18 +2916,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (image == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setString(_profilePhotoKey, image.path);
-    await prefs.remove(_profileAvatarKey);
-
-    if (!mounted) return;
-
-    setState(() {
-      _profilePhotoPath = image.path;
-      _profileAvatarIndex = null;
-    });
-
     final photoData = await _encodeProfilePhoto(image.path);
 
     if (photoData == null || photoData.isEmpty) {
@@ -2974,6 +2928,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
       return;
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_profilePhotoDataKey, photoData);
+    await prefs.remove(_profilePhotoKey);
+    await prefs.remove(_profileAvatarKey);
+
+    if (!mounted) return;
+
+    setState(() {
+      _profilePhotoPath = null;
+      _profilePhotoData = photoData;
+      _profileAvatarIndex = null;
+    });
 
     WsClient.instance.send({
       'type': 'setProfile',
@@ -2997,17 +2964,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (image == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_profilePhotoKey, image.path);
-    await prefs.remove(_profileAvatarKey);
-
-    if (!mounted) return;
-
-    setState(() {
-      _profilePhotoPath = image.path;
-      _profileAvatarIndex = null;
-    });
-
     final photoData = await _encodeProfilePhoto(image.path);
 
     if (photoData == null || photoData.isEmpty) {
@@ -3020,6 +2976,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
       return;
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_profilePhotoDataKey, photoData);
+    await prefs.remove(_profilePhotoKey);
+    await prefs.remove(_profileAvatarKey);
+
+    if (!mounted) return;
+
+    setState(() {
+      _profilePhotoPath = null;
+      _profilePhotoData = photoData;
+      _profileAvatarIndex = null;
+    });
 
     WsClient.instance.send({
       'type': 'setProfile',
@@ -3130,12 +3099,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                       avatarNumber,
                                     );
                                     await prefs.remove(_profilePhotoKey);
+                                    await prefs.remove(_profilePhotoDataKey);
 
                                     if (!mounted) return;
 
                                     setState(() {
                                       _profileAvatarIndex = avatarNumber;
                                       _profilePhotoPath = null;
+                                      _profilePhotoData = '';
                                     });
 
                                     WsClient.instance.send({
@@ -3256,6 +3227,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'type': 'setProfile',
       'profileType': _profileAvatarIndex != null ? 'avatar' : 'photo',
       'avatarId': _profileAvatarIndex,
+      'photoData': _profileAvatarIndex == null ? _profilePhotoData : '',
       'about': result,
     });
   }
@@ -3264,6 +3236,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final theme = ThemeController.instance.data;
 
     final avatarIndex = _profileAvatarIndex;
+
+    if (_profilePhotoData.isNotEmpty) {
+      try {
+        return ClipOval(
+          child: SizedBox(
+            width: radius * 2,
+            height: radius * 2,
+            child: Image(
+              image: MemoryImage(base64Decode(_profilePhotoData)),
+              fit: BoxFit.cover,
+            ),
+          ),
+        );
+      } catch (e) {
+        debugPrint('[PROFILE] local photo decode failed: $e');
+      }
+    }
 
     if (avatarIndex != null && avatarIndex >= 1 && avatarIndex <= 50) {
       return ClipOval(
@@ -3539,6 +3528,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (type == 'accountDeleted') {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_profilePhotoKey);
+      await prefs.remove(_profilePhotoDataKey);
+      await prefs.remove(_profileAvatarKey);
+      await prefs.remove(_profileAboutKey);
+
+      if (!mounted) return;
+
+      setState(() {
+        _profilePhotoPath = null;
+        _profilePhotoData = '';
+        _profileAvatarIndex = null;
+        _profileAbout = '';
+      });
+
       await SecureSession.clear();
       await WsClient.instance.disconnect();
 
@@ -3641,7 +3645,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _userProfiles
           ..clear()
           ..addAll(parsedProfiles);
+        _profileFetchRequested.clear();
       });
+    }
+
+    if (type == 'profileRejected') {
+      final rejectedUsername =
+          (data['username'] ?? '').toString().trim().toLowerCase();
+      if (rejectedUsername.isNotEmpty) {
+        _profileFetchRequested.remove(rejectedUsername);
+      }
     }
 
     if (type == 'profile') {
@@ -3657,18 +3670,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           'about': (data['about'] ?? '').toString(),
           'photoData': (data['photoData'] ?? '').toString(),
         };
-
-        if (profile['type'] == 'photo' &&
-            (profile['photoData'] as String).isNotEmpty) {
-          final savedPath = await _saveRemoteProfilePhoto(
-            username,
-            profile['photoData'] as String,
-          );
-
-          if (savedPath != null && savedPath.isNotEmpty) {
-            profile['photoPath'] = savedPath;
-          }
-        }
 
         if (!mounted) return;
 
@@ -3698,18 +3699,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           'about': (data['about'] ?? '').toString(),
           'photoData': (data['photoData'] ?? '').toString(),
         };
-
-        if (profile['type'] == 'photo' &&
-            (profile['photoData'] as String).isNotEmpty) {
-          final savedPath = await _saveRemoteProfilePhoto(
-            username,
-            profile['photoData'] as String,
-          );
-
-          if (savedPath != null && savedPath.isNotEmpty) {
-            profile['photoPath'] = savedPath;
-          }
-        }
 
         if (!mounted) return;
 
@@ -3775,6 +3764,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (type == 'connectionRestored' || type == 'registered') {
+      _profileFetchRequested.clear();
+      WsClient.instance.requestUserDirectory();
+
       setState(() {
         _connected = true;
         _reconnecting = false;
@@ -4057,10 +4049,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final normalizedName = name.trim().toLowerCase();
 
       if (remoteProfile == null &&
+          WsClient.instance.connected &&
           !_profileFetchRequested.contains(normalizedName)) {
         _profileFetchRequested.add(normalizedName);
         WsClient.instance.requestProfile(name);
       } else if (remoteType == 'photo' &&
+          WsClient.instance.connected &&
           remotePhotoData.isEmpty &&
           !_profileFetchRequested.contains(normalizedName)) {
         _profileFetchRequested.add(normalizedName);
@@ -4789,14 +4783,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
               ListTile(
                 leading: Icon(
-                  Icons.search_rounded,
+                  Icons.call_outlined,
                   color: theme.primary,
                 ),
                 title: const Text('Ara'),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _contactSearchController.text = user;
-                  setState(() {});
+                  _call(user);
                 },
               ),
               ListTile(
@@ -4831,14 +4824,48 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Future<void> _openUserProfile(String user) async {
     final theme = ThemeController.instance.data;
+    final normalizedUser = user.trim().toLowerCase();
 
-    final profile = _userProfiles.entries
+    Map<String, dynamic>? profile = _userProfiles.entries
         .where(
-          (entry) =>
-              entry.key.toLowerCase() == user.trim().toLowerCase(),
+          (entry) => entry.key.toLowerCase() == normalizedUser,
         )
         .map((entry) => entry.value)
         .firstOrNull;
+
+    final knownType = (profile?['type'] ?? 'avatar').toString();
+    final knownPhoto =
+        (profile?['photoData'] ?? '').toString().trim();
+
+    if (WsClient.instance.connected &&
+        (profile == null ||
+            (knownType == 'photo' && knownPhoto.isEmpty))) {
+      _profileFetchRequested.add(normalizedUser);
+      WsClient.instance.requestProfile(user);
+
+      for (var attempt = 0; attempt < 12; attempt++) {
+        await Future.delayed(const Duration(milliseconds: 150));
+
+        if (!mounted) return;
+
+        profile = _userProfiles.entries
+            .where(
+              (entry) => entry.key.toLowerCase() == normalizedUser,
+            )
+            .map((entry) => entry.value)
+            .firstOrNull;
+
+        if (profile != null) {
+          final type = (profile['type'] ?? 'avatar').toString();
+          final photo =
+              (profile['photoData'] ?? '').toString().trim();
+
+          if (type != 'photo' || photo.isNotEmpty) {
+            break;
+          }
+        }
+      }
+    }
 
     final about = (profile?['about'] ?? '').toString().trim();
     final profileType = (profile?['type'] ?? 'avatar').toString();
@@ -5842,6 +5869,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             if (confirmed != true) return;
 
                             await prefs.remove(_profilePhotoKey);
+                            await prefs.remove(_profilePhotoDataKey);
                             await prefs.remove(_profileAvatarKey);
                             await prefs.remove(_profileAboutKey);
 
@@ -5849,6 +5877,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
                             setState(() {
                               _profilePhotoPath = null;
+                              _profilePhotoData = '';
                               _profileAvatarIndex = null;
                               _profileAbout = '';
                             });
