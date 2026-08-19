@@ -1776,7 +1776,6 @@ class WsClient {
                 final profiles = data['profiles'];
 
                 if (profiles is Map) {
-                  _userProfiles.clear();
 
                   for (final entry in profiles.entries) {
                     if (entry.value is Map) {
