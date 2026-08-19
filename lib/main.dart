@@ -593,6 +593,18 @@ class ZeroLogPushService {
           .trim();
 
       if (from.isEmpty || text.isEmpty) return;
+      // Kullanıcı zaten bu kişiyle özel sohbet ekranındaysa,
+      // aynı mesaj için ayrıca bildirim üretme.
+      final activePeer = WsClient.instance.activePrivateChatPeer;
+
+      if (activePeer != null &&
+          activePeer.trim().isNotEmpty &&
+          activePeer.trim().toLowerCase() == from.toLowerCase()) {
+        debugPrint(
+          "[FCM] private message notification suppressed: active chat with $from",
+        );
+        return;
+      }
 
       final prefs = await SharedPreferences.getInstance();
       final messagePreview =
@@ -1488,6 +1500,23 @@ class WsClient {
   String? username;
   String? password;
   bool connected = false;
+
+  // Aktif özel sohbet. Bildirim/mesaj akışının aynı sohbet ekranıyla
+  // yarışmasını önlemek için merkezi olarak tutulur.
+  String? _activePrivateChatPeer;
+
+  String? get activePrivateChatPeer => _activePrivateChatPeer;
+
+  void setActivePrivateChat(String? peer) {
+    final value = peer?.trim();
+
+    if (value == null || value.isEmpty) {
+      _activePrivateChatPeer = null;
+      return;
+    }
+
+    _activePrivateChatPeer = value;
+  }
 
   bool _manualDisconnect = false;
   bool _connecting = false;
@@ -3897,6 +3926,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (!mounted || data == null) return;
 
+
     if ((data['type'] ?? '').toString() != 'privateMessage') return;
 
     final from = (data['from'] ?? data['sender'] ?? '').toString().trim();
@@ -3909,6 +3939,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (from.toLowerCase() == widget.nickname.toLowerCase()) return;
+
+    // Kullanıcı zaten bu kişiyle özel sohbet ekranındaysa,
+    // bekleyen eski bildirimin aynı sohbeti tekrar açmasını engelle.
+    final activePeer = WsClient.instance.activePrivateChatPeer;
+
+    if (activePeer != null &&
+        activePeer.trim().isNotEmpty &&
+        activePeer.trim().toLowerCase() == from.toLowerCase()) {
+      debugPrint(
+        '[FCM] pending private message open suppressed: '
+        'active chat with $from',
+      );
+      return;
+    }
 
     // Bildirimde gönderen rumuz kesin olarak hedef sohbetin kendisidir.
     Navigator.of(context).push(
@@ -6831,6 +6875,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void initState() {
     super.initState();
 
+
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.joinRoom(widget.roomName);
@@ -7234,6 +7279,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   @override
   void initState() {
     super.initState();
+
+    WsClient.instance.setActivePrivateChat(widget.targetNick);
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -7715,11 +7762,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   @override
   void dispose() {
+    if (WsClient.instance.activePrivateChatPeer?.toLowerCase() ==
+        widget.targetNick.toLowerCase()) {
+      WsClient.instance.setActivePrivateChat(null);
+    }
+
     _subscription.cancel();
     _controller.dispose();
     _scrollController.dispose();
-    super.dispose();
     _messageFocusNode.dispose();
+    super.dispose();
   }
 
   @override
