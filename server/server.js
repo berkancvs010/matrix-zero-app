@@ -1298,6 +1298,99 @@ wss.on('connection',(ws)=>{
   case 'leaveRoom':{ws._rooms.delete(String(d.room));updatePresence();break;}
   case 'roomMessage':{if(!me)break;const id=String(d.room);if(!ws._rooms.has(id))break;const text=cleanText(d.text);if(!text)break;const msg={id:makeMessageId(),type:'roomMessage',room:id,from:me,text,ts:Date.now()};const arr=roomMessages.get(id)||[];arr.push(msg);roomMessages.set(id,arr);save(`room-${id}.json`,arr);for(const [peer] of users){if((peer._rooms && peer._rooms.has(id)))send(peer,msg);}break;}
   case 'privateHistory':{if(!me)break;const peer=safeNick(d.peer);send(ws,{type:'privateHistory',peer,messages:getPrivate(me,peer)});break;}
+  case 'privateFileMessage':{
+    if(!me)break;
+
+    const to=safeNick(d.to);
+    const fileId=String(d.fileId||'').trim();
+    const fileName=String(d.fileName||'').trim().slice(0,512);
+    const fileSize=Number(d.fileSize||0);
+    const clientMessageId=String(d.clientMessageId||'').trim();
+
+    if(!to||!fileId||!fileName||!Number.isFinite(fileSize)||fileSize<=0)break;
+
+    if(!privateMessagesEnabled(to)){
+      send(ws,{
+        type:'privateMessageRejected',
+        to,
+        reason:'PRIVATE_MESSAGES_DISABLED',
+        message:'Bu kullanıcı özel mesajları kabul etmiyor.',
+      });
+
+      break;
+    }
+
+    const existing=findPrivateMessageByClientId(
+      me,
+      to,
+      clientMessageId
+    );
+
+    if(existing){
+      send(ws,{
+        type:'messageAck',
+        messageId:existing.id||null,
+        clientMessageId,
+        status:'stored',
+      });
+
+      const recipient=socketFor(to);
+
+      if(recipient){
+        send(recipient,existing);
+      }
+
+      break;
+    }
+
+    const msg={
+      id:makeMessageId(),
+      clientMessageId:clientMessageId||null,
+      type:'privateFileMessage',
+      from:me,
+      to,
+      fileId,
+      fileName,
+      fileSize,
+      ts:Date.now(),
+      delivered:false,
+    };
+
+    const stored=addPrivate(me,to,msg);
+
+    send(ws,{
+      type:'messageAck',
+      messageId:stored.id||null,
+      clientMessageId:stored.clientMessageId||null,
+      status:'stored',
+    });
+
+    const recipient=socketFor(to);
+
+    if(recipient){
+      send(recipient,stored);
+    }else if(messageNotificationsEnabled(to)){
+      await sendFcmPush(to,{
+        data:{
+          type:'privateFileMessage',
+          messageId:String(stored.id||''),
+          clientMessageId:String(stored.clientMessageId||''),
+          sender:String(stored.from||''),
+          recipient:String(stored.to||''),
+          fileId:String(stored.fileId||''),
+          fileName:String(stored.fileName||''),
+          fileSize:String(stored.fileSize||0),
+        },
+        android:{
+          priority:'high',
+          ttl:3600000,
+        },
+      });
+    }
+
+    break;
+  }
+
   case 'privateMessage':{
     if(!me)break;
 
@@ -1653,7 +1746,9 @@ wss.on('connection',(ws)=>{
 
   case 'fileTransferOffer':
   case 'fileTransferAnswer':
-  case 'fileTransferIce':{
+  case 'fileTransferIce':
+  case 'fileTransferAccept':
+  case 'fileTransferReject':{
     if(!me)break;
 
     const to=safeNick(d.to);

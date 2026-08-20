@@ -1,14 +1,35 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/services.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 class FileTransfer {
+  static const MethodChannel _systemChannel =
+      MethodChannel('zerolog/system');
   final dynamic ws;
   final String me;
   final String peer;
+
+  final void Function({
+    required String transferId,
+    required int sentBytes,
+    required int totalBytes,
+    required String status,
+  })?
+  onProgress;
+
+  final void Function({
+    required String transferId,
+    required String fileName,
+    required int fileSize,
+    required String sender,
+  })?
+  onIncomingOffer;
+
+  final void Function({required String transferId, required String status})?
+  onIncomingStatus;
 
   RTCPeerConnection? _pc;
   RTCDataChannel? _channel;
@@ -16,13 +37,28 @@ class FileTransfer {
 
   String? _transferId;
   String? _fileName;
-  IOSink? _sink;
-  File? _outputFile;
+  int _fileSize = 0;
+  int _receivedBytes = 0;
+  int _sentBytes = 0;
+
+  bool _nativeFileOpen = false;
+
+  File? _sendingFile;
+  bool _sending = false;
+  bool _accepted = false;
+  bool _disposed = false;
 
   final List<RTCIceCandidate> _pendingIce = [];
   bool _remoteDescriptionSet = false;
 
-  FileTransfer({required this.ws, required this.me, required this.peer});
+  FileTransfer({
+    required this.ws,
+    required this.me,
+    required this.peer,
+    this.onProgress,
+    this.onIncomingOffer,
+    this.onIncomingStatus,
+  });
 
   Future<void> initialize() async {
     await _createPeer();
@@ -33,23 +69,85 @@ class FileTransfer {
 
     if (files.isEmpty || files.first.path == null) return;
 
-    // Yeni transfer başlamadan önce önceki transfer state'ini temizle.
-    await _resetTransferState();
-
-    // Eski PeerConnection kapatıldığı için yeni transfer için
-    // temiz bir WebRTC signaling oturumu oluştur.
-    await _createPeer();
-
     final selected = files.first;
     final file = File(selected.path!);
     final size = await file.length();
 
-    if (size <= 0) return;
+    if (size <= 0) {
+      throw StateError('Seçilen dosya boş.');
+    }
+
+    await _resetTransferState();
+
+    await _createPeer();
 
     final transferId = '${DateTime.now().microsecondsSinceEpoch}-$me';
 
     _transferId = transferId;
     _fileName = selected.name;
+    _fileSize = size;
+    _sentBytes = 0;
+    _sendingFile = file;
+    _sending = false;
+
+    onProgress?.call(
+      transferId: transferId,
+      sentBytes: 0,
+      totalBytes: size,
+      status: 'waiting',
+    );
+
+    ws.send({
+      'type': 'fileTransferOffer',
+      'from': me,
+      'to': peer,
+      'transferId': transferId,
+      'fileName': _fileName,
+      'fileSize': size,
+    });
+  }
+
+  Future<void> acceptIncoming(String transferId) async {
+    if (_disposed) return;
+    if (_transferId != transferId) return;
+
+    _accepted = true;
+
+    onIncomingStatus?.call(transferId: transferId, status: 'accepting');
+
+    ws.send({
+      'type': 'fileTransferAccept',
+      'from': me,
+      'to': peer,
+      'transferId': transferId,
+    });
+  }
+
+  Future<void> rejectIncoming(String transferId) async {
+    if (_disposed) return;
+    if (_transferId != transferId) return;
+
+    onIncomingStatus?.call(transferId: transferId, status: 'rejected');
+
+    ws.send({
+      'type': 'fileTransferReject',
+      'from': me,
+      'to': peer,
+      'transferId': transferId,
+    });
+
+    await _resetTransferState();
+  }
+
+  Future<void> _startOutgoingTransfer() async {
+    if (_sending || _disposed) return;
+
+    final file = _sendingFile;
+    final transferId = _transferId;
+
+    if (file == null || transferId == null) return;
+
+    _sending = true;
 
     final channel = await _pc!.createDataChannel(
       'file-$transferId',
@@ -60,7 +158,7 @@ class FileTransfer {
 
     channel.onDataChannelState = (state) {
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
-        _sendFileBytes(file);
+        unawaited(_sendFileBytes(file));
       }
     };
 
@@ -77,28 +175,66 @@ class FileTransfer {
       'to': peer,
       'transferId': transferId,
       'fileName': _fileName,
-      'fileSize': size,
+      'fileSize': _fileSize,
       'sdp': {'type': offer.type, 'sdp': offer.sdp},
     });
+
+    onProgress?.call(
+      transferId: transferId,
+      sentBytes: 0,
+      totalBytes: _fileSize,
+      status: 'connecting',
+    );
   }
 
   Future<void> _sendFileBytes(File file) async {
     final channel = _channel;
-    if (channel == null) return;
+    final transferId = _transferId;
 
-    await for (final chunk in file.openRead()) {
-      final bytes = Uint8List.fromList(chunk);
+    if (channel == null || transferId == null) return;
 
-      while (await channel.getBufferedAmount() > 4 * 1024 * 1024) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+    try {
+      await for (final chunk in file.openRead()) {
+        if (_disposed || _transferId != transferId) return;
+
+        final bytes = Uint8List.fromList(chunk);
+
+        while (await channel.getBufferedAmount() > 4 * 1024 * 1024) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+
+          if (_disposed || _transferId != transferId) return;
+        }
+
+        channel.send(RTCDataChannelMessage.fromBinary(bytes));
+
+        _sentBytes += bytes.length;
+
+        onProgress?.call(
+          transferId: transferId,
+          sentBytes: _sentBytes,
+          totalBytes: _fileSize,
+          status: 'transferring',
+        );
       }
 
-      channel.send(RTCDataChannelMessage.fromBinary(bytes));
-    }
+      channel.send(
+        RTCDataChannelMessage('{"type":"file-end","transferId":"$transferId"}'),
+      );
 
-    channel.send(
-      RTCDataChannelMessage('{"type":"file-end","transferId":"$_transferId"}'),
-    );
+      onProgress?.call(
+        transferId: transferId,
+        sentBytes: _fileSize,
+        totalBytes: _fileSize,
+        status: 'completed',
+      );
+    } catch (e) {
+      onProgress?.call(
+        transferId: transferId,
+        sentBytes: _sentBytes,
+        totalBytes: _fileSize,
+        status: 'failed',
+      );
+    }
   }
 
   Future<void> _createPeer() async {
@@ -115,13 +251,17 @@ class FileTransfer {
     });
 
     _pc!.onIceCandidate = (candidate) {
-      if (candidate.candidate == null || _transferId == null) return;
+      final transferId = _transferId;
+
+      if (candidate.candidate == null || transferId == null) {
+        return;
+      }
 
       ws.send({
         'type': 'fileTransferIce',
         'from': me,
         'to': peer,
-        'transferId': _transferId,
+        'transferId': transferId,
         'candidate': {
           'candidate': candidate.candidate,
           'sdpMid': candidate.sdpMid,
@@ -134,7 +274,7 @@ class FileTransfer {
       _channel = channel;
 
       channel.onMessage = (message) {
-        _receiveChunk(message);
+        unawaited(_receiveChunk(message));
       };
     };
 
@@ -142,12 +282,13 @@ class FileTransfer {
   }
 
   Future<void> _handleEvent(Map<String, dynamic> event) async {
+    if (_disposed) return;
+
     final type = event['type']?.toString();
 
     final from = (event['from'] ?? '').toString().trim();
     final to = (event['to'] ?? '').toString().trim();
 
-    // Yalnızca beklenen peer ile ilgili dosya transfer sinyallerini kabul et.
     if (from.isNotEmpty && from.toLowerCase() != peer.toLowerCase()) {
       return;
     }
@@ -158,21 +299,52 @@ class FileTransfer {
 
     if (type == 'fileTransferOffer') {
       final incomingId = event['transferId']?.toString();
+
       if (incomingId == null || incomingId.isEmpty) return;
 
-      // Aynı oturumda farklı bir transfer mevcutsa yeni offer'ı kabul etme.
-      if (_transferId != null &&
-          _transferId!.isNotEmpty &&
-          _transferId != incomingId) {
+      final hasSdp = event['sdp'] != null;
+
+      // SDP offer yalnızca kabulden sonra gönderilen gerçek
+      // WebRTC offer'ı olarak işlenir.
+      if (!hasSdp) {
+        if (_transferId != null &&
+            _transferId!.isNotEmpty &&
+            _transferId != incomingId) {
+          return;
+        }
+
+        await _prepareIncomingOffer(event);
         return;
       }
-      await _handleOffer(event);
+
+      if (incomingId != _transferId) return;
+
+      await _handleOfferSdp(event);
       return;
     }
 
-    if (event['transferId']?.toString() != _transferId) return;
+    if (event['transferId']?.toString() != _transferId) {
+      return;
+    }
 
     switch (type) {
+      case 'fileTransferAccept':
+        if (from.toLowerCase() == peer.toLowerCase()) {
+          await _startOutgoingTransfer();
+        }
+        break;
+
+      case 'fileTransferReject':
+        onProgress?.call(
+          transferId: _transferId!,
+          sentBytes: _sentBytes,
+          totalBytes: _fileSize,
+          status: 'rejected',
+        );
+
+        await _resetTransferState();
+        break;
+
       case 'fileTransferAnswer':
         await _handleAnswer(event);
         break;
@@ -183,24 +355,48 @@ class FileTransfer {
     }
   }
 
-  Future<void> _handleOffer(Map<String, dynamic> event) async {
+  Future<void> _prepareIncomingOffer(Map<String, dynamic> event) async {
     final incomingId = event['transferId']?.toString();
+
     if (incomingId == null || incomingId.isEmpty) return;
 
-    if (_pc == null) {
-      await _createPeer();
-    }
+    await _resetTransferState();
+    await _createPeer();
 
     _transferId = incomingId;
     _fileName = event['fileName']?.toString() ?? 'received_file';
 
-    final sdp = Map<String, dynamic>.from(event['sdp']);
+    final rawSize = event['fileSize'];
+    _fileSize = rawSize is num
+        ? rawSize.toInt()
+        : int.tryParse(rawSize?.toString() ?? '') ?? 0;
+
+    _receivedBytes = 0;
+    _accepted = false;
+
+    onIncomingOffer?.call(
+      transferId: incomingId,
+      fileName: _fileName!,
+      fileSize: _fileSize,
+      sender: peer,
+    );
+  }
+
+  Future<void> _handleOfferSdp(Map<String, dynamic> event) async {
+    if (!_accepted) return;
+
+    final sdpData = event['sdp'];
+
+    if (sdpData is! Map) return;
+
+    final sdp = Map<String, dynamic>.from(sdpData);
 
     await _pc!.setRemoteDescription(
       RTCSessionDescription(sdp['sdp'], sdp['type']),
     );
 
     _remoteDescriptionSet = true;
+
     await _flushPendingIce();
 
     final answer = await _pc!.createAnswer({
@@ -217,16 +413,23 @@ class FileTransfer {
       'transferId': _transferId,
       'sdp': {'type': answer.type, 'sdp': answer.sdp},
     });
+
+    onIncomingStatus?.call(transferId: _transferId!, status: 'transferring');
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> event) async {
-    final sdp = Map<String, dynamic>.from(event['sdp']);
+    final sdpData = event['sdp'];
+
+    if (sdpData is! Map) return;
+
+    final sdp = Map<String, dynamic>.from(sdpData);
 
     await _pc?.setRemoteDescription(
       RTCSessionDescription(sdp['sdp'], sdp['type']),
     );
 
     _remoteDescriptionSet = true;
+
     await _flushPendingIce();
   }
 
@@ -255,6 +458,7 @@ class FileTransfer {
     if (!_remoteDescriptionSet || _pc == null) return;
 
     final pending = List<RTCIceCandidate>.from(_pendingIce);
+
     _pendingIce.clear();
 
     for (final candidate in pending) {
@@ -265,68 +469,152 @@ class FileTransfer {
   }
 
   Future<void> _receiveChunk(RTCDataChannelMessage message) async {
-    if (message.isBinary) {
-      _sink ??= await _openOutput();
+    final transferId = _transferId;
 
-      final bytes = message.binary;
-      _sink!.add(bytes);
+    if (transferId == null || !_accepted) return;
+
+    if (message.isBinary) {
+      try {
+        final bytes = message.binary;
+
+        if (!_nativeFileOpen) {
+          await _openOutput();
+        }
+
+        final written = await _systemChannel.invokeMethod<bool>(
+          'writeIncomingFile',
+          bytes,
+        );
+
+        if (written != true) {
+          throw StateError('Dosya verisi diske yazılamadı.');
+        }
+
+        _receivedBytes += bytes.length;
+
+        onProgress?.call(
+          transferId: transferId,
+          sentBytes: _receivedBytes,
+          totalBytes: _fileSize,
+          status: 'transferring',
+        );
+      } catch (_) {
+        onIncomingStatus?.call(
+          transferId: transferId,
+          status: 'failed',
+        );
+      }
+
       return;
     }
 
     try {
       final data = message.text;
-      if (data.contains('"file-end"')) {
-        await _sink?.flush();
-        await _sink?.close();
-        _sink = null;
 
-        // Dosya alımı tamamlandı; sonraki transfer temiz state ile başlasın.
+      if (data.contains('"file-end"')) {
+        final closed = await _systemChannel.invokeMethod<bool>(
+          'closeIncomingFile',
+        );
+
+        _nativeFileOpen = false;
+
+        final actualSize = _receivedBytes;
+
+        if (closed == true && actualSize == _fileSize) {
+          onProgress?.call(
+            transferId: transferId,
+            sentBytes: actualSize,
+            totalBytes: _fileSize,
+            status: 'completed',
+          );
+
+          onIncomingStatus?.call(
+            transferId: transferId,
+            status: 'completed',
+          );
+        } else {
+          onProgress?.call(
+            transferId: transferId,
+            sentBytes: actualSize,
+            totalBytes: _fileSize,
+            status: 'failed',
+          );
+
+          onIncomingStatus?.call(
+            transferId: transferId,
+            status: 'failed',
+          );
+        }
+
         await _resetTransferState();
       }
     } catch (_) {}
   }
 
-  Future<IOSink> _openOutput() async {
+  Future<void> _openOutput() async {
     final safeName = (_fileName ?? 'received_file').replaceAll(
       RegExp(r'[/\\]'),
       '_',
     );
 
-    final path = await FilePicker.saveFile(
-      dialogTitle: 'ZeroLog dosyasını kaydet',
-      fileName: safeName,
-      bytes: Uint8List(0),
+    final result = await _systemChannel.invokeMethod<dynamic>(
+      'requestIncomingFileSave',
+      <String, dynamic>{
+        'fileName': safeName,
+      },
     );
 
-    if (path == null) {
+    if (result == null) {
       throw StateError('Dosya kayıt konumu seçilmedi.');
     }
 
-    _outputFile = File.fromUri(path);
-
-    return _outputFile!.openWrite();
+    _nativeFileOpen = true;
   }
 
   Future<void> _resetTransferState() async {
-    await _sink?.flush();
-    await _sink?.close();
-    _sink = null;
+    if (_nativeFileOpen) {
+      try {
+        await _systemChannel.invokeMethod<bool>(
+          'closeIncomingFile',
+        );
+      } catch (_) {}
+
+      _nativeFileOpen = false;
+    }
 
     _channel = null;
     _pendingIce.clear();
     _remoteDescriptionSet = false;
+
     _transferId = null;
     _fileName = null;
+    _fileSize = 0;
+    _receivedBytes = 0;
+    _sentBytes = 0;
 
-    // Yeni transfer için mevcut PeerConnection yeniden oluşturulacak.
+    _sendingFile = null;
+    _sending = false;
+    _accepted = false;
+
     await _pc?.close();
     _pc = null;
   }
 
   Future<void> dispose() async {
+    _disposed = true;
+
     await _eventsSub?.cancel();
-    await _sink?.flush();
-    await _sink?.close();
+
+    if (_nativeFileOpen) {
+      try {
+        await _systemChannel.invokeMethod<bool>(
+          'closeIncomingFile',
+        );
+      } catch (_) {}
+
+      _nativeFileOpen = false;
+    }
+
     await _pc?.close();
 
     _eventsSub = null;
@@ -335,7 +623,16 @@ class FileTransfer {
 
     _pendingIce.clear();
     _remoteDescriptionSet = false;
+
     _transferId = null;
     _fileName = null;
+    _fileSize = 0;
+    _receivedBytes = 0;
+    _sentBytes = 0;
+
+    _sendingFile = null;
+    _sending = false;
+    _accepted = false;
   }
+
 }

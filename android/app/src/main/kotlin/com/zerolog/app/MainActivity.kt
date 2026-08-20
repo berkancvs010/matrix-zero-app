@@ -9,6 +9,7 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import java.io.OutputStream
 import android.provider.Settings
 import java.util.Locale
 import io.flutter.embedding.android.FlutterActivity
@@ -28,6 +29,142 @@ class MainActivity : FlutterActivity() {
         io.flutter.plugin.common.MethodChannel.Result? = null
     private var startupPermissionResult:
         io.flutter.plugin.common.MethodChannel.Result? = null
+
+    private val createDocumentRequestCode = 7403
+
+    private var incomingFileSaveResult:
+        io.flutter.plugin.common.MethodChannel.Result? = null
+
+    private var incomingFileOutputStream: OutputStream? = null
+    private var incomingFileBytesWritten: Long = 0L
+
+    private fun requestIncomingFileSave(
+        fileName: String,
+        result: io.flutter.plugin.common.MethodChannel.Result
+    ) {
+        try {
+            incomingFileSaveResult?.error(
+                "SAVE_BUSY",
+                "Başka bir dosya kayıt işlemi devam ediyor.",
+                null
+            )
+
+            incomingFileSaveResult = result
+
+            try {
+                incomingFileOutputStream?.close()
+            } catch (_: Exception) {}
+
+            incomingFileOutputStream = null
+            incomingFileBytesWritten = 0L
+
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/octet-stream"
+                putExtra(Intent.EXTRA_TITLE, fileName)
+            }
+
+            startActivityForResult(intent, createDocumentRequestCode)
+        } catch (e: Exception) {
+            incomingFileSaveResult = null
+            incomingFileOutputStream = null
+            incomingFileBytesWritten = 0L
+
+            result.error(
+                "SAVE_DIALOG_FAILED",
+                e.message ?: "Dosya kayıt ekranı açılamadı.",
+                null
+            )
+        }
+    }
+
+    private fun writeIncomingFile(bytes: ByteArray): Boolean {
+        return try {
+            val stream = incomingFileOutputStream ?: return false
+
+            stream.write(bytes)
+            incomingFileBytesWritten += bytes.size.toLong()
+
+            true
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Incoming file write failed",
+                e
+            )
+            false
+        }
+    }
+
+    private fun closeIncomingFile(): Boolean {
+        return try {
+            incomingFileOutputStream?.flush()
+            incomingFileOutputStream?.close()
+            incomingFileOutputStream = null
+            true
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Incoming file close failed",
+                e
+            )
+            incomingFileOutputStream = null
+            false
+        }
+    }
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode != createDocumentRequestCode) {
+            return
+        }
+
+        val result = incomingFileSaveResult
+        incomingFileSaveResult = null
+
+        if (resultCode != RESULT_OK || data?.data == null) {
+            incomingFileOutputStream = null
+            incomingFileBytesWritten = 0L
+            result?.success(null)
+            return
+        }
+
+        val uri = data.data!!
+
+        try {
+            incomingFileOutputStream =
+                contentResolver.openOutputStream(uri)
+
+            if (incomingFileOutputStream == null) {
+                throw IllegalStateException(
+                    "Seçilen dosya için yazma akışı açılamadı."
+                )
+            }
+
+            incomingFileBytesWritten = 0L
+
+            result?.success(
+                mapOf(
+                    "uri" to uri.toString(),
+                    "size" to 0L
+                )
+            )
+        } catch (e: Exception) {
+            incomingFileOutputStream = null
+            incomingFileBytesWritten = 0L
+
+            result?.error(
+                "SAVE_OPEN_FAILED",
+                e.message ?: "Dosya açılamadı.",
+                null
+            )
+        }
+    }
 
     private fun requestFullScreenIntentPermission(
         result: io.flutter.plugin.common.MethodChannel.Result
@@ -524,7 +661,31 @@ class MainActivity : FlutterActivity() {
             channelName
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "getIncomingCallIntent" -> {
+                                  "requestIncomingFileSave" -> {
+                      val fileName =
+                          call.argument<String>("fileName")
+                              ?.trim()
+                              ?.ifEmpty { "received_file" }
+                              ?: "received_file"
+
+                      requestIncomingFileSave(fileName, result)
+                  }
+
+                  "writeIncomingFile" -> {
+                      val bytes = call.arguments as? ByteArray
+
+                      if (bytes == null) {
+                          result.success(false)
+                      } else {
+                          result.success(writeIncomingFile(bytes))
+                      }
+                  }
+
+                  "closeIncomingFile" -> {
+                      result.success(closeIncomingFile())
+                  }
+
+"getIncomingCallIntent" -> {
                     // Cold start + notification tap + singleTop/onNewIntent
                     // durumlarının tamamında aynı pending-call kaynağını kullan.
                     persistIncomingCallIntent(intent)
