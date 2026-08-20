@@ -33,6 +33,13 @@ class FileTransfer {
 
     if (files.isEmpty || files.first.path == null) return;
 
+    // Yeni transfer başlamadan önce önceki transfer state'ini temizle.
+    await _resetTransferState();
+
+    // Eski PeerConnection kapatıldığı için yeni transfer için
+    // temiz bir WebRTC signaling oturumu oluştur.
+    await _createPeer();
+
     final selected = files.first;
     final file = File(selected.path!);
     final size = await file.length();
@@ -66,6 +73,7 @@ class FileTransfer {
 
     ws.send({
       'type': 'fileTransferOffer',
+      'from': me,
       'to': peer,
       'transferId': transferId,
       'fileName': _fileName,
@@ -111,6 +119,7 @@ class FileTransfer {
 
       ws.send({
         'type': 'fileTransferIce',
+        'from': me,
         'to': peer,
         'transferId': _transferId,
         'candidate': {
@@ -135,10 +144,28 @@ class FileTransfer {
   Future<void> _handleEvent(Map<String, dynamic> event) async {
     final type = event['type']?.toString();
 
+    final from = (event['from'] ?? '').toString().trim();
+    final to = (event['to'] ?? '').toString().trim();
+
+    // Yalnızca beklenen peer ile ilgili dosya transfer sinyallerini kabul et.
+    if (from.isNotEmpty && from.toLowerCase() != peer.toLowerCase()) {
+      return;
+    }
+
+    if (to.isNotEmpty && to.toLowerCase() != me.toLowerCase()) {
+      return;
+    }
+
     if (type == 'fileTransferOffer') {
       final incomingId = event['transferId']?.toString();
       if (incomingId == null || incomingId.isEmpty) return;
 
+      // Aynı oturumda farklı bir transfer mevcutsa yeni offer'ı kabul etme.
+      if (_transferId != null &&
+          _transferId!.isNotEmpty &&
+          _transferId != incomingId) {
+        return;
+      }
       await _handleOffer(event);
       return;
     }
@@ -185,6 +212,7 @@ class FileTransfer {
 
     ws.send({
       'type': 'fileTransferAnswer',
+      'from': me,
       'to': peer,
       'transferId': _transferId,
       'sdp': {'type': answer.type, 'sdp': answer.sdp},
@@ -251,6 +279,9 @@ class FileTransfer {
         await _sink?.flush();
         await _sink?.close();
         _sink = null;
+
+        // Dosya alımı tamamlandı; sonraki transfer temiz state ile başlasın.
+        await _resetTransferState();
       }
     } catch (_) {}
   }
@@ -274,6 +305,22 @@ class FileTransfer {
     _outputFile = File.fromUri(path);
 
     return _outputFile!.openWrite();
+  }
+
+  Future<void> _resetTransferState() async {
+    await _sink?.flush();
+    await _sink?.close();
+    _sink = null;
+
+    _channel = null;
+    _pendingIce.clear();
+    _remoteDescriptionSet = false;
+    _transferId = null;
+    _fileName = null;
+
+    // Yeni transfer için mevcut PeerConnection yeniden oluşturulacak.
+    await _pc?.close();
+    _pc = null;
   }
 
   Future<void> dispose() async {

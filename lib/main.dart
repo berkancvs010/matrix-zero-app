@@ -7722,12 +7722,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           IconButton(
             tooltip: 'Sesli ara',
             onPressed: () {
+              final callId =
+                  '${DateTime.now().millisecondsSinceEpoch}-${widget.myNick}';
+
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => CallScreen(
                     myNick: widget.myNick,
                     targetNick: widget.targetNick,
                     outgoing: true,
+                    callId: callId,
                   ),
                 ),
               );
