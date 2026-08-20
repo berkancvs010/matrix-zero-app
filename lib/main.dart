@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:proximity_sensor/proximity_sensor.dart';
+import 'file_transfer.dart';
 
 const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
 final GlobalKey<NavigatorState> zeroLogNavigatorKey =
@@ -104,8 +105,7 @@ class ZeroLogPushService {
   static String? _currentToken;
   static bool _notificationsInitialized = false;
 
-  static Future<void> Function(Map<String, dynamic>)?
-      _incomingCallHandler;
+  static Future<void> Function(Map<String, dynamic>)? _incomingCallHandler;
 
   static String? get currentToken => _currentToken;
 
@@ -158,13 +158,9 @@ class ZeroLogPushService {
         'requestMiuiCallPermissionSetup',
       );
 
-      debugPrint(
-        '[PERMISSIONS] MIUI call permission setup result=$result',
-      );
+      debugPrint('[PERMISSIONS] MIUI call permission setup result=$result');
     } catch (e) {
-      debugPrint(
-        '[PERMISSIONS] MIUI call permission setup failed: $e',
-      );
+      debugPrint('[PERMISSIONS] MIUI call permission setup failed: $e');
     }
   }
 
@@ -174,13 +170,9 @@ class ZeroLogPushService {
         'requestFullScreenIntentPermission',
       );
 
-      debugPrint(
-        '[PERMISSIONS] full-screen intent granted=$granted',
-      );
+      debugPrint('[PERMISSIONS] full-screen intent granted=$granted');
     } catch (e) {
-      debugPrint(
-        '[PERMISSIONS] full-screen intent permission failed: $e',
-      );
+      debugPrint('[PERMISSIONS] full-screen intent permission failed: $e');
     }
   }
 
@@ -364,9 +356,7 @@ class ZeroLogPushService {
           }
         }
       } catch (e) {
-        debugPrint(
-          '[FCM][native-intent] incoming call callback failed: $e',
-        );
+        debugPrint('[FCM][native-intent] incoming call callback failed: $e');
       }
 
       return null;
@@ -576,7 +566,6 @@ class ZeroLogPushService {
     await cancelIncomingCallNotification();
     await clearPendingCall();
   }
-
 
   static Future<void> showPrivateMessageNotification(
     RemoteMessage message,
@@ -882,10 +871,7 @@ class ThemeController extends ChangeNotifier {
 class MiviThemeFrame extends StatelessWidget {
   final Widget child;
 
-  const MiviThemeFrame({
-    super.key,
-    required this.child,
-  });
+  const MiviThemeFrame({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -912,9 +898,7 @@ class MiviFlagBar extends StatelessWidget {
     return SizedBox(
       height: 30,
       width: double.infinity,
-      child: CustomPaint(
-        painter: _MiviFlagPainter(),
-      ),
+      child: CustomPaint(painter: _MiviFlagPainter()),
     );
   }
 }
@@ -926,15 +910,9 @@ class _MiviFlagPainter extends CustomPainter {
       ..color = const Color(0xFFD90429)
       ..style = PaintingStyle.fill;
 
-    canvas.drawRect(
-      Offset.zero & size,
-      red,
-    );
+    canvas.drawRect(Offset.zero & size, red);
 
-    final center = Offset(
-      size.width * 0.50,
-      size.height * 0.50,
-    );
+    final center = Offset(size.width * 0.50, size.height * 0.50);
 
     final radius = size.height * 0.34;
 
@@ -950,19 +928,13 @@ class _MiviFlagPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     canvas.drawCircle(
-      Offset(
-        center.dx + radius * 0.38,
-        center.dy - radius * 0.04,
-      ),
+      Offset(center.dx + radius * 0.38, center.dy - radius * 0.04),
       radius * 0.82,
       cutout,
     );
 
     // Minimal five-point star.
-    final starCenter = Offset(
-      center.dx + radius * 1.55,
-      center.dy,
-    );
+    final starCenter = Offset(center.dx + radius * 1.55, center.dy);
 
     final path = Path();
 
@@ -989,7 +961,6 @@ class _MiviFlagPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
-
 
 // ============================================================
 // APP
@@ -1091,22 +1062,15 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
           ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: BorderSide(
-              color: t.text.withValues(alpha: 0.07),
-            ),
+            borderSide: BorderSide(color: t.text.withValues(alpha: 0.07)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: BorderSide(
-              color: t.text.withValues(alpha: 0.07),
-            ),
+            borderSide: BorderSide(color: t.text.withValues(alpha: 0.07)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: BorderSide(
-              color: t.primary,
-              width: 1.5,
-            ),
+            borderSide: BorderSide(color: t.primary, width: 1.5),
           ),
           labelStyle: TextStyle(color: t.text.withValues(alpha: 0.55)),
           hintStyle: TextStyle(color: t.text.withValues(alpha: 0.35)),
@@ -1136,9 +1100,7 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
           surfaceTintColor: Colors.transparent,
           showDragHandle: true,
           shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(28),
-            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           ),
         ),
         filledButtonTheme: FilledButtonThemeData(
@@ -1160,9 +1122,7 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
           style: OutlinedButton.styleFrom(
             foregroundColor: t.secondary,
             minimumSize: const Size.fromHeight(50),
-            side: BorderSide(
-              color: t.secondary.withValues(alpha: 0.35),
-            ),
+            side: BorderSide(color: t.secondary.withValues(alpha: 0.35)),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(17),
             ),
@@ -1171,13 +1131,8 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
         chipTheme: ChipThemeData(
           backgroundColor: t.surface,
           selectedColor: t.primary.withValues(alpha: 0.12),
-          labelStyle: TextStyle(
-            color: t.text,
-            fontWeight: FontWeight.w700,
-          ),
-          side: BorderSide(
-            color: t.text.withValues(alpha: 0.07),
-          ),
+          labelStyle: TextStyle(color: t.text, fontWeight: FontWeight.w700),
+          side: BorderSide(color: t.text.withValues(alpha: 0.07)),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -1192,11 +1147,7 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
           surfaceTintColor: Colors.transparent,
           indicatorColor: t.primary.withValues(alpha: 0.12),
           labelTextStyle: WidgetStatePropertyAll(
-            TextStyle(
-              color: t.text,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
+            TextStyle(color: t.text, fontSize: 11, fontWeight: FontWeight.w700),
           ),
         ),
         floatingActionButtonTheme: FloatingActionButtonThemeData(
@@ -1221,9 +1172,7 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
         useMaterial3: true,
       ),
       builder: (context, child) {
-        return MiviThemeFrame(
-          child: child ?? const SizedBox.shrink(),
-        );
+        return MiviThemeFrame(child: child ?? const SizedBox.shrink());
       },
       home: const WelcomeScreen(),
     );
@@ -1574,10 +1523,7 @@ class WsClient {
     if (name.isEmpty || !connected || _channel == null) return;
 
     try {
-      _channel!.sink.add(jsonEncode({
-        'type': 'getProfile',
-        'username': name,
-      }));
+      _channel!.sink.add(jsonEncode({'type': 'getProfile', 'username': name}));
     } catch (_) {
       _handleConnectionLost();
     }
@@ -1805,7 +1751,6 @@ class WsClient {
                 final profiles = data['profiles'];
 
                 if (profiles is Map) {
-
                   for (final entry in profiles.entries) {
                     if (entry.value is Map) {
                       _userProfiles[entry.key.toString()] =
@@ -1816,9 +1761,7 @@ class WsClient {
               }
 
               if (data['type'] == 'profileUpdated') {
-                final name = (data['username'] ?? '')
-                    .toString()
-                    .trim();
+                final name = (data['username'] ?? '').toString().trim();
 
                 if (name.isNotEmpty) {
                   _userProfiles[name] = {
@@ -2786,19 +2729,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     47,
   ];
 
-  static const List<int> _profileAvatarCategoryCounts = [
-    10,
-    8,
-    8,
-    6,
-    6,
-    8,
-    4,
-  ];
+  static const List<int> _profileAvatarCategoryCounts = [10, 8, 8, 6, 6, 8, 4];
 
-  Future<void> _applyRemoteOwnProfile(
-    Map<String, dynamic> profile,
-  ) async {
+  Future<void> _applyRemoteOwnProfile(Map<String, dynamic> profile) async {
     final type = (profile['type'] ?? 'avatar').toString();
 
     final rawAvatar = profile['avatarId'];
@@ -2867,16 +2800,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final storedAvatar = prefs.getInt(_profileAvatarKey);
 
-    final storedPhotoData =
-        prefs.getString(_profilePhotoDataKey) ?? '';
+    final storedPhotoData = prefs.getString(_profilePhotoDataKey) ?? '';
 
     setState(() {
       _profilePhotoPath = prefs.getString(_profilePhotoKey);
       _profilePhotoData = storedPhotoData;
       _profileAvatarIndex =
           storedAvatar != null && storedAvatar >= 1 && storedAvatar <= 50
-              ? storedAvatar
-              : null;
+          ? storedAvatar
+          : null;
       _profileAbout = prefs.getString(_profileAboutKey) ?? '';
     });
   }
@@ -2900,10 +2832,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         );
       }
 
-      final jpg = img.encodeJpg(
-        decoded,
-        quality: 78,
-      );
+      final jpg = img.encodeJpg(decoded, quality: 78);
 
       if (jpg.length > 500000) {
         final smaller = img.copyResize(
@@ -2913,10 +2842,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           interpolation: img.Interpolation.average,
         );
 
-        final smallerJpg = img.encodeJpg(
-          smaller,
-          quality: 68,
-        );
+        final smallerJpg = img.encodeJpg(smaller, quality: 68);
 
         if (smallerJpg.length > 700000) {
           return null;
@@ -2949,9 +2875,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (photoData == null || photoData.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profil fotoğrafı hazırlanamadı.'),
-          ),
+          const SnackBar(content: Text('Profil fotoğrafı hazırlanamadı.')),
         );
       }
       return;
@@ -2997,9 +2921,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (photoData == null || photoData.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profil fotoğrafı hazırlanamadı.'),
-          ),
+          const SnackBar(content: Text('Profil fotoğrafı hazırlanamadı.')),
         );
       }
       return;
@@ -3047,10 +2969,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.auto_awesome_rounded,
-                        color: theme.primary,
-                      ),
+                      Icon(Icons.auto_awesome_rounded, color: theme.primary),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -3103,11 +3022,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             itemCount: count,
                             gridDelegate:
                                 const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 4,
-                              crossAxisSpacing: 10,
-                              mainAxisSpacing: 10,
-                              childAspectRatio: 1,
-                            ),
+                                  crossAxisCount: 4,
+                                  crossAxisSpacing: 10,
+                                  mainAxisSpacing: 10,
+                                  childAspectRatio: 1,
+                                ),
                             itemBuilder: (context, index) {
                               final avatarNumber = start + index;
                               final selected =
@@ -3598,8 +3517,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (profiles is Map) {
         for (final entry in profiles.entries) {
           if (entry.value is Map) {
-            parsedProfiles[entry.key.toString()] =
-                Map<String, dynamic>.from(entry.value as Map);
+            parsedProfiles[entry.key.toString()] = Map<String, dynamic>.from(
+              entry.value as Map,
+            );
           }
         }
       }
@@ -3626,8 +3546,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           final ownProfile = parsedProfiles.entries
               .where(
                 (entry) =>
-                    entry.key.toLowerCase() ==
-                    widget.nickname.toLowerCase(),
+                    entry.key.toLowerCase() == widget.nickname.toLowerCase(),
               )
               .map((entry) => entry.value)
               .firstOrNull;
@@ -3645,13 +3564,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       final users = raw is List
           ? raw
-              .map((e) => e.toString())
-              .where((e) => e.isNotEmpty)
-              .where(
-                (e) => e.toLowerCase() != widget.nickname.toLowerCase(),
-              )
-              .toSet()
-              .toList()
+                .map((e) => e.toString())
+                .where((e) => e.isNotEmpty)
+                .where((e) => e.toLowerCase() != widget.nickname.toLowerCase())
+                .toSet()
+                .toList()
           : <String>[];
 
       final parsedProfiles = <String, Map<String, dynamic>>{};
@@ -3659,8 +3576,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (profiles is Map) {
         for (final entry in profiles.entries) {
           if (entry.value is Map) {
-            parsedProfiles[entry.key.toString()] =
-                Map<String, dynamic>.from(entry.value as Map);
+            parsedProfiles[entry.key.toString()] = Map<String, dynamic>.from(
+              entry.value as Map,
+            );
           }
         }
       }
@@ -3678,22 +3596,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (type == 'profileRejected') {
-      final rejectedUsername =
-          (data['username'] ?? '').toString().trim().toLowerCase();
+      final rejectedUsername = (data['username'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
       if (rejectedUsername.isNotEmpty) {
         _profileFetchRequested.remove(rejectedUsername);
       }
     }
 
     if (type == 'profile') {
-      final username = (data['username'] ?? '')
-          .toString()
-          .trim();
+      final username = (data['username'] ?? '').toString().trim();
 
       if (username.isNotEmpty && mounted) {
         final profile = <String, dynamic>{
-          'type': (data['profileType'] ?? data['type'] ?? 'avatar')
-              .toString(),
+          'type': (data['profileType'] ?? data['type'] ?? 'avatar').toString(),
           'avatarId': data['avatarId'],
           'about': (data['about'] ?? '').toString(),
           'photoData': (data['photoData'] ?? '').toString(),
@@ -3706,8 +3623,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _profileFetchRequested.remove(username.toLowerCase());
         });
 
-        if (username.toLowerCase() ==
-            widget.nickname.toLowerCase()) {
+        if (username.toLowerCase() == widget.nickname.toLowerCase()) {
           await _applyRemoteOwnProfile(profile);
         }
       }
@@ -3716,9 +3632,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (type == 'profileUpdated') {
-      final username = (data['username'] ?? '')
-          .toString()
-          .trim();
+      final username = (data['username'] ?? '').toString().trim();
 
       if (username.isNotEmpty && mounted) {
         final profile = <String, dynamic>{
@@ -3735,8 +3649,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _profileFetchRequested.remove(username.toLowerCase());
         });
 
-        if (username.toLowerCase() ==
-            widget.nickname.toLowerCase()) {
+        if (username.toLowerCase() == widget.nickname.toLowerCase()) {
           await _applyRemoteOwnProfile(profile);
         }
       }
@@ -3926,7 +3839,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (!mounted || data == null) return;
 
-
     if ((data['type'] ?? '').toString() != 'privateMessage') return;
 
     final from = (data['from'] ?? data['sender'] ?? '').toString().trim();
@@ -3963,17 +3875,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _openIncomingCallFromNative(
-    Map<String, dynamic> data,
-  ) async {
+  Future<void> _openIncomingCallFromNative(Map<String, dynamic> data) async {
     if (!mounted) return;
 
     await _openIncomingCallData(data);
   }
 
-  Future<void> _openIncomingCallData(
-    Map<String, dynamic> data,
-  ) async {
+  Future<void> _openIncomingCallData(Map<String, dynamic> data) async {
     if (!mounted) return;
 
     final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
@@ -4077,17 +3985,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } else {
       final remoteProfile = _userProfiles.entries
           .where(
-            (entry) =>
-                entry.key.toLowerCase() == name.trim().toLowerCase(),
+            (entry) => entry.key.toLowerCase() == name.trim().toLowerCase(),
           )
           .map((entry) => entry.value)
           .firstOrNull;
 
-      remotePhotoData =
-          (remoteProfile?['photoData'] ?? '').toString().trim();
+      remotePhotoData = (remoteProfile?['photoData'] ?? '').toString().trim();
 
-      final remoteType =
-          (remoteProfile?['type'] ?? 'avatar').toString();
+      final remoteType = (remoteProfile?['type'] ?? 'avatar').toString();
 
       final normalizedName = name.trim().toLowerCase();
 
@@ -4121,13 +4026,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     MemoryImage? remotePhotoImage;
 
-    if (!isMyProfile &&
-        remotePhotoData != null &&
-        remotePhotoData.isNotEmpty) {
+    if (!isMyProfile && remotePhotoData != null && remotePhotoData.isNotEmpty) {
       try {
-        remotePhotoImage = MemoryImage(
-          base64Decode(remotePhotoData),
-        );
+        remotePhotoImage = MemoryImage(base64Decode(remotePhotoData));
       } catch (e) {
         debugPrint('[PROFILE] avatar photo decode failed: $e');
       }
@@ -4135,22 +4036,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final remoteProfile = !isMyProfile
         ? _userProfiles.entries
-            .where(
-              (entry) =>
-                  entry.key.toLowerCase() ==
-                  name.trim().toLowerCase(),
-            )
-            .map((entry) => entry.value)
-            .firstOrNull
+              .where(
+                (entry) => entry.key.toLowerCase() == name.trim().toLowerCase(),
+              )
+              .map((entry) => entry.value)
+              .firstOrNull
         : null;
 
-    final remoteType =
-        (remoteProfile?['type'] ?? 'avatar').toString();
+    final remoteType = (remoteProfile?['type'] ?? 'avatar').toString();
 
     final hasRemotePhoto =
-        !isMyProfile &&
-        remoteType == 'photo' &&
-        remotePhotoImage != null;
+        !isMyProfile && remoteType == 'photo' && remotePhotoImage != null;
 
     final hasAnimatedAvatar =
         !hasRemotePhoto &&
@@ -4165,10 +4061,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             child: SizedBox(
               width: 50,
               height: 50,
-              child: Image(
-                image: remotePhotoImage,
-                fit: BoxFit.cover,
-              ),
+              child: Image(image: remotePhotoImage, fit: BoxFit.cover),
             ),
           )
         else if (hasAnimatedAvatar)
@@ -4194,9 +4087,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     : null),
             child:
                 remotePhotoImage != null ||
-                        (profileFile != null && profileFile.existsSync())
-                    ? null
-                    : Text(
+                    (profileFile != null && profileFile.existsSync())
+                ? null
+                : Text(
                     letter,
                     style: TextStyle(
                       color: theme.primary,
@@ -4805,9 +4698,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
                 child: Row(
                   children: [
-                    _avatar(user, online: _onlineUsers.any(
-                      (u) => u.toLowerCase() == user.toLowerCase(),
-                    )),
+                    _avatar(
+                      user,
+                      online: _onlineUsers.any(
+                        (u) => u.toLowerCase() == user.toLowerCase(),
+                      ),
+                    ),
                     const SizedBox(width: 13),
                     Expanded(
                       child: Text(
@@ -4825,10 +4721,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
               ),
               ListTile(
-                leading: Icon(
-                  Icons.call_outlined,
-                  color: theme.primary,
-                ),
+                leading: Icon(Icons.call_outlined, color: theme.primary),
                 title: const Text('Ara'),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -4870,19 +4763,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final normalizedUser = user.trim().toLowerCase();
 
     Map<String, dynamic>? profile = _userProfiles.entries
-        .where(
-          (entry) => entry.key.toLowerCase() == normalizedUser,
-        )
+        .where((entry) => entry.key.toLowerCase() == normalizedUser)
         .map((entry) => entry.value)
         .firstOrNull;
 
     final knownType = (profile?['type'] ?? 'avatar').toString();
-    final knownPhoto =
-        (profile?['photoData'] ?? '').toString().trim();
+    final knownPhoto = (profile?['photoData'] ?? '').toString().trim();
 
     if (WsClient.instance.connected &&
-        (profile == null ||
-            (knownType == 'photo' && knownPhoto.isEmpty))) {
+        (profile == null || (knownType == 'photo' && knownPhoto.isEmpty))) {
       _profileFetchRequested.add(normalizedUser);
       WsClient.instance.requestProfile(user);
 
@@ -4892,16 +4781,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         if (!mounted) return;
 
         profile = _userProfiles.entries
-            .where(
-              (entry) => entry.key.toLowerCase() == normalizedUser,
-            )
+            .where((entry) => entry.key.toLowerCase() == normalizedUser)
             .map((entry) => entry.value)
             .firstOrNull;
 
         if (profile != null) {
           final type = (profile['type'] ?? 'avatar').toString();
-          final photo =
-              (profile['photoData'] ?? '').toString().trim();
+          final photo = (profile['photoData'] ?? '').toString().trim();
 
           if (type != 'photo' || photo.isNotEmpty) {
             break;
@@ -4955,15 +4841,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             child: SizedBox(
               width: 92,
               height: 92,
-              child: Image(
-                image: photoImage,
-                fit: BoxFit.cover,
-              ),
+              child: Image(image: photoImage, fit: BoxFit.cover),
             ),
           );
-        } else if (avatarId != null &&
-            avatarId >= 1 &&
-            avatarId <= 50) {
+        } else if (avatarId != null && avatarId >= 1 && avatarId <= 50) {
           avatar = ClipOval(
             child: SizedBox(
               width: 92,
@@ -5070,9 +4951,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           Navigator.pop(sheetContext);
                           _openPrivate(user);
                         },
-                        icon: const Icon(
-                          Icons.chat_bubble_outline_rounded,
-                        ),
+                        icon: const Icon(Icons.chat_bubble_outline_rounded),
                         label: const Text('Mesaj'),
                       ),
                     ),
@@ -5437,10 +5316,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   trailing: IconButton(
                     tooltip: 'Ara',
                     onPressed: () => _call(user),
-                    icon: Icon(
-                      Icons.call_outlined,
-                      color: theme.primary,
-                    ),
+                    icon: Icon(Icons.call_outlined, color: theme.primary),
                   ),
                 ),
               ),
@@ -5645,18 +5521,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             margin: const EdgeInsets.only(bottom: 4),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [
-                  Color(0xFFFFF0F2),
-                  Color(0xFFFFFFFF),
-                ],
+                colors: [Color(0xFFFFF0F2), Color(0xFFFFFFFF)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: Color(0xFFD90429),
-                width: 1,
-              ),
+              border: Border.all(color: Color(0xFFD90429), width: 1),
             ),
             child: Row(
               children: [
@@ -6875,7 +6745,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void initState() {
     super.initState();
 
-
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
     WsClient.instance.joinRoom(widget.roomName);
@@ -7176,6 +7045,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   final List<ChatMessage> _messages = [];
 
   late final StreamSubscription<Map<String, dynamic>> _subscription;
+  late final FileTransfer _fileTransfer;
 
   String get _historyCacheKey {
     final me = widget.myNick.trim().toLowerCase();
@@ -7281,6 +7151,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     super.initState();
 
     WsClient.instance.setActivePrivateChat(widget.targetNick);
+
+    _fileTransfer = FileTransfer(
+      ws: WsClient.instance,
+      me: widget.myNick,
+      peer: widget.targetNick,
+    );
+
+    unawaited(_fileTransfer.initialize());
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -7760,6 +7638,24 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     _controller.clear();
   }
 
+  Future<void> _sendFile() async {
+    try {
+      await _fileTransfer.sendFile();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Dosya gönderimi başlatıldı.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Dosya gönderilemedi: $e')));
+    }
+  }
+
   @override
   void dispose() {
     if (WsClient.instance.activePrivateChatPeer?.toLowerCase() ==
@@ -7771,6 +7667,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     _controller.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
+    _fileTransfer.dispose();
     super.dispose();
   }
 
@@ -7868,6 +7765,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           MessageInput(
             controller: _controller,
             onSend: _send,
+            onSendFile: _sendFile,
             focusNode: _messageFocusNode,
           ),
         ],
@@ -9042,12 +8940,15 @@ class _CallScreenState extends State<CallScreen> {
 class MessageInput extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
+  final Future<void> Function()? onSendFile;
+
   final FocusNode? focusNode;
 
   const MessageInput({
     super.key,
     required this.controller,
     required this.onSend,
+    this.onSendFile,
     this.focusNode,
   });
 
@@ -9095,6 +8996,19 @@ class _MessageInputState extends State<MessageInput> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (widget.onSendFile != null)
+                  ListTile(
+                    leading: Icon(
+                      Icons.attach_file_rounded,
+                      color: theme.primary,
+                    ),
+                    title: const Text('Dosya'),
+                    subtitle: const Text('Dosya seç ve gönder'),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      await widget.onSendFile!();
+                    },
+                  ),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(

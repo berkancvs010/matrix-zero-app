@@ -1650,6 +1650,35 @@ wss.on('connection',(ws)=>{
 
     break;
   }
+
+  case 'fileTransferOffer':
+  case 'fileTransferAnswer':
+  case 'fileTransferIce':{
+    if(!me)break;
+
+    const to=safeNick(d.to);
+    const transferId=String(d.transferId||'').trim();
+
+    if(!to||!transferId)break;
+
+    const targetKey=normalizeUsername(to);
+
+    const recipientName=[...sockets.keys()]
+      .find(nick=>normalizeUsername(nick)===targetKey);
+
+    const recipient=recipientName ? sockets.get(recipientName) : null;
+
+    // Sunucu yalnızca WebRTC signaling taşır.
+    // Dosya verisi kesinlikle sunucuya gönderilmez.
+    send(recipient,{
+      ...d,
+      from:me,
+      to,
+      transferId,
+    });
+
+    break;
+  }
  }
  });ws.on('close',()=>disconnect(ws));ws.on('error',()=>disconnect(ws));
 });
