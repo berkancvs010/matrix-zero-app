@@ -111,16 +111,34 @@ class FileTransfer {
     if (_disposed) return;
     if (_transferId != transferId) return;
 
-    _accepted = true;
+    try {
+      // Kayıt konumunu sender'a ACCEPT göndermeden önce seç.
+      // Böylece sender veri göndermeye başladığında receiver hazır olur.
+      if (!_nativeFileOpen) {
+        await _openOutput();
+      }
 
-    onIncomingStatus?.call(transferId: transferId, status: 'accepting');
+      _accepted = true;
 
-    ws.send({
-      'type': 'fileTransferAccept',
-      'from': me,
-      'to': peer,
-      'transferId': transferId,
-    });
+      onIncomingStatus?.call(
+        transferId: transferId,
+        status: 'accepting',
+      );
+
+      ws.send({
+        'type': 'fileTransferAccept',
+        'from': me,
+        'to': peer,
+        'transferId': transferId,
+      });
+    } catch (e) {
+      _accepted = false;
+
+      onIncomingStatus?.call(
+        transferId: transferId,
+        status: 'failed',
+      );
+    }
   }
 
   Future<void> rejectIncoming(String transferId) async {
@@ -193,19 +211,34 @@ class FileTransfer {
 
     if (channel == null || transferId == null) return;
 
+    final raf = await file.open();
+
     try {
-      await for (final chunk in file.openRead()) {
+      // WebRTC DataChannel mesaj boyutunu küçük tut.
+      // 16 KB, farklı Android/WebRTC SCTP sınırlarında güvenli
+      // bir dosya transfer parçasıdır.
+      const chunkSize = 16 * 1024;
+
+      while (true) {
         if (_disposed || _transferId != transferId) return;
 
-        final bytes = Uint8List.fromList(chunk);
+        final bytes = await raf.read(chunkSize);
+
+        if (bytes.isEmpty) break;
 
         while (await channel.getBufferedAmount() > 4 * 1024 * 1024) {
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await Future<void>.delayed(
+            const Duration(milliseconds: 20),
+          );
 
           if (_disposed || _transferId != transferId) return;
         }
 
-        channel.send(RTCDataChannelMessage.fromBinary(bytes));
+        await channel.send(
+          RTCDataChannelMessage.fromBinary(
+            Uint8List.fromList(bytes),
+          ),
+        );
 
         _sentBytes += bytes.length;
 
@@ -217,8 +250,10 @@ class FileTransfer {
         );
       }
 
-      channel.send(
-        RTCDataChannelMessage('{"type":"file-end","transferId":"$transferId"}'),
+      await channel.send(
+        RTCDataChannelMessage(
+          '{"type":"file-end","transferId":"$transferId"}',
+        ),
       );
 
       onProgress?.call(
@@ -234,6 +269,8 @@ class FileTransfer {
         totalBytes: _fileSize,
         status: 'failed',
       );
+    } finally {
+      await raf.close();
     }
   }
 

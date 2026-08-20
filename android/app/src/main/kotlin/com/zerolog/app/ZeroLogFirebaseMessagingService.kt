@@ -195,6 +195,10 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                     showMessageNotification(message)
                 }
             }
+
+            "privateFileMessage" -> {
+                showFileNotification(message)
+            }
         }
     }
 
@@ -499,6 +503,101 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             "Incoming call state cleared after matching callStatus " +
                 "callId=$callId"
         )
+    }
+
+    private fun showFileNotification(message: RemoteMessage) {
+        val sender = (
+            message.data["sender"]
+                ?: message.data["from"]
+                ?: "ZeroLog"
+        ).trim()
+
+        val fileName = (
+            message.data["fileName"]
+                ?: "Dosya"
+        ).trim()
+
+        val fileSize = (
+            message.data["fileSize"]
+                ?: "0"
+        ).trim()
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = "zerolog.message"
+            flags =
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+
+            putExtra("from", sender)
+            putExtra(
+                "to",
+                (
+                    message.data["recipient"]
+                        ?: message.data["to"]
+                        ?: ""
+                ).trim()
+            )
+            putExtra(
+                "text",
+                "Dosya: $fileName ($fileSize bayt)"
+            )
+            putExtra(
+                "id",
+                message.data["messageId"]?.trim().orEmpty()
+            )
+            putExtra(
+                "clientMessageId",
+                message.data["clientMessageId"]?.trim().orEmpty()
+            )
+        }
+
+        val notificationId = messageNotificationId(message)
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(
+            this,
+            MESSAGE_CHANNEL_ID
+        )
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle(sender)
+            .setContentText("Dosya gönderdi: $fileName")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setVibrate(longArrayOf(0, 250, 150, 250))
+            .setSound(
+                Uri.parse(
+                    "android.resource://${packageName}/${R.raw.zerolog_message}"
+                )
+            )
+
+        try {
+            NotificationManagerCompat.from(this).notify(
+                notificationId,
+                builder.build()
+            )
+        } catch (e: SecurityException) {
+            android.util.Log.e(
+                "ZeroLogFCM",
+                "File notification permission denied",
+                e
+            )
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFCM",
+                "File notification failed",
+                e
+            )
+        }
     }
 
     private fun messageNotificationId(message: RemoteMessage): Int {

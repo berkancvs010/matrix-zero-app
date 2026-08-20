@@ -6751,6 +6751,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _applyAutoFocusPreference();
   }
 
+
   Future<void> _applyAutoFocusPreference() async {
     final prefs = await SharedPreferences.getInstance();
     final autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
@@ -7045,6 +7046,59 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   final List<ChatMessage> _messages = [];
 
   late final StreamSubscription<Map<String, dynamic>> _subscription;
+
+  Future<void> _showIncomingFileOffer({
+    required String transferId,
+    required String fileName,
+    required int fileSize,
+    required String sender,
+  }) async {
+    if (!mounted) return;
+
+    final theme = ThemeController.instance.data;
+
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final sizeMb = fileSize / (1024 * 1024);
+
+        return AlertDialog(
+          backgroundColor: theme.surface,
+          title: const Text('Gelen dosya'),
+          content: Text(
+            '$sender size bir dosya gönderiyor.\n\n'
+            'Dosya: $fileName\n'
+            'Boyut: ${sizeMb.toStringAsFixed(2)} MB',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('Reddet'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('Kabul et'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    if (accepted != true) {
+      await _fileTransfer.rejectIncoming(transferId);
+      return;
+    }
+
+    await _fileTransfer.acceptIncoming(transferId);
+  }
+
   late final FileTransfer _fileTransfer;
 
   String get _historyCacheKey {
@@ -7156,6 +7210,41 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       ws: WsClient.instance,
       me: widget.myNick,
       peer: widget.targetNick,
+      onIncomingOffer: ({
+        required String transferId,
+        required String fileName,
+        required int fileSize,
+        required String sender,
+      }) {
+        unawaited(
+          _showIncomingFileOffer(
+            transferId: transferId,
+            fileName: fileName,
+            fileSize: fileSize,
+            sender: sender,
+          ),
+        );
+      },
+      onIncomingStatus: ({
+        required String transferId,
+        required String status,
+      }) {
+        if (!mounted) return;
+
+        if (status == 'completed') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Dosya başarıyla alındı.'),
+            ),
+          );
+        } else if (status == 'failed') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Dosya transferi başarısız oldu.'),
+            ),
+          );
+        }
+      },
     );
 
     unawaited(_fileTransfer.initialize());
