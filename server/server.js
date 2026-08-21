@@ -801,6 +801,23 @@ wss.on('connection',(ws)=>{
 
     send(ws,{type:'authenticated',username:account.username});
 
+    // WebRTC file transfer için TURN bilgilerini client'a gönder.
+    // Credential kaynak kodda tutulmaz; process environment'dan alınır.
+    const turnUser = String(process.env.ZEROLOG_TURN_USER || '').trim();
+    const turnPass = String(process.env.ZEROLOG_TURN_PASS || '');
+
+    if(turnUser && turnPass){
+      send(ws,{
+        type:'turnCredentials',
+        username:turnUser,
+        credential:turnPass,
+        urls:[
+          'turn:92.5.38.220:3478?transport=udp',
+          'turn:92.5.38.220:3478?transport=tcp',
+        ],
+      });
+    }
+
     send(ws,{
       type:'privacySettings',
       presenceVisible:account.presenceVisible!==false,

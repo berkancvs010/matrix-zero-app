@@ -1450,6 +1450,12 @@ class WsClient {
   String? password;
   bool connected = false;
 
+  String? turnUsername;
+  String? turnPassword;
+  List<String> turnUrls = const [];
+
+  final Completer<void> turnCredentialsReady = Completer<void>();
+
   // Aktif özel sohbet. Bildirim/mesaj akışının aynı sohbet ekranıyla
   // yarışmasını önlemek için merkezi olarak tutulur.
   String? _activePrivateChatPeer;
@@ -1679,6 +1685,29 @@ class WsClient {
 
             if (decoded is Map) {
               final data = Map<String, dynamic>.from(decoded);
+
+              if (data['type'] == 'turnCredentials') {
+                turnUsername = (data['username'] ?? '').toString().trim();
+                turnPassword = (data['credential'] ?? '').toString();
+
+                final rawUrls = data['urls'];
+
+                if (rawUrls is List) {
+                  turnUrls = rawUrls
+                      .map((e) => e.toString().trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+                }
+
+                if (!turnCredentialsReady.isCompleted &&
+                    turnUsername != null &&
+                    turnUsername!.isNotEmpty &&
+                    turnPassword != null &&
+                    turnPassword!.isNotEmpty &&
+                    turnUrls.isNotEmpty) {
+                  turnCredentialsReady.complete();
+                }
+              }
 
               if (data['type'] == 'authenticated') {
                 final authenticatedName = (data['username'] ?? username ?? '')
@@ -7210,6 +7239,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       ws: WsClient.instance,
       me: widget.myNick,
       peer: widget.targetNick,
+      turnUsername: WsClient.instance.turnUsername,
+      turnPassword: WsClient.instance.turnPassword,
+      turnUrls: WsClient.instance.turnUrls,
       onIncomingOffer: ({
         required String transferId,
         required String fileName,
@@ -7247,7 +7279,28 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       },
     );
 
-    unawaited(_fileTransfer.initialize());
+      // TURN bilgileri hazır olmadan PeerConnection oluşturma.
+      unawaited(() async {
+        final client = WsClient.instance;
+
+        try {
+          if (!client.turnCredentialsReady.isCompleted) {
+            await client.turnCredentialsReady.future.timeout(
+              const Duration(seconds: 10),
+            );
+          }
+        } catch (_) {
+          // TURN alınamazsa STUN fallback kullanılacak.
+        }
+
+        if (!mounted) return;
+
+        _fileTransfer.turnUsername = client.turnUsername;
+        _fileTransfer.turnPassword = client.turnPassword;
+        _fileTransfer.turnUrls = List<String>.from(client.turnUrls);
+
+        await _fileTransfer.initialize();
+      }());
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -7745,6 +7798,40 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
   }
 
+  Future<void> _sendPhoto(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 88,
+      );
+
+      if (picked == null) return;
+
+      await _fileTransfer.sendFile(
+        sourceFile: File(picked.path),
+        sourceFileName: picked.name,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fotoğraf gönderimi başlatıldı.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fotoğraf gönderilemedi: $e')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     if (WsClient.instance.activePrivateChatPeer?.toLowerCase() ==
@@ -7859,6 +7946,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             controller: _controller,
             onSend: _send,
             onSendFile: _sendFile,
+            onSendPhoto: (source) => _sendPhoto(source),
             focusNode: _messageFocusNode,
           ),
         ],
@@ -9034,6 +9122,7 @@ class MessageInput extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   final Future<void> Function()? onSendFile;
+  final Future<void> Function(ImageSource source)? onSendPhoto;
 
   final FocusNode? focusNode;
 
@@ -9042,6 +9131,7 @@ class MessageInput extends StatefulWidget {
     required this.controller,
     required this.onSend,
     this.onSendFile,
+    this.onSendPhoto,
     this.focusNode,
   });
 
@@ -9114,43 +9204,36 @@ class _MessageInputState extends State<MessageInput> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                ListTile(
-                  leading: Icon(
-                    Icons.photo_library_outlined,
-                    color: theme.primary,
+                if (widget.onSendPhoto != null)
+                  ListTile(
+                    leading: Icon(
+                      Icons.photo_library_outlined,
+                      color: theme.primary,
+                    ),
+                    title: const Text('Galeri'),
+                    subtitle: const Text(
+                      'Galeriden fotoğraf seç ve gönder',
+                    ),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      await widget.onSendPhoto?.call(
+                        ImageSource.gallery,
+                      );
+                    },
                   ),
-                  title: const Text('Galeri'),
-                  subtitle: const Text('Galeriden fotoğraf seç'),
-                  onTap: () async {
-                    Navigator.pop(sheetContext);
-
-                    final picker = ImagePicker();
-
-                    await picker.pickImage(
-                      source: ImageSource.gallery,
-                      maxWidth: 1600,
-                      maxHeight: 1600,
-                      imageQuality: 88,
-                    );
-                  },
-                ),
                 ListTile(
                   leading: Icon(
                     Icons.camera_alt_outlined,
                     color: theme.primary,
                   ),
                   title: const Text('Kamera'),
-                  subtitle: const Text('Kamera ile fotoğraf çek'),
+                  subtitle: const Text(
+                    'Kamera ile fotoğraf çek ve gönder',
+                  ),
                   onTap: () async {
                     Navigator.pop(sheetContext);
-
-                    final picker = ImagePicker();
-
-                    await picker.pickImage(
-                      source: ImageSource.camera,
-                      maxWidth: 1600,
-                      maxHeight: 1600,
-                      imageQuality: 88,
+                    await widget.onSendPhoto?.call(
+                      ImageSource.camera,
                     );
                   },
                 ),

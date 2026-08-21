@@ -685,6 +685,24 @@ class MainActivity : FlutterActivity() {
                       result.success(closeIncomingFile())
                   }
 
+                  "getTurnUsername" -> {
+                      result.success(
+                          getSharedPreferences(
+                              "zerolog_turn",
+                              MODE_PRIVATE
+                          ).getString("username", "")
+                      )
+                  }
+
+                  "getTurnPassword" -> {
+                      result.success(
+                          getSharedPreferences(
+                              "zerolog_turn",
+                              MODE_PRIVATE
+                          ).getString("password", "")
+                      )
+                  }
+
 "getIncomingCallIntent" -> {
                     // Cold start + notification tap + singleTop/onNewIntent
                     // durumlarının tamamında aynı pending-call kaynağını kullan.

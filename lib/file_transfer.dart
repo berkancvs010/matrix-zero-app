@@ -53,6 +53,7 @@ class FileTransfer {
   bool _disposed = false;
 
   final List<RTCIceCandidate> _pendingIce = [];
+  final List<RTCIceCandidate> _pendingLocalIce = [];
   bool _remoteDescriptionSet = false;
 
   void _diag(String message) {
@@ -76,13 +77,28 @@ class FileTransfer {
     await _createPeer();
   }
 
-  Future<void> sendFile() async {
-    final files = await FilePicker.pickFiles();
+  Future<void> sendFile({
+    File? sourceFile,
+    String? sourceFileName,
+  }) async {
+    File file;
+    String fileName;
 
-    if (files.isEmpty || files.first.path == null) return;
+    if (sourceFile != null) {
+      file = sourceFile;
+      fileName = sourceFileName?.trim().isNotEmpty == true
+          ? sourceFileName!.trim()
+          : 'file';
+    } else {
+      final files = await FilePicker.pickFiles();
 
-    final selected = files.first;
-    final file = File(selected.path!);
+      if (files.isEmpty || files.first.path == null) return;
+
+      final selected = files.first;
+      file = File(selected.path!);
+      fileName = selected.name;
+    }
+
     final size = await file.length();
 
     if (size <= 0) {
@@ -96,8 +112,10 @@ class FileTransfer {
     final transferId = '${DateTime.now().microsecondsSinceEpoch}-$me';
 
     _transferId = transferId;
-    _fileName = selected.name;
+    _fileName = fileName;
     _fileSize = size;
+
+    await _flushLocalIce();
     _sentBytes = 0;
     _sendingFile = file;
     _sending = false;
@@ -307,6 +325,7 @@ class FileTransfer {
     await _pc?.close();
 
     _pendingIce.clear();
+    _pendingLocalIce.clear();
     _remoteDescriptionSet = false;
 
     final iceServers = <Map<String, dynamic>>[
@@ -355,23 +374,18 @@ class FileTransfer {
     };
 
     _pc!.onIceCandidate = (candidate) {
-      final transferId = _transferId;
-
-      if (candidate.candidate == null || transferId == null) {
+      if (candidate.candidate == null) {
         return;
       }
 
-      ws.send({
-        'type': 'fileTransferIce',
-        'from': me,
-        'to': peer,
-        'transferId': transferId,
-        'candidate': {
-          'candidate': candidate.candidate,
-          'sdpMid': candidate.sdpMid,
-          'sdpMLineIndex': candidate.sdpMLineIndex,
-        },
-      });
+      final transferId = _transferId;
+
+      if (transferId == null) {
+        _pendingLocalIce.add(candidate);
+        return;
+      }
+
+      _sendLocalIceCandidate(candidate, transferId);
     };
 
     _pc!.onDataChannel = (channel) {
@@ -407,6 +421,29 @@ class FileTransfer {
 
     final from = (event['from'] ?? '').toString().trim();
     final to = (event['to'] ?? '').toString().trim();
+
+    if (type == 'turnCredentials') {
+      final username = (event['username'] ?? '').toString().trim();
+      final credential = (event['credential'] ?? '').toString();
+      final rawUrls = event['urls'];
+
+      if (username.isNotEmpty &&
+          credential.isNotEmpty &&
+          rawUrls is List) {
+        final urls = rawUrls
+            .map((value) => value.toString().trim())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false);
+
+        if (urls.isNotEmpty) {
+          turnUsername = username;
+          turnPassword = credential;
+          turnUrls = urls;
+        }
+      }
+
+      return;
+    }
 
     if (from.isNotEmpty && from.toLowerCase() != peer.toLowerCase()) {
       return;
@@ -483,6 +520,8 @@ class FileTransfer {
     await _createPeer();
 
     _transferId = incomingId;
+    await _flushLocalIce();
+
     _fileName = event['fileName']?.toString() ?? 'received_file';
 
     final rawSize = event['fileSize'];
@@ -550,6 +589,38 @@ class FileTransfer {
     _remoteDescriptionSet = true;
 
     await _flushPendingIce();
+  }
+
+  void _sendLocalIceCandidate(
+    RTCIceCandidate candidate,
+    String transferId,
+  ) {
+    ws.send({
+      'type': 'fileTransferIce',
+      'from': me,
+      'to': peer,
+      'transferId': transferId,
+      'candidate': {
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
+      },
+    });
+  }
+
+  Future<void> _flushLocalIce() async {
+    final transferId = _transferId;
+
+    if (transferId == null || transferId.isEmpty) {
+      return;
+    }
+
+    final pending = List<RTCIceCandidate>.from(_pendingLocalIce);
+    _pendingLocalIce.clear();
+
+    for (final candidate in pending) {
+      _sendLocalIceCandidate(candidate, transferId);
+    }
   }
 
   Future<void> _handleIce(Map<String, dynamic> event) async {
@@ -703,6 +774,7 @@ class FileTransfer {
 
     _channel = null;
     _pendingIce.clear();
+    _pendingLocalIce.clear();
     _remoteDescriptionSet = false;
 
     _transferId = null;
@@ -741,6 +813,7 @@ class FileTransfer {
     _pc = null;
 
     _pendingIce.clear();
+    _pendingLocalIce.clear();
     _remoteDescriptionSet = false;
 
     _transferId = null;
