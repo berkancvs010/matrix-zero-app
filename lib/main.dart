@@ -6780,7 +6780,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _applyAutoFocusPreference();
   }
 
-
   Future<void> _applyAutoFocusPreference() async {
     final prefs = await SharedPreferences.getInstance();
     final autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
@@ -7136,6 +7135,89 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     return 'zerolog.private_history.$me.$peer';
   }
 
+  void _upsertFileMessage({
+    required String transferId,
+    required String sender,
+    required String fileName,
+    required int fileSize,
+    required int transferBytes,
+    required String status,
+  }) {
+    if (!mounted || transferId.isEmpty) return;
+
+    final index = _messages.indexWhere(
+      (message) => message.isFile && message.fileId == transferId,
+    );
+
+    final existing = index >= 0 ? _messages[index] : null;
+
+    final message = ChatMessage(
+      id: transferId,
+      sender: sender,
+      text: fileName.isEmpty ? 'Dosya' : fileName,
+      clientMessageId: transferId,
+      status: status,
+      isFile: true,
+      fileId: transferId,
+      fileName: fileName.isEmpty ? (existing?.fileName ?? 'Dosya') : fileName,
+      fileSize: fileSize > 0 ? fileSize : (existing?.fileSize ?? 0),
+      transferBytes: transferBytes,
+    );
+
+    setState(() {
+      if (index >= 0) {
+        _messages[index] = message;
+      } else {
+        _messages.add(message);
+      }
+    });
+
+    // Dosya aktarımı sırasında onProgress her 16 KB parçada gelebilir.
+    // Her parçayı SharedPreferences'a yazmak gereksiz I/O oluşturur.
+    // Cache'i yalnızca anlamlı durum geçişlerinde güncelle.
+    const cacheStatuses = {
+      'waiting',
+      'connecting',
+      'completed',
+      'failed',
+      'rejected',
+      'incoming',
+      'accepting',
+    };
+
+    if (cacheStatuses.contains(status)) {
+      unawaited(_saveHistoryCache());
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
+  }
+
+  void _updateFileMessageStatus(String transferId, String status) {
+    if (!mounted || transferId.isEmpty) return;
+
+    final index = _messages.indexWhere(
+      (message) => message.isFile && message.fileId == transferId,
+    );
+
+    if (index < 0) return;
+
+    final current = _messages[index];
+
+    setState(() {
+      _messages[index] = current.copyWith(
+        status: status,
+        transferBytes: status == 'completed'
+            ? current.fileSize
+            : current.transferBytes,
+      );
+    });
+
+    unawaited(_saveHistoryCache());
+  }
+
   Map<String, dynamic> _messageToJson(ChatMessage message) {
     return {
       'id': message.id,
@@ -7143,6 +7225,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       'text': message.text,
       'clientMessageId': message.clientMessageId,
       'status': message.status,
+      'isFile': message.isFile,
+      'fileId': message.fileId,
+      'fileName': message.fileName,
+      'fileSize': message.fileSize,
+      'transferBytes': message.transferBytes,
     };
   }
 
@@ -7161,6 +7248,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       text: text,
       clientMessageId: (map['clientMessageId'] ?? '').toString(),
       status: (map['status'] ?? 'stored').toString(),
+      isFile: map['isFile'] == true,
+      fileId: (map['fileId'] ?? '').toString(),
+      fileName: (map['fileName'] ?? '').toString(),
+      fileSize: map['fileSize'] is num
+          ? (map['fileSize'] as num).toInt()
+          : int.tryParse((map['fileSize'] ?? '').toString()) ?? 0,
+      transferBytes: map['transferBytes'] is num
+          ? (map['transferBytes'] as num).toInt()
+          : int.tryParse((map['transferBytes'] ?? '').toString()) ?? 0,
     );
   }
 
@@ -7242,65 +7338,102 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       turnUsername: WsClient.instance.turnUsername,
       turnPassword: WsClient.instance.turnPassword,
       turnUrls: WsClient.instance.turnUrls,
-      onIncomingOffer: ({
-        required String transferId,
-        required String fileName,
-        required int fileSize,
-        required String sender,
-      }) {
-        unawaited(
-          _showIncomingFileOffer(
-            transferId: transferId,
-            fileName: fileName,
-            fileSize: fileSize,
-            sender: sender,
-          ),
-        );
-      },
-      onIncomingStatus: ({
-        required String transferId,
-        required String status,
-      }) {
+      onProgress:
+          ({
+            required String transferId,
+            required int sentBytes,
+            required int totalBytes,
+            required String status,
+          }) {
+            final existingIndex = _messages.indexWhere(
+              (message) => message.isFile && message.fileId == transferId,
+            );
+
+            final existing = existingIndex >= 0
+                ? _messages[existingIndex]
+                : null;
+
+            final fileName = existing?.fileName.isNotEmpty == true
+                ? existing!.fileName
+                : (_fileTransfer.currentFileName ?? 'Dosya');
+
+            final sender = existing?.sender.isNotEmpty == true
+                ? existing!.sender
+                : widget.myNick;
+
+            _upsertFileMessage(
+              transferId: transferId,
+              sender: sender,
+              fileName: fileName,
+              fileSize: totalBytes,
+              transferBytes: sentBytes,
+              status: status,
+            );
+          },
+      onIncomingOffer:
+          ({
+            required String transferId,
+            required String fileName,
+            required int fileSize,
+            required String sender,
+          }) {
+            _upsertFileMessage(
+              transferId: transferId,
+              sender: sender,
+              fileName: fileName,
+              fileSize: fileSize,
+              transferBytes: 0,
+              status: 'incoming',
+            );
+
+            unawaited(
+              _showIncomingFileOffer(
+                transferId: transferId,
+                fileName: fileName,
+                fileSize: fileSize,
+                sender: sender,
+              ),
+            );
+          },
+      onIncomingStatus: ({required String transferId, required String status}) {
         if (!mounted) return;
+
+        _updateFileMessageStatus(transferId, status);
 
         if (status == 'completed') {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Dosya başarıyla alındı.'),
-            ),
+            const SnackBar(content: Text('Dosya başarıyla alındı.')),
           );
         } else if (status == 'failed') {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Dosya transferi başarısız oldu.'),
-            ),
+            const SnackBar(content: Text('Dosya transferi başarısız oldu.')),
           );
         }
       },
     );
 
-      // TURN bilgileri hazır olmadan PeerConnection oluşturma.
-      unawaited(() async {
-        final client = WsClient.instance;
+    // TURN bilgileri hazır olmadan PeerConnection oluşturma.
+    unawaited(() async {
+      final client = WsClient.instance;
 
-        try {
-          if (!client.turnCredentialsReady.isCompleted) {
-            await client.turnCredentialsReady.future.timeout(
-              const Duration(seconds: 10),
-            );
-          }
-        } catch (_) {
-          // TURN alınamazsa STUN fallback kullanılacak.
+      try {
+        if (!client.turnCredentialsReady.isCompleted) {
+          await client.turnCredentialsReady.future.timeout(
+            const Duration(seconds: 10),
+          );
         }
+      } catch (_) {
+        // TURN alınamazsa STUN fallback kullanılacak.
+      }
 
-        if (!mounted) return;
+      if (!mounted) return;
 
-        _fileTransfer.turnUsername = client.turnUsername;
-        _fileTransfer.turnPassword = client.turnPassword;
-        _fileTransfer.turnUrls = List<String>.from(client.turnUrls);
+      _fileTransfer.turnUsername = client.turnUsername;
+      _fileTransfer.turnPassword = client.turnPassword;
+      _fileTransfer.turnUrls = List<String>.from(client.turnUrls);
 
-        await _fileTransfer.initialize();
-      }());
+      await _fileTransfer.initialize();
+    }());
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -7367,7 +7500,22 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           final messageId = (map['id'] ?? '').toString();
           final clientMessageId = (map['clientMessageId'] ?? '').toString();
           final sender = (map['sender'] ?? map['from'] ?? '').toString();
-          final text = (map['text'] ?? '').toString();
+
+          final isFile =
+              map['isFile'] == true ||
+              map['type']?.toString() == 'privateFileMessage';
+
+          final fileId = (map['fileId'] ?? '').toString();
+          final fileName = (map['fileName'] ?? '').toString();
+
+          final rawFileSize = map['fileSize'];
+          final fileSize = rawFileSize is num
+              ? rawFileSize.toInt()
+              : int.tryParse(rawFileSize?.toString() ?? '') ?? 0;
+
+          final text = isFile
+              ? (fileName.isNotEmpty ? fileName : 'Dosya')
+              : (map['text'] ?? '').toString();
 
           if (text.isEmpty) continue;
 
@@ -7397,7 +7545,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             sender: sender,
             text: text,
             clientMessageId: clientMessageId,
-            status: messageStatus,
+            status: isFile ? 'stored' : messageStatus,
+            isFile: isFile,
+            fileId: isFile ? (fileId.isNotEmpty ? fileId : messageId) : '',
+            fileName: isFile ? (fileName.isNotEmpty ? fileName : 'Dosya') : '',
+            fileSize: isFile ? fileSize : 0,
+            transferBytes: 0,
           );
 
           final existingIndex = _messages.indexWhere(
@@ -7648,6 +7801,86 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       return;
     }
 
+    if (data['type'] == 'privateFileMessage') {
+      final sender = (data['sender'] ?? data['from'] ?? '').toString();
+      final target = (data['to'] ?? data['target'] ?? '').toString();
+
+      final isFromPeer =
+          sender.toLowerCase() == widget.targetNick.toLowerCase();
+      final isFromMe = sender.toLowerCase() == widget.myNick.toLowerCase();
+
+      final validPeerTarget =
+          target.isEmpty || target.toLowerCase() == widget.myNick.toLowerCase();
+
+      final validSelfTarget =
+          target.isEmpty ||
+          target.toLowerCase() == widget.targetNick.toLowerCase();
+
+      final validTarget = isFromMe ? validSelfTarget : validPeerTarget;
+
+      if ((!isFromPeer && !isFromMe) || !validTarget) {
+        return;
+      }
+
+      final messageId = (data['id'] ?? '').toString();
+      final clientMessageId = (data['clientMessageId'] ?? '').toString();
+      final fileId = (data['fileId'] ?? '').toString();
+      final fileName = (data['fileName'] ?? '').toString();
+      final rawFileSize = data['fileSize'];
+      final fileSize = rawFileSize is num
+          ? rawFileSize.toInt()
+          : int.tryParse(rawFileSize?.toString() ?? '') ?? 0;
+
+      if (fileId.isEmpty || fileName.isEmpty || fileSize <= 0) {
+        return;
+      }
+
+      final existingIndex = _messages.indexWhere(
+        (message) => message.isFile && message.fileId == fileId,
+      );
+
+      final existing = existingIndex >= 0 ? _messages[existingIndex] : null;
+
+      final transferStatus =
+          existing == null ||
+              existing.status == 'stored' ||
+              existing.status == 'read' ||
+              existing.status == 'delivered'
+          ? 'stored'
+          : existing.status;
+
+      final transferBytes = existing?.transferBytes ?? 0;
+
+      _upsertFileMessage(
+        transferId: fileId,
+        sender: sender,
+        fileName: fileName,
+        fileSize: fileSize,
+        transferBytes: transferBytes,
+        status: transferStatus,
+      );
+
+      // Dosya mesajı sunucuya kaydedildi ve aktif sohbet açık.
+      // Karşı tarafın mesajını teslim edilmiş/okunmuş olarak işaretle.
+      if (isFromPeer) {
+        WsClient.instance.send({
+          'type': 'messageDelivered',
+          'from': sender,
+          'messageId': messageId,
+          'clientMessageId': clientMessageId,
+        });
+
+        WsClient.instance.send({
+          'type': 'messageRead',
+          'from': sender,
+          'messageId': messageId,
+          'clientMessageId': clientMessageId,
+        });
+      }
+
+      return;
+    }
+
     if (data['type'] == 'privateMessage') {
       final sender = (data['sender'] ?? data['from'] ?? '').toString();
 
@@ -7782,7 +8015,18 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   Future<void> _sendFile() async {
     try {
-      await _fileTransfer.sendFile();
+      final transferId = await _fileTransfer.sendFile();
+
+      if (transferId == null || transferId.isEmpty) return;
+
+      WsClient.instance.send({
+        'type': 'privateFileMessage',
+        'to': widget.targetNick,
+        'fileId': transferId,
+        'fileName': _fileTransfer.currentFileName ?? 'Dosya',
+        'fileSize': _fileTransfer.currentFileSize,
+        'clientMessageId': transferId,
+      });
 
       if (!mounted) return;
 
@@ -7811,24 +8055,33 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       if (picked == null) return;
 
-      await _fileTransfer.sendFile(
+      final transferId = await _fileTransfer.sendFile(
         sourceFile: File(picked.path),
         sourceFileName: picked.name,
       );
 
+      if (transferId == null || transferId.isEmpty) return;
+
+      WsClient.instance.send({
+        'type': 'privateFileMessage',
+        'to': widget.targetNick,
+        'fileId': transferId,
+        'fileName': _fileTransfer.currentFileName ?? picked.name,
+        'fileSize': _fileTransfer.currentFileSize,
+        'clientMessageId': transferId,
+      });
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Fotoğraf gönderimi başlatıldı.'),
-        ),
+        const SnackBar(content: Text('Fotoğraf gönderimi başlatıldı.')),
       );
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fotoğraf gönderilemedi: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Fotoğraf gönderilemedi: $e')));
     }
   }
 
@@ -8039,6 +8292,122 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
+  String _formatFileSize(int bytes) {
+    if (bytes <= 0) return 'Boyut bilinmiyor';
+
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+    }
+
+    if (bytes >= 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+
+    return '$bytes B';
+  }
+
+  String _fileStatusText(ChatMessage message) {
+    switch (message.status) {
+      case 'waiting':
+        return 'Gönderim bekliyor';
+      case 'connecting':
+        return 'Bağlanıyor…';
+      case 'transferring':
+        if (message.fileSize > 0) {
+          final percent = ((message.transferBytes / message.fileSize) * 100)
+              .clamp(0, 100)
+              .round();
+          return 'Gönderiliyor • %$percent';
+        }
+        return 'Gönderiliyor…';
+      case 'incoming':
+        return 'Gelen dosya';
+      case 'accepting':
+        return 'Kabul ediliyor…';
+      case 'completed':
+        return 'Tamamlandı';
+      case 'failed':
+        return 'Transfer başarısız';
+      case 'rejected':
+        return 'Reddedildi';
+      default:
+        return message.status;
+    }
+  }
+
+  Widget _fileMessageContent(
+    ChatMessage message, {
+    required bool mine,
+    required ZeroLogThemeData theme,
+  }) {
+    final status = _fileStatusText(message);
+
+    return Container(
+      constraints: const BoxConstraints(minWidth: 220, maxWidth: 285),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: theme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: theme.primary.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: theme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              Icons.insert_drive_file_rounded,
+              color: theme.primary,
+              size: 23,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message.fileName.isEmpty ? message.text : message.fileName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatFileSize(message.fileSize),
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.50),
+                    fontSize: 10.5,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  status,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: theme.primary,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _modernMessageBubble(
     ChatMessage message, {
     required bool mine,
@@ -8075,10 +8444,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               ),
               const SizedBox(height: 3),
             ],
-            Text(
-              message.text,
-              style: TextStyle(color: theme.text, fontSize: 14, height: 1.35),
-            ),
+            if (message.isFile)
+              _fileMessageContent(message, mine: mine, theme: theme)
+            else
+              Text(
+                message.text,
+                style: TextStyle(color: theme.text, fontSize: 14, height: 1.35),
+              ),
             if (mine && message.status.isNotEmpty) ...[
               const SizedBox(height: 3),
               Icon(
@@ -9211,14 +9583,10 @@ class _MessageInputState extends State<MessageInput> {
                       color: theme.primary,
                     ),
                     title: const Text('Galeri'),
-                    subtitle: const Text(
-                      'Galeriden fotoğraf seç ve gönder',
-                    ),
+                    subtitle: const Text('Galeriden fotoğraf seç ve gönder'),
                     onTap: () async {
                       Navigator.pop(sheetContext);
-                      await widget.onSendPhoto?.call(
-                        ImageSource.gallery,
-                      );
+                      await widget.onSendPhoto?.call(ImageSource.gallery);
                     },
                   ),
                 ListTile(
@@ -9227,14 +9595,10 @@ class _MessageInputState extends State<MessageInput> {
                     color: theme.primary,
                   ),
                   title: const Text('Kamera'),
-                  subtitle: const Text(
-                    'Kamera ile fotoğraf çek ve gönder',
-                  ),
+                  subtitle: const Text('Kamera ile fotoğraf çek ve gönder'),
                   onTap: () async {
                     Navigator.pop(sheetContext);
-                    await widget.onSendPhoto?.call(
-                      ImageSource.camera,
-                    );
+                    await widget.onSendPhoto?.call(ImageSource.camera);
                   },
                 ),
                 ListTile(
@@ -9429,12 +9793,24 @@ class ChatMessage {
   final String clientMessageId;
   final String status;
 
+  // Dosya mesajı metadata
+  final bool isFile;
+  final String fileId;
+  final String fileName;
+  final int fileSize;
+  final int transferBytes;
+
   const ChatMessage({
     required this.id,
     required this.sender,
     required this.text,
     this.clientMessageId = '',
     this.status = 'sending',
+    this.isFile = false,
+    this.fileId = '',
+    this.fileName = '',
+    this.fileSize = 0,
+    this.transferBytes = 0,
   });
 
   ChatMessage copyWith({
@@ -9443,6 +9819,11 @@ class ChatMessage {
     String? text,
     String? clientMessageId,
     String? status,
+    bool? isFile,
+    String? fileId,
+    String? fileName,
+    int? fileSize,
+    int? transferBytes,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -9450,6 +9831,11 @@ class ChatMessage {
       text: text ?? this.text,
       clientMessageId: clientMessageId ?? this.clientMessageId,
       status: status ?? this.status,
+      isFile: isFile ?? this.isFile,
+      fileId: fileId ?? this.fileId,
+      fileName: fileName ?? this.fileName,
+      fileSize: fileSize ?? this.fileSize,
+      transferBytes: transferBytes ?? this.transferBytes,
     );
   }
 }

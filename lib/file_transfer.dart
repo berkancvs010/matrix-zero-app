@@ -6,8 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 class FileTransfer {
-  static const MethodChannel _systemChannel =
-      MethodChannel('zerolog/system');
+  static const MethodChannel _systemChannel = MethodChannel('zerolog/system');
   final dynamic ws;
   final String me;
   final String peer;
@@ -52,6 +51,17 @@ class FileTransfer {
   bool _accepted = false;
   bool _disposed = false;
 
+  /// Aktif transferin ID'si.
+  String? get currentTransferId => _transferId;
+
+  /// Aktif transferin dosya adı.
+  /// PrivateChatScreen, onProgress callback'i sırasında bu bilgiyi
+  /// UI mesajına aktarabilmek için kullanır.
+  String? get currentFileName => _fileName;
+
+  /// Aktif transferin toplam dosya boyutu.
+  int get currentFileSize => _fileSize;
+
   final List<RTCIceCandidate> _pendingIce = [];
   final List<RTCIceCandidate> _pendingLocalIce = [];
   bool _remoteDescriptionSet = false;
@@ -77,10 +87,7 @@ class FileTransfer {
     await _createPeer();
   }
 
-  Future<void> sendFile({
-    File? sourceFile,
-    String? sourceFileName,
-  }) async {
+  Future<String?> sendFile({File? sourceFile, String? sourceFileName}) async {
     File file;
     String fileName;
 
@@ -92,7 +99,7 @@ class FileTransfer {
     } else {
       final files = await FilePicker.pickFiles();
 
-      if (files.isEmpty || files.first.path == null) return;
+      if (files.isEmpty || files.first.path == null) return null;
 
       final selected = files.first;
       file = File(selected.path!);
@@ -135,6 +142,8 @@ class FileTransfer {
       'fileName': _fileName,
       'fileSize': size,
     });
+
+    return transferId;
   }
 
   Future<void> acceptIncoming(String transferId) async {
@@ -150,10 +159,7 @@ class FileTransfer {
 
       _accepted = true;
 
-      onIncomingStatus?.call(
-        transferId: transferId,
-        status: 'accepting',
-      );
+      onIncomingStatus?.call(transferId: transferId, status: 'accepting');
 
       ws.send({
         'type': 'fileTransferAccept',
@@ -164,10 +170,7 @@ class FileTransfer {
     } catch (e) {
       _accepted = false;
 
-      onIncomingStatus?.call(
-        transferId: transferId,
-        status: 'failed',
-      );
+      onIncomingStatus?.call(transferId: transferId, status: 'failed');
     }
   }
 
@@ -273,17 +276,13 @@ class FileTransfer {
         if (bytes.isEmpty) break;
 
         while (await channel.getBufferedAmount() > 4 * 1024 * 1024) {
-          await Future<void>.delayed(
-            const Duration(milliseconds: 20),
-          );
+          await Future<void>.delayed(const Duration(milliseconds: 20));
 
           if (_disposed || _transferId != transferId) return;
         }
 
         await channel.send(
-          RTCDataChannelMessage.fromBinary(
-            Uint8List.fromList(bytes),
-          ),
+          RTCDataChannelMessage.fromBinary(Uint8List.fromList(bytes)),
         );
 
         _sentBytes += bytes.length;
@@ -297,9 +296,7 @@ class FileTransfer {
       }
 
       await channel.send(
-        RTCDataChannelMessage(
-          '{"type":"file-end","transferId":"$transferId"}',
-        ),
+        RTCDataChannelMessage('{"type":"file-end","transferId":"$transferId"}'),
       );
 
       onProgress?.call(
@@ -330,10 +327,7 @@ class FileTransfer {
 
     final iceServers = <Map<String, dynamic>>[
       {
-        'urls': [
-          'stun:stun.l.google.com:19302',
-          'stun:92.5.38.220:3478',
-        ],
+        'urls': ['stun:stun.l.google.com:19302', 'stun:92.5.38.220:3478'],
       },
     ];
 
@@ -427,9 +421,7 @@ class FileTransfer {
       final credential = (event['credential'] ?? '').toString();
       final rawUrls = event['urls'];
 
-      if (username.isNotEmpty &&
-          credential.isNotEmpty &&
-          rawUrls is List) {
+      if (username.isNotEmpty && credential.isNotEmpty && rawUrls is List) {
         final urls = rawUrls
             .map((value) => value.toString().trim())
             .where((value) => value.isNotEmpty)
@@ -591,10 +583,7 @@ class FileTransfer {
     await _flushPendingIce();
   }
 
-  void _sendLocalIceCandidate(
-    RTCIceCandidate candidate,
-    String transferId,
-  ) {
+  void _sendLocalIceCandidate(RTCIceCandidate candidate, String transferId) {
     ws.send({
       'type': 'fileTransferIce',
       'from': me,
@@ -689,10 +678,7 @@ class FileTransfer {
           status: 'transferring',
         );
       } catch (_) {
-        onIncomingStatus?.call(
-          transferId: transferId,
-          status: 'failed',
-        );
+        onIncomingStatus?.call(transferId: transferId, status: 'failed');
       }
 
       return;
@@ -718,10 +704,7 @@ class FileTransfer {
             status: 'completed',
           );
 
-          onIncomingStatus?.call(
-            transferId: transferId,
-            status: 'completed',
-          );
+          onIncomingStatus?.call(transferId: transferId, status: 'completed');
         } else {
           onProgress?.call(
             transferId: transferId,
@@ -730,10 +713,7 @@ class FileTransfer {
             status: 'failed',
           );
 
-          onIncomingStatus?.call(
-            transferId: transferId,
-            status: 'failed',
-          );
+          onIncomingStatus?.call(transferId: transferId, status: 'failed');
         }
 
         await _resetTransferState();
@@ -749,9 +729,7 @@ class FileTransfer {
 
     final result = await _systemChannel.invokeMethod<dynamic>(
       'requestIncomingFileSave',
-      <String, dynamic>{
-        'fileName': safeName,
-      },
+      <String, dynamic>{'fileName': safeName},
     );
 
     if (result == null) {
@@ -764,9 +742,7 @@ class FileTransfer {
   Future<void> _resetTransferState() async {
     if (_nativeFileOpen) {
       try {
-        await _systemChannel.invokeMethod<bool>(
-          'closeIncomingFile',
-        );
+        await _systemChannel.invokeMethod<bool>('closeIncomingFile');
       } catch (_) {}
 
       _nativeFileOpen = false;
@@ -798,9 +774,7 @@ class FileTransfer {
 
     if (_nativeFileOpen) {
       try {
-        await _systemChannel.invokeMethod<bool>(
-          'closeIncomingFile',
-        );
+        await _systemChannel.invokeMethod<bool>('closeIncomingFile');
       } catch (_) {}
 
       _nativeFileOpen = false;
@@ -826,5 +800,4 @@ class FileTransfer {
     _sending = false;
     _accepted = false;
   }
-
 }
