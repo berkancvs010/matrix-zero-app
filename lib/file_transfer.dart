@@ -12,6 +12,10 @@ class FileTransfer {
   final String me;
   final String peer;
 
+  String? turnUsername;
+  String? turnPassword;
+  List<String> turnUrls;
+
   final void Function({
     required String transferId,
     required int sentBytes,
@@ -51,10 +55,18 @@ class FileTransfer {
   final List<RTCIceCandidate> _pendingIce = [];
   bool _remoteDescriptionSet = false;
 
+  void _diag(String message) {
+    // ignore: avoid_print
+    print('[FILE_TRANSFER] $message');
+  }
+
   FileTransfer({
     required this.ws,
     required this.me,
     required this.peer,
+    this.turnUsername,
+    this.turnPassword,
+    this.turnUrls = const [],
     this.onProgress,
     this.onIncomingOffer,
     this.onIncomingStatus,
@@ -167,6 +179,8 @@ class FileTransfer {
 
     _sending = true;
 
+    _diag('CREATE_DATA_CHANNEL transfer=$transferId');
+
     final channel = await _pc!.createDataChannel(
       'file-$transferId',
       RTCDataChannelInit()..ordered = true,
@@ -174,18 +188,32 @@ class FileTransfer {
 
     _channel = channel;
 
+    _diag('DATA_CHANNEL_CREATED label=${channel.label}');
+
     channel.onDataChannelState = (state) {
+      _diag('OUTGOING_DATA_CHANNEL: $state');
+
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
+        _diag('DATA_CHANNEL_OPEN -> SEND_START');
         unawaited(_sendFileBytes(file));
       }
     };
+
+    _diag('CREATE_OFFER');
 
     final offer = await _pc!.createOffer({
       'offerToReceiveAudio': 0,
       'offerToReceiveVideo': 0,
     });
 
+    _diag(
+      'OFFER_CREATED '
+      'type=${offer.type} sdpLength=${offer.sdp?.length ?? 0}',
+    );
+
     await _pc!.setLocalDescription(offer);
+
+    _diag('LOCAL_DESCRIPTION_SET');
 
     ws.send({
       'type': 'fileTransferOffer',
@@ -281,11 +309,50 @@ class FileTransfer {
     _pendingIce.clear();
     _remoteDescriptionSet = false;
 
+    final iceServers = <Map<String, dynamic>>[
+      {
+        'urls': [
+          'stun:stun.l.google.com:19302',
+          'stun:92.5.38.220:3478',
+        ],
+      },
+    ];
+
+    if (turnUsername != null &&
+        turnUsername!.isNotEmpty &&
+        turnPassword != null &&
+        turnPassword!.isNotEmpty &&
+        turnUrls.isNotEmpty) {
+      iceServers.add({
+        'urls': turnUrls,
+        'username': turnUsername,
+        'credential': turnPassword,
+      });
+    }
+
     _pc = await createPeerConnection({
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-      ],
+      'iceServers': iceServers,
+      'iceTransportPolicy': 'all',
     });
+
+    // WebRTC bağlantı teşhisi.
+    // ignore: avoid_print
+    print('[FILE_TRANSFER] PEER_CREATED');
+
+    _pc!.onIceGatheringState = (state) {
+      // ignore: avoid_print
+      print('[FILE_TRANSFER] ICE_GATHERING: $state');
+    };
+
+    _pc!.onIceConnectionState = (state) {
+      // ignore: avoid_print
+      print('[FILE_TRANSFER] ICE_CONNECTION: $state');
+    };
+
+    _pc!.onConnectionState = (state) {
+      // ignore: avoid_print
+      print('[FILE_TRANSFER] PEER_CONNECTION: $state');
+    };
 
     _pc!.onIceCandidate = (candidate) {
       final transferId = _transferId;
@@ -308,9 +375,24 @@ class FileTransfer {
     };
 
     _pc!.onDataChannel = (channel) {
+      _diag(
+        'INCOMING_DATA_CHANNEL '
+        'label=${channel.label}',
+      );
+
       _channel = channel;
 
+      channel.onDataChannelState = (state) {
+        _diag('INCOMING_DATA_CHANNEL_STATE: $state');
+      };
+
       channel.onMessage = (message) {
+        _diag(
+          'INCOMING_DATA '
+          'binary=${message.isBinary} '
+          'size=${message.isBinary ? message.binary.length : message.text.length}',
+        );
+
         unawaited(_receiveChunk(message));
       };
     };
