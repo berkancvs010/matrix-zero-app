@@ -567,7 +567,18 @@ class MainActivity : FlutterActivity() {
         val clientMessageId =
             incomingIntent.getStringExtra("clientMessageId")?.trim().orEmpty()
 
-        if (from.isEmpty() || text.isEmpty()) return
+        val fileId =
+            incomingIntent.getStringExtra("fileId")?.trim().orEmpty()
+        val fileName =
+            incomingIntent.getStringExtra("fileName")?.trim().orEmpty()
+        val fileSize =
+            incomingIntent.getStringExtra("fileSize")?.trim().orEmpty()
+
+        if (from.isEmpty()) return
+
+        // Normal mesaj veya dosya bildirimi.
+        // Dosya bildiriminde text zorunlu değildir.
+        if (text.isEmpty() && fileId.isEmpty()) return
 
         getSharedPreferences("zerolog_native_message", MODE_PRIVATE)
             .edit()
@@ -576,6 +587,17 @@ class MainActivity : FlutterActivity() {
             .putString("text", text)
             .putString("id", id)
             .putString("clientMessageId", clientMessageId)
+            .putString("fileId", fileId)
+            .putString("fileName", fileName)
+            .putString("fileSize", fileSize)
+            .putString(
+                "type",
+                if (fileId.isNotEmpty()) {
+                    "privateFileMessage"
+                } else {
+                    "privateMessage"
+                }
+            )
             .apply()
     }
 
@@ -758,6 +780,11 @@ class MainActivity : FlutterActivity() {
                     val prefs =
                         getSharedPreferences("zerolog_native_message", MODE_PRIVATE)
 
+                    val type =
+                        prefs.getString("type", "privateMessage")
+                            ?.trim()
+                            .orEmpty()
+
                     val from = prefs.getString("from", "")?.trim().orEmpty()
                     val to = prefs.getString("to", "")?.trim().orEmpty()
                     val text = prefs.getString("text", "")?.trim().orEmpty()
@@ -765,18 +792,40 @@ class MainActivity : FlutterActivity() {
                     val clientMessageId =
                         prefs.getString("clientMessageId", "")?.trim().orEmpty()
 
+                    val fileId =
+                        prefs.getString("fileId", "")?.trim().orEmpty()
+                    val fileName =
+                        prefs.getString("fileName", "")?.trim().orEmpty()
+                    val fileSize =
+                        prefs.getString("fileSize", "")?.trim().orEmpty()
+
+                    val isFile = type == "privateFileMessage"
+
+                    val valid = from.isNotEmpty() &&
+                        if (isFile) {
+                            fileId.isNotEmpty()
+                        } else {
+                            text.isNotEmpty()
+                        }
+
                     val data =
-                        if (from.isNotEmpty() && text.isNotEmpty()) {
+                        if (valid) {
                             prefs.edit().clear().apply()
 
-                            mapOf(
-                                "type" to "privateMessage",
-                                "from" to from,
-                                "to" to to,
-                                "text" to text,
-                                "id" to id,
-                                "clientMessageId" to clientMessageId,
-                            )
+                            buildMap<String, Any> {
+                                put("type", type)
+                                put("from", from)
+                                put("to", to)
+                                put("text", text)
+                                put("id", id)
+                                put("clientMessageId", clientMessageId)
+
+                                if (isFile) {
+                                    put("fileId", fileId)
+                                    put("fileName", fileName)
+                                    put("fileSize", fileSize)
+                                }
+                            }
                         } else {
                             null
                         }

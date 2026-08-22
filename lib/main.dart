@@ -413,10 +413,14 @@ class ZeroLogPushService {
     if (nativeMessage is Map) {
       final data = Map<String, dynamic>.from(nativeMessage);
 
-      if (data['type'] == 'privateMessage') {
+      if (data['type'] == 'privateMessage' ||
+          data['type'] == 'privateFileMessage') {
         await storeNotificationPayload(jsonEncode(data));
 
-        debugPrint('[FCM][native-message] pending private message stored');
+        debugPrint(
+          '[FCM][native-message] pending notification stored '
+          'type=${data['type']}',
+        );
       }
     }
 
@@ -3382,6 +3386,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   final Set<String> _handledCallIds = <String>{};
 
+  // Bildirimden açılan dosya transferinin sohbet ekranına taşınan bilgileri.
+  Map<String, dynamic>? _pendingFileNotification;
+
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
 
   late final StreamSubscription<Map<String, dynamic>> _subscription;
@@ -3868,7 +3875,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (!mounted || data == null) return;
 
-    if ((data['type'] ?? '').toString() != 'privateMessage') return;
+    final type = (data['type'] ?? '').toString();
+
+    if (type != 'privateMessage' && type != 'privateFileMessage') {
+      return;
+    }
 
     final from = (data['from'] ?? data['sender'] ?? '').toString().trim();
     final to = (data['to'] ?? data['target'] ?? '').toString().trim();
@@ -3879,29 +3890,65 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if (from.toLowerCase() == widget.nickname.toLowerCase()) return;
+    if (from.toLowerCase() == widget.nickname.toLowerCase()) {
+      return;
+    }
 
-    // Kullanıcı zaten bu kişiyle özel sohbet ekranındaysa,
-    // bekleyen eski bildirimin aynı sohbeti tekrar açmasını engelle.
     final activePeer = WsClient.instance.activePrivateChatPeer;
 
     if (activePeer != null &&
         activePeer.trim().isNotEmpty &&
         activePeer.trim().toLowerCase() == from.toLowerCase()) {
       debugPrint(
-        '[FCM] pending private message open suppressed: '
+        '[FCM] pending notification open suppressed: '
         'active chat with $from',
       );
       return;
     }
 
-    // Bildirimde gönderen rumuz kesin olarak hedef sohbetin kendisidir.
+    if (type == 'privateFileMessage') {
+      final fileId = (data['fileId'] ?? '').toString().trim();
+      final fileName = (data['fileName'] ?? 'Dosya').toString().trim();
+      final rawFileSize = data['fileSize'];
+
+      final fileSize = rawFileSize is num
+          ? rawFileSize.toInt()
+          : int.tryParse(rawFileSize?.toString() ?? '') ?? 0;
+
+      if (fileId.isEmpty || fileName.isEmpty || fileSize <= 0) {
+        debugPrint(
+          '[FCM] invalid pending file notification '
+          'fileId=$fileId fileName=$fileName fileSize=$fileSize',
+        );
+        return;
+      }
+
+      _pendingFileNotification = <String, dynamic>{
+        'type': 'privateFileMessage',
+        'from': from,
+        'to': to,
+        'id': (data['id'] ?? '').toString(),
+        'clientMessageId': (data['clientMessageId'] ?? '').toString(),
+        'fileId': fileId,
+        'fileName': fileName,
+        'fileSize': fileSize,
+      };
+    }
+
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            PrivateChatScreen(myNick: widget.nickname, targetNick: from),
+        builder: (_) => PrivateChatScreen(
+          myNick: widget.nickname,
+          targetNick: from,
+          pendingFileNotification: type == 'privateFileMessage'
+              ? _pendingFileNotification
+              : null,
+        ),
       ),
     );
+
+    // Route'a aktarıldıktan sonra parent state'teki referansı temizle.
+    _pendingFileNotification = null;
   }
 
   Future<void> _openIncomingCallFromNative(Map<String, dynamic> data) async {
@@ -7053,11 +7100,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 class PrivateChatScreen extends StatefulWidget {
   final String myNick;
   final String targetNick;
+  final Map<String, dynamic>? pendingFileNotification;
 
   const PrivateChatScreen({
     super.key,
     required this.myNick,
     required this.targetNick,
+    this.pendingFileNotification,
   });
 
   @override
@@ -7128,6 +7177,57 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   late final FileTransfer _fileTransfer;
+
+  Future<void> _openPendingFileNotification() async {
+    final data = widget.pendingFileNotification;
+
+    if (!mounted || data == null) return;
+
+    final transferId = (data['fileId'] ?? '').toString().trim();
+    final fileName = (data['fileName'] ?? 'Dosya').toString().trim();
+    final sender = (data['from'] ?? '').toString().trim();
+
+    final rawFileSize = data['fileSize'];
+    final fileSize = rawFileSize is num
+        ? rawFileSize.toInt()
+        : int.tryParse(rawFileSize?.toString() ?? '') ?? 0;
+
+    if (transferId.isEmpty ||
+        fileName.isEmpty ||
+        sender.isEmpty ||
+        fileSize <= 0) {
+      return;
+    }
+
+    // Normal socket event'i uygulama açıldıktan sonra zaten geldiyse
+    // ikinci kez dialog açma.
+    if (_fileTransfer.currentTransferId != transferId) {
+      final prepared = await _fileTransfer.prepareIncomingFromNotification(
+        transferId: transferId,
+        fileName: fileName,
+        fileSize: fileSize,
+        sender: sender,
+      );
+
+      if (!prepared || !mounted) return;
+    }
+
+    _upsertFileMessage(
+      transferId: transferId,
+      sender: sender,
+      fileName: fileName,
+      fileSize: fileSize,
+      transferBytes: 0,
+      status: 'incoming',
+    );
+
+    await _showIncomingFileOffer(
+      transferId: transferId,
+      fileName: fileName,
+      fileSize: fileSize,
+      sender: sender,
+    );
+  }
 
   String get _historyCacheKey {
     final me = widget.myNick.trim().toLowerCase();
@@ -7457,6 +7557,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
 
     _applyAutoFocusPreference();
+
+    if (widget.pendingFileNotification != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        unawaited(_openPendingFileNotification());
+      });
+    }
   }
 
   Future<void> _applyAutoFocusPreference() async {

@@ -251,6 +251,72 @@ class FileTransfer {
     return transferId;
   }
 
+  /// Bildirimden açılan dosya transferi için alıcı state'ini
+  /// yeniden oluşturur.
+  ///
+  /// Uygulama kapalıyken ilk metadata fileTransferOffer event'i
+  /// kaçırılmış olabilir. Bildirim zaten transferId/fileName/fileSize
+  /// taşıdığı için WebRTC transfer state'i burada yeniden hazırlanır.
+  Future<bool> prepareIncomingFromNotification({
+    required String transferId,
+    required String fileName,
+    required int fileSize,
+    required String sender,
+  }) async {
+    if (_disposed || transferId.trim().isEmpty) return false;
+
+    final normalizedId = transferId.trim();
+
+    // Socket event'i zaten gelip transfer hazırlanmışsa tekrar oluşturma.
+    if (_transferId == normalizedId) {
+      return true;
+    }
+
+    // Farklı bir aktif transfer varsa mevcut transferi ezme.
+    if (_transferId != null &&
+        _transferId!.isNotEmpty &&
+        _transferId != normalizedId) {
+      return false;
+    }
+
+    try {
+      await _resetTransferState();
+      await _createPeer();
+
+      _transferId = normalizedId;
+      _fileName = fileName.trim().isEmpty ? 'received_file' : fileName.trim();
+      _fileSize = fileSize > 0 ? fileSize : 0;
+
+      if (_fileSize <= 0) {
+        await _resetTransferState();
+        return false;
+      }
+
+      _receivedBytes = 0;
+      _accepted = false;
+
+      await _flushLocalIce();
+
+      _diag(
+        'INCOMING_NOTIFICATION_PREPARED '
+        'transfer=$normalizedId '
+        'file=$_fileName '
+        'size=$_fileSize '
+        'sender=$sender',
+      );
+
+      return true;
+    } catch (e) {
+      _diag(
+        'INCOMING_NOTIFICATION_PREPARE_FAILED '
+        'transfer=$normalizedId error=$e',
+      );
+
+      await _resetTransferState();
+      return false;
+    }
+  }
+
   Future<void> acceptIncoming(String transferId) async {
     if (_disposed) return;
     if (_transferId != transferId) return;
@@ -416,13 +482,15 @@ class FileTransfer {
       // file-end yalnızca gönderimin bittiğini bildirir.
       // Receiver gerçek dosya boyutunu doğrulayıp native stream'i
       // kapattıktan sonra fileTransferComplete gönderir.
+      // ACK bekleme durumu file-end GÖNDERİLMEDEN önce aktif edilmeli.
+      // Receiver çok hızlı şekilde completion gönderebilir.
+      _awaitingCompletionAck = true;
+
       await channel.send(
         RTCDataChannelMessage(
           '{"type":"file-end","transferId":"$transferId","size":$_fileSize}',
         ),
       );
-
-      _awaitingCompletionAck = true;
 
       onProgress?.call(
         transferId: transferId,

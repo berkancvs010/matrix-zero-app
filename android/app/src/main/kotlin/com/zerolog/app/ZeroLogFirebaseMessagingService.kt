@@ -550,6 +550,18 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 "clientMessageId",
                 message.data["clientMessageId"]?.trim().orEmpty()
             )
+            putExtra(
+                "fileId",
+                message.data["fileId"]?.trim().orEmpty()
+            )
+            putExtra(
+                "fileName",
+                fileName
+            )
+            putExtra(
+                "fileSize",
+                fileSize
+            )
         }
 
         val notificationId = messageNotificationId(message)
