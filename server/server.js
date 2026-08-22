@@ -1765,7 +1765,9 @@ wss.on('connection',(ws)=>{
   case 'fileTransferAnswer':
   case 'fileTransferIce':
   case 'fileTransferAccept':
-  case 'fileTransferReject':{
+  case 'fileTransferReject':
+  case 'fileTransferComplete':
+  case 'fileTransferFailed':{
     if(!me)break;
 
     const to=safeNick(d.to);
