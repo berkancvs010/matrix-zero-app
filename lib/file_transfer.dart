@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 
 import 'package:file_picker/file_picker.dart';
@@ -74,6 +75,9 @@ class FileTransfer {
 
   // Aynı terminal event'in iki kez işlenmesini engeller.
   bool _terminalEventHandled = false;
+
+  String? _sourceSha256;
+  String? _remoteSha256;
 
   /// Aktif transferin ID'si.
   String? get currentTransferId => _transferId;
@@ -231,6 +235,10 @@ class FileTransfer {
     _sentBytes = 0;
     _sendingFile = file;
     _sending = false;
+
+    // Transfer başlamadan önce kaynak dosyanın SHA-256 değerini hesapla.
+    _sourceSha256 = await _calculateFileSha256(file);
+    _remoteSha256 = null;
 
     onProgress?.call(
       transferId: transferId,
@@ -488,7 +496,12 @@ class FileTransfer {
 
       await channel.send(
         RTCDataChannelMessage(
-          '{"type":"file-end","transferId":"$transferId","size":$_fileSize}',
+          jsonEncode({
+            'type': 'file-end',
+            'transferId': transferId,
+            'size': _fileSize,
+            'sha256': _sourceSha256,
+          }),
         ),
       );
 
@@ -960,6 +973,9 @@ class FileTransfer {
     final declaredSize =
         int.tryParse(control['size']?.toString() ?? '') ?? _fileSize;
 
+    final declaredSha256 =
+        control['sha256']?.toString().trim().toLowerCase() ?? '';
+
     try {
       if (declaredSize != _fileSize) {
         throw StateError('Gönderici dosya boyutu uyuşmuyor.');
@@ -981,7 +997,35 @@ class FileTransfer {
         throw StateError('Dosya kayıt akışı kapatılamadı.');
       }
 
-      // Artık dosya gerçekten diske yazıldı ve kapatıldı.
+      if (declaredSha256.isEmpty) {
+        throw StateError('Gönderici SHA-256 göndermedi.');
+      }
+
+      final receivedSha256 = await _systemChannel.invokeMethod<String>(
+        'getIncomingFileSha256',
+      );
+
+      if (receivedSha256 == null || receivedSha256.isEmpty) {
+        throw StateError('Alınan dosyanın SHA-256 değeri hesaplanamadı.');
+      }
+
+      final normalizedReceivedSha256 = receivedSha256.trim().toLowerCase();
+
+      if (normalizedReceivedSha256 != declaredSha256) {
+        _diag(
+          'CHECKSUM_MISMATCH '
+          'transfer=$transferId '
+          'expected=$declaredSha256 '
+          'actual=$normalizedReceivedSha256',
+        );
+
+        throw StateError('SHA-256 doğrulaması başarısız.');
+      }
+
+      _remoteSha256 = normalizedReceivedSha256;
+
+      // Artık dosya gerçekten diske yazıldı, kapatıldı
+      // ve SHA-256 ile doğrulandı.
       // Ancak bundan SONRA sender'a completion ACK gönderiyoruz.
       ws.send({
         'type': 'fileTransferComplete',
@@ -989,6 +1033,7 @@ class FileTransfer {
         'to': peer,
         'transferId': transferId,
         'fileSize': _receivedBytes,
+        'sha256': _remoteSha256,
       });
 
       onProgress?.call(
@@ -1027,8 +1072,17 @@ class FileTransfer {
     _awaitingCompletionAck = false;
 
     final remoteSize = int.tryParse(event['fileSize']?.toString() ?? '') ?? 0;
+    final remoteSha256 = event['sha256']?.toString().trim().toLowerCase() ?? '';
 
-    if (remoteSize != _fileSize) {
+    if (remoteSize != _fileSize ||
+        remoteSha256.isEmpty ||
+        remoteSha256 != (_sourceSha256 ?? '').toLowerCase()) {
+      _diag(
+        'REMOTE_CHECKSUM_MISMATCH '
+        'transfer=$transferId '
+        'local=${_sourceSha256 ?? ''} '
+        'remote=$remoteSha256',
+      );
       onProgress?.call(
         transferId: transferId,
         sentBytes: _sentBytes,
@@ -1130,6 +1184,11 @@ class FileTransfer {
     _nativeFileOpen = true;
   }
 
+  Future<String> _calculateFileSha256(File file) async {
+    final digest = await sha256.bind(file.openRead()).first;
+    return digest.toString();
+  }
+
   Future<void> _resetTransferState() async {
     if (_disposed) return;
 
@@ -1160,6 +1219,8 @@ class FileTransfer {
     _receiveQueue = Future<void>.value();
     _awaitingCompletionAck = false;
     _terminalEventHandled = false;
+    _sourceSha256 = null;
+    _remoteSha256 = null;
 
     await _pc?.close();
     _pc = null;

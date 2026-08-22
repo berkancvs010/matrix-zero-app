@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import java.io.OutputStream
+import java.security.MessageDigest
 import android.provider.Settings
 import java.util.Locale
 import io.flutter.embedding.android.FlutterActivity
@@ -37,6 +38,7 @@ class MainActivity : FlutterActivity() {
 
     private var incomingFileOutputStream: OutputStream? = null
     private var incomingFileBytesWritten: Long = 0L
+    private var incomingFileUri: Uri? = null
 
     private fun requestIncomingFileSave(
         fileName: String,
@@ -57,6 +59,7 @@ class MainActivity : FlutterActivity() {
 
             incomingFileOutputStream = null
             incomingFileBytesWritten = 0L
+            incomingFileUri = null
 
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
@@ -69,6 +72,7 @@ class MainActivity : FlutterActivity() {
             incomingFileSaveResult = null
             incomingFileOutputStream = null
             incomingFileBytesWritten = 0L
+            incomingFileUri = null
 
             result.error(
                 "SAVE_DIALOG_FAILED",
@@ -93,6 +97,35 @@ class MainActivity : FlutterActivity() {
                 e
             )
             false
+        }
+    }
+
+    private fun getIncomingFileSha256(): String? {
+        val uri = incomingFileUri ?: return null
+
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+
+            contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(64 * 1024)
+
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count <= 0) break
+                    digest.update(buffer, 0, count)
+                }
+            } ?: return null
+
+            digest.digest().joinToString("") { byte ->
+                "%02x".format(byte.toInt() and 0xff)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Incoming file SHA-256 calculation failed",
+                e
+            )
+            null
         }
     }
 
@@ -130,6 +163,7 @@ class MainActivity : FlutterActivity() {
         if (resultCode != RESULT_OK || data?.data == null) {
             incomingFileOutputStream = null
             incomingFileBytesWritten = 0L
+            incomingFileUri = null
             result?.success(null)
             return
         }
@@ -137,6 +171,8 @@ class MainActivity : FlutterActivity() {
         val uri = data.data!!
 
         try {
+            incomingFileUri = uri
+
             incomingFileOutputStream =
                 contentResolver.openOutputStream(uri)
 
@@ -157,6 +193,7 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             incomingFileOutputStream = null
             incomingFileBytesWritten = 0L
+            incomingFileUri = null
 
             result?.error(
                 "SAVE_OPEN_FAILED",
@@ -705,6 +742,10 @@ class MainActivity : FlutterActivity() {
 
                   "closeIncomingFile" -> {
                       result.success(closeIncomingFile())
+                  }
+
+                  "getIncomingFileSha256" -> {
+                      result.success(getIncomingFileSha256())
                   }
 
                   "getTurnUsername" -> {
