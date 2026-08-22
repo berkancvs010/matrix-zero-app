@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 
@@ -15,7 +16,7 @@ class FileTransfer {
   String? turnPassword;
   List<String> turnUrls;
 
-  final void Function({
+  void Function({
     required String transferId,
     required int sentBytes,
     required int totalBytes,
@@ -23,7 +24,7 @@ class FileTransfer {
   })?
   onProgress;
 
-  final void Function({
+  void Function({
     required String transferId,
     required String fileName,
     required int fileSize,
@@ -31,8 +32,19 @@ class FileTransfer {
   })?
   onIncomingOffer;
 
-  final void Function({required String transferId, required String status})?
+  void Function({required String transferId, required String status})?
   onIncomingStatus;
+
+  static final Map<String, FileTransfer> _sharedTransfers =
+      <String, FileTransfer>{};
+
+  static FileTransfer? active(String me, String peer) {
+    final transfer = _sharedTransfers[_sharedKey(me, peer)];
+    if (transfer == null || transfer._disposed) return null;
+    return transfer;
+  }
+
+  bool _initialized = false;
 
   RTCPeerConnection? _pc;
   RTCDataChannel? _channel;
@@ -48,8 +60,20 @@ class FileTransfer {
 
   File? _sendingFile;
   bool _sending = false;
+  bool _sendLoopStarted = false;
   bool _accepted = false;
   bool _disposed = false;
+
+  // DataChannel mesajları kesinlikle paralel işlenmez.
+  // Her chunk bir öncekinin tamamen diske yazılmasını bekler.
+  Future<void> _receiveQueue = Future<void>.value();
+
+  // Sender tarafında file-end gönderildikten sonra receiver'ın
+  // gerçek tamamlanma ACK'i beklenir.
+  bool _awaitingCompletionAck = false;
+
+  // Aynı terminal event'in iki kez işlenmesini engeller.
+  bool _terminalEventHandled = false;
 
   /// Aktif transferin ID'si.
   String? get currentTransferId => _transferId;
@@ -83,8 +107,81 @@ class FileTransfer {
     this.onIncomingStatus,
   });
 
+  static String _sharedKey(String me, String peer) =>
+      '${me.trim().toLowerCase()}|${peer.trim().toLowerCase()}';
+
+  static FileTransfer shared({
+    required dynamic ws,
+    required String me,
+    required String peer,
+    String? turnUsername,
+    String? turnPassword,
+    List<String> turnUrls = const [],
+  }) {
+    final key = _sharedKey(me, peer);
+
+    final existing = _sharedTransfers[key];
+
+    if (existing != null && !existing._disposed) {
+      existing.turnUsername = turnUsername;
+      existing.turnPassword = turnPassword;
+      existing.turnUrls = List<String>.from(turnUrls);
+      return existing;
+    }
+
+    final transfer = FileTransfer(
+      ws: ws,
+      me: me,
+      peer: peer,
+      turnUsername: turnUsername,
+      turnPassword: turnPassword,
+      turnUrls: List<String>.from(turnUrls),
+    );
+
+    _sharedTransfers[key] = transfer;
+    return transfer;
+  }
+
+  void bindCallbacks({
+    void Function({
+      required String transferId,
+      required int sentBytes,
+      required int totalBytes,
+      required String status,
+    })?
+    onProgress,
+    void Function({
+      required String transferId,
+      required String fileName,
+      required int fileSize,
+      required String sender,
+    })?
+    onIncomingOffer,
+    void Function({required String transferId, required String status})?
+    onIncomingStatus,
+  }) {
+    this.onProgress = onProgress;
+    this.onIncomingOffer = onIncomingOffer;
+    this.onIncomingStatus = onIncomingStatus;
+  }
+
+  void unbindCallbacks() {
+    onProgress = null;
+    onIncomingOffer = null;
+    onIncomingStatus = null;
+  }
+
   Future<void> initialize() async {
-    await _createPeer();
+    if (_initialized || _disposed) return;
+
+    _initialized = true;
+
+    try {
+      await _createPeer();
+    } catch (_) {
+      _initialized = false;
+      rethrow;
+    }
   }
 
   Future<String?> sendFile({File? sourceFile, String? sourceFileName}) async {
@@ -110,6 +207,14 @@ class FileTransfer {
 
     if (size <= 0) {
       throw StateError('Seçilen dosya boş.');
+    }
+
+    // Aynı peer ile devam eden transferi yeni gönderim ezmemeli.
+    if (_transferId != null ||
+        _sending ||
+        _accepted ||
+        _awaitingCompletionAck) {
+      throw StateError('Bu sohbet için devam eden bir dosya transferi var.');
     }
 
     await _resetTransferState();
@@ -199,6 +304,9 @@ class FileTransfer {
     if (file == null || transferId == null) return;
 
     _sending = true;
+    _sendLoopStarted = false;
+    _terminalEventHandled = false;
+    _awaitingCompletionAck = false;
 
     _diag('CREATE_DATA_CHANNEL transfer=$transferId');
 
@@ -216,7 +324,13 @@ class FileTransfer {
 
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         _diag('DATA_CHANNEL_OPEN -> SEND_START');
-        unawaited(_sendFileBytes(file));
+
+        // OPEN event'i birden fazla kez gelebilir.
+        // Aynı dosyanın ikinci kez gönderilmesini engelle.
+        if (!_sendLoopStarted) {
+          _sendLoopStarted = true;
+          unawaited(_sendFileBytes(file));
+        }
       }
     };
 
@@ -260,6 +374,10 @@ class FileTransfer {
 
     if (channel == null || transferId == null) return;
 
+    // Transfer state artık geçerli değilse eski async gönderim
+    // kesinlikle yeni transferin kanalını kullanmamalı.
+    if (_terminalEventHandled || _disposed) return;
+
     final raf = await file.open();
 
     try {
@@ -295,15 +413,22 @@ class FileTransfer {
         );
       }
 
+      // file-end yalnızca gönderimin bittiğini bildirir.
+      // Receiver gerçek dosya boyutunu doğrulayıp native stream'i
+      // kapattıktan sonra fileTransferComplete gönderir.
       await channel.send(
-        RTCDataChannelMessage('{"type":"file-end","transferId":"$transferId"}'),
+        RTCDataChannelMessage(
+          '{"type":"file-end","transferId":"$transferId","size":$_fileSize}',
+        ),
       );
+
+      _awaitingCompletionAck = true;
 
       onProgress?.call(
         transferId: transferId,
         sentBytes: _fileSize,
         totalBytes: _fileSize,
-        status: 'completed',
+        status: 'transferring',
       );
     } catch (e) {
       onProgress?.call(
@@ -401,7 +526,22 @@ class FileTransfer {
           'size=${message.isBinary ? message.binary.length : message.text.length}',
         );
 
-        unawaited(_receiveChunk(message));
+        // KRİTİK:
+        // DataChannel callback'i her chunk için paralel çalışabilir.
+        // Native OutputStream'e aynı anda write yapılması dosyayı
+        // bozabileceği için tüm chunk'ları tek bir FIFO kuyruğunda
+        // sırayla işliyoruz.
+        _receiveQueue = _receiveQueue
+            .then((_) => _receiveChunk(message))
+            .catchError((error, stack) {
+              _diag('RECEIVE_QUEUE_ERROR: $error');
+              if (!_disposed && _transferId != null) {
+                onIncomingStatus?.call(
+                  transferId: _transferId!,
+                  status: 'failed',
+                );
+              }
+            });
       };
     };
 
@@ -452,8 +592,9 @@ class FileTransfer {
 
       final hasSdp = event['sdp'] != null;
 
-      // SDP offer yalnızca kabulden sonra gönderilen gerçek
-      // WebRTC offer'ı olarak işlenir.
+      // İlk offer yalnızca metadata taşır. Bu event geldiğinde
+      // alıcı taraf transfer kaydını oluşturur ve kullanıcıdan
+      // kabul/red kararı bekler.
       if (!hasSdp) {
         if (_transferId != null &&
             _transferId!.isNotEmpty &&
@@ -465,6 +606,8 @@ class FileTransfer {
         return;
       }
 
+      // Kabul sonrasında gelen SDP offer aynı transfer ID'sine
+      // ait olmalıdır.
       if (incomingId != _transferId) return;
 
       await _handleOfferSdp(event);
@@ -478,11 +621,19 @@ class FileTransfer {
     switch (type) {
       case 'fileTransferAccept':
         if (from.toLowerCase() == peer.toLowerCase()) {
+          if (_sendingFile == null || _transferId == null) return;
+          if (_sending) return;
+
           await _startOutgoingTransfer();
         }
         break;
 
       case 'fileTransferReject':
+        if (_transferId == null || _transferId!.isEmpty) return;
+
+        if (_terminalEventHandled) return;
+        _terminalEventHandled = true;
+
         onProgress?.call(
           transferId: _transferId!,
           sentBytes: _sentBytes,
@@ -499,6 +650,14 @@ class FileTransfer {
 
       case 'fileTransferIce':
         await _handleIce(event);
+        break;
+
+      case 'fileTransferComplete':
+        await _handleRemoteCompletion(event);
+        break;
+
+      case 'fileTransferFailed':
+        await _handleRemoteFailure(event);
         break;
     }
   }
@@ -650,11 +809,17 @@ class FileTransfer {
   Future<void> _receiveChunk(RTCDataChannelMessage message) async {
     final transferId = _transferId;
 
-    if (transferId == null || !_accepted) return;
+    if (transferId == null || !_accepted || _disposed) {
+      return;
+    }
 
     if (message.isBinary) {
       try {
         final bytes = message.binary;
+
+        if (bytes.isEmpty) {
+          return;
+        }
 
         if (!_nativeFileOpen) {
           await _openOutput();
@@ -671,54 +836,212 @@ class FileTransfer {
 
         _receivedBytes += bytes.length;
 
+        // Dosya boyutunu aşan veri kesinlikle kabul edilmez.
+        if (_receivedBytes > _fileSize) {
+          throw StateError('Alınan veri beklenen dosya boyutunu aştı.');
+        }
+
         onProgress?.call(
           transferId: transferId,
           sentBytes: _receivedBytes,
           totalBytes: _fileSize,
           status: 'transferring',
         );
-      } catch (_) {
-        onIncomingStatus?.call(transferId: transferId, status: 'failed');
+      } catch (e) {
+        _diag('RECEIVE_BINARY_FAILED: $e');
+
+        await _failIncomingTransfer(
+          transferId,
+          'Dosya verisi alınırken hata oluştu.',
+        );
       }
 
       return;
     }
 
+    final data = message.text;
+
+    Map<String, dynamic>? control;
+
     try {
-      final data = message.text;
-
-      if (data.contains('"file-end"')) {
-        final closed = await _systemChannel.invokeMethod<bool>(
-          'closeIncomingFile',
-        );
-
-        _nativeFileOpen = false;
-
-        final actualSize = _receivedBytes;
-
-        if (closed == true && actualSize == _fileSize) {
-          onProgress?.call(
-            transferId: transferId,
-            sentBytes: actualSize,
-            totalBytes: _fileSize,
-            status: 'completed',
-          );
-
-          onIncomingStatus?.call(transferId: transferId, status: 'completed');
-        } else {
-          onProgress?.call(
-            transferId: transferId,
-            sentBytes: actualSize,
-            totalBytes: _fileSize,
-            status: 'failed',
-          );
-
-          onIncomingStatus?.call(transferId: transferId, status: 'failed');
-        }
-
-        await _resetTransferState();
+      final decoded = jsonDecode(data);
+      if (decoded is Map) {
+        control = Map<String, dynamic>.from(decoded);
       }
+    } catch (_) {
+      // Geçersiz kontrol mesajı.
+      return;
+    }
+
+    if (control == null) return;
+
+    if (control['type']?.toString() != 'file-end') {
+      return;
+    }
+
+    if (control['transferId']?.toString() != transferId) {
+      return;
+    }
+
+    if (_terminalEventHandled) {
+      return;
+    }
+
+    _terminalEventHandled = true;
+
+    final declaredSize =
+        int.tryParse(control['size']?.toString() ?? '') ?? _fileSize;
+
+    try {
+      if (declaredSize != _fileSize) {
+        throw StateError('Gönderici dosya boyutu uyuşmuyor.');
+      }
+
+      if (_receivedBytes != _fileSize) {
+        throw StateError(
+          'Eksik dosya alındı: $_receivedBytes / $_fileSize byte.',
+        );
+      }
+
+      final closed = await _systemChannel.invokeMethod<bool>(
+        'closeIncomingFile',
+      );
+
+      _nativeFileOpen = false;
+
+      if (closed != true) {
+        throw StateError('Dosya kayıt akışı kapatılamadı.');
+      }
+
+      // Artık dosya gerçekten diske yazıldı ve kapatıldı.
+      // Ancak bundan SONRA sender'a completion ACK gönderiyoruz.
+      ws.send({
+        'type': 'fileTransferComplete',
+        'from': me,
+        'to': peer,
+        'transferId': transferId,
+        'fileSize': _receivedBytes,
+      });
+
+      onProgress?.call(
+        transferId: transferId,
+        sentBytes: _receivedBytes,
+        totalBytes: _fileSize,
+        status: 'completed',
+      );
+
+      onIncomingStatus?.call(transferId: transferId, status: 'completed');
+
+      await _resetTransferState();
+    } catch (e) {
+      _diag('RECEIVE_FINALIZE_FAILED: $e');
+
+      await _failIncomingTransfer(
+        transferId,
+        'Dosya doğrulanamadı veya tamamlanamadı.',
+        reset: true,
+      );
+    }
+  }
+
+  Future<void> _handleRemoteCompletion(Map<String, dynamic> event) async {
+    final transferId = event['transferId']?.toString();
+
+    if (transferId == null ||
+        transferId.isEmpty ||
+        transferId != _transferId ||
+        !_awaitingCompletionAck ||
+        _terminalEventHandled) {
+      return;
+    }
+
+    _terminalEventHandled = true;
+    _awaitingCompletionAck = false;
+
+    final remoteSize = int.tryParse(event['fileSize']?.toString() ?? '') ?? 0;
+
+    if (remoteSize != _fileSize) {
+      onProgress?.call(
+        transferId: transferId,
+        sentBytes: _sentBytes,
+        totalBytes: _fileSize,
+        status: 'failed',
+      );
+
+      onIncomingStatus?.call(transferId: transferId, status: 'failed');
+
+      await _resetTransferState();
+      return;
+    }
+
+    onProgress?.call(
+      transferId: transferId,
+      sentBytes: _fileSize,
+      totalBytes: _fileSize,
+      status: 'completed',
+    );
+
+    await _resetTransferState();
+  }
+
+  Future<void> _handleRemoteFailure(Map<String, dynamic> event) async {
+    final transferId = event['transferId']?.toString();
+
+    if (transferId == null || transferId.isEmpty || transferId != _transferId) {
+      return;
+    }
+
+    if (_terminalEventHandled) return;
+
+    _terminalEventHandled = true;
+
+    onProgress?.call(
+      transferId: transferId,
+      sentBytes: _sentBytes,
+      totalBytes: _fileSize,
+      status: 'failed',
+    );
+
+    await _resetTransferState();
+  }
+
+  Future<void> _failIncomingTransfer(
+    String transferId,
+    String reason, {
+    bool reset = false,
+  }) async {
+    if (_terminalEventHandled && !reset) return;
+
+    _terminalEventHandled = true;
+
+    _diag('INCOMING_TRANSFER_FAILED: $reason');
+
+    try {
+      await _systemChannel.invokeMethod<bool>('closeIncomingFile');
     } catch (_) {}
+
+    _nativeFileOpen = false;
+
+    ws.send({
+      'type': 'fileTransferFailed',
+      'from': me,
+      'to': peer,
+      'transferId': transferId,
+      'reason': reason,
+    });
+
+    onProgress?.call(
+      transferId: transferId,
+      sentBytes: _receivedBytes,
+      totalBytes: _fileSize,
+      status: 'failed',
+    );
+
+    onIncomingStatus?.call(transferId: transferId, status: 'failed');
+
+    if (reset) {
+      await _resetTransferState();
+    }
   }
 
   Future<void> _openOutput() async {
@@ -740,6 +1063,8 @@ class FileTransfer {
   }
 
   Future<void> _resetTransferState() async {
+    if (_disposed) return;
+
     if (_nativeFileOpen) {
       try {
         await _systemChannel.invokeMethod<bool>('closeIncomingFile');
@@ -761,13 +1086,20 @@ class FileTransfer {
 
     _sendingFile = null;
     _sending = false;
+    _sendLoopStarted = false;
     _accepted = false;
+
+    _receiveQueue = Future<void>.value();
+    _awaitingCompletionAck = false;
+    _terminalEventHandled = false;
 
     await _pc?.close();
     _pc = null;
   }
 
   Future<void> dispose() async {
+    if (_disposed) return;
+
     _disposed = true;
 
     await _eventsSub?.cancel();
@@ -798,6 +1130,11 @@ class FileTransfer {
 
     _sendingFile = null;
     _sending = false;
+    _sendLoopStarted = false;
     _accepted = false;
+
+    _initialized = false;
+
+    _sharedTransfers.remove(_sharedKey(me, peer));
   }
 }

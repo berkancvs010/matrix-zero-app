@@ -7331,13 +7331,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     WsClient.instance.setActivePrivateChat(widget.targetNick);
 
-    _fileTransfer = FileTransfer(
+    _fileTransfer = FileTransfer.shared(
       ws: WsClient.instance,
       me: widget.myNick,
       peer: widget.targetNick,
       turnUsername: WsClient.instance.turnUsername,
       turnPassword: WsClient.instance.turnPassword,
       turnUrls: WsClient.instance.turnUrls,
+    );
+
+    _fileTransfer.bindCallbacks(
       onProgress:
           ({
             required String transferId,
@@ -7345,6 +7348,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             required int totalBytes,
             required String status,
           }) {
+            if (!mounted) return;
+
             final existingIndex = _messages.indexWhere(
               (message) => message.isFile && message.fileId == transferId,
             );
@@ -7377,6 +7382,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             required int fileSize,
             required String sender,
           }) {
+            if (!mounted) return;
+
             _upsertFileMessage(
               transferId: transferId,
               sender: sender,
@@ -8093,10 +8100,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
 
     _subscription.cancel();
+    _fileTransfer.unbindCallbacks();
     _controller.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
-    _fileTransfer.dispose();
     super.dispose();
   }
 
