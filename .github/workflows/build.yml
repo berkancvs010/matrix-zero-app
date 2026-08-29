@@ -1,0 +1,110 @@
+name: Matrix Zero Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Dart analyze
+        run: flutter analyze
+
+  apk:
+    name: Android APK
+    needs: analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerolog-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  web:
+    name: Web Chat
+    needs: analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+
+      - name: Create Web project
+        run: |
+          if [ ! -d "web" ]; then
+            flutter create . --platforms=web
+          fi
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Build Web
+        run: flutter build web --release --target lib/main_web.dart
+
+      - name: Verify Web
+        run: |
+          test -f build/web/index.html
+          echo "WEB BUILD SUCCESS"
+          du -sh build/web
+
+      - name: Upload Web
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-zero-web-chat
+          path: build/web
