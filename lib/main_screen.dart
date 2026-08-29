@@ -728,6 +728,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         unawaited(
           _incrementUnreadFor(from, messageId: messageId, expiresAt: expiresAt),
         );
+
+        // Mesaj uygulamaya ulaştı ancak sohbet açık değilse teslim
+        // edilmiştir. Read sinyali PrivateChatScreen'den gelecektir.
+        if (from.toLowerCase() != widget.nickname.toLowerCase()) {
+          WsClient.instance.send({
+            'type': 'messageDelivered',
+            'from': from,
+            'messageId': messageId,
+            'clientMessageId':
+                (data['clientMessageId'] ?? '').toString(),
+          });
+        }
       }
     }
 
@@ -759,6 +771,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 expiresAt: expiresAt,
               ),
             );
+
+            // Mesaj bu cihaza ulaştı fakat kullanıcı henüz sohbeti
+            // açmadı. Gönderen tarafta teslim edildi çift tiki görünür;
+            // okundu bilgisi sohbet gerçekten açıldığında gönderilir.
+            if (sender.toLowerCase() != widget.nickname.toLowerCase()) {
+              WsClient.instance.send({
+                'type': 'messageDelivered',
+                'from': sender,
+                'messageId': map['id']?.toString() ?? '',
+                'clientMessageId':
+                    map['clientMessageId']?.toString() ?? '',
+              });
+            }
           }
         }
       }

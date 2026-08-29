@@ -507,6 +507,11 @@ class FileTransfer {
     try {
       await _resetTransferState();
       _incomingTransfer = true;
+
+      // Bildirimden/arka plandan gelen transferde WebRTC peer'i
+      // oluşturmadan önce foreground service'i başlat.
+      await _startBackgroundTransferService();
+
       await _createPeer();
 
       _transferId = normalizedId;
@@ -1335,10 +1340,14 @@ class FileTransfer {
     await _resetTransferState();
 
     _incomingTransfer = true;
+
+    // Incoming WebRTC transferi peer kurulmadan önce servis tarafından
+    // korunmalı; özellikle uygulama arka plandayken bu kritik.
+    await _startBackgroundTransferService();
+
     await _createPeer();
 
     _transferId = incomingId;
-    unawaited(_startBackgroundTransferService());
     _fileName = incomingFileName;
     _fileSize = incomingFileSize;
 

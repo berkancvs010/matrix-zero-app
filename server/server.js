@@ -2663,10 +2663,22 @@ wss.on('connection',(ws)=>{
 
     const recipient=socketFor(to);
     const recipientConnected=!!recipient;
+    const recipientForeground=recipientConnected && isForegroundActive(to);
 
     let deliveredLive=false;
 
-    if(recipientConnected){
+    /*
+     * Dosya OFFER'ı yalnızca alıcı gerçekten foreground'da ise
+     * canlı WebSocket üzerinden teslim edilir.
+     *
+     * Android arka planda WebSocket'i bir süre açık tutabilir. Eski
+     * davranışta bu durumda OFFER socket'e gönderiliyor ve FCM hiç
+     * gönderilmiyordu. Kullanıcı bu yüzden dosya bildirimi alamıyordu.
+     *
+     * Background durumda OFFER + ICE pending kuyruğunda tutulur ve
+     * FCM alıcıyı uygulamaya geri getirir.
+     */
+    if(recipientForeground){
       deliveredLive=send(recipient,routedEvent);
     }
 

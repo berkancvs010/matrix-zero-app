@@ -57,3 +57,13 @@
 - `dart analyze lib/main.dart test/widget_test.dart` was previously clean on the project baseline.
 - `flutter test --no-pub test/widget_test.dart` previously passed on the baseline.
 - This environment does not contain the Flutter/Dart SDK binaries, so a fresh local analyzer/build cannot be executed inside this packaging step.
+
+# ZeroLog 1.0.8+13
+
+## Fixes in this release
+
+- File transfer offers now use foreground/background-aware delivery: background recipients are queued and receive an FCM file notification instead of silently consuming the offer through a still-open WebSocket.
+- Incoming/background WebRTC file transfers start the Android foreground transfer service before peer/output preparation.
+- Main screen now acknowledges private messages as **delivered** when they reach the device while the chat is not open. Read receipts remain the responsibility of the active private chat, restoring the intended single-tick → double-tick → green double-tick lifecycle.
+- Profile cache now removes case-variant stale entries so a fresh `profileUpdated` event cannot be shadowed by an older differently-cased cache key.
+- Existing profile revision/ACK handling remains authoritative; server confirmation continues to control successful profile-save completion.

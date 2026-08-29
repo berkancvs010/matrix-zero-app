@@ -89,6 +89,18 @@ class WsClient {
 
     if (name.isEmpty) return;
 
+    // Kullanıcı adı büyük/küçük harf farkıyla tekrar cache'e girerse
+    // eski kaydın kalıp yeni profil güncellemesini gölgelemesine izin verme.
+    final staleKeys = _userProfiles.keys
+        .where((key) => key.trim().toLowerCase() == name.toLowerCase())
+        .toList(growable: false);
+
+    for (final key in staleKeys) {
+      if (key != name) {
+        _userProfiles.remove(key);
+      }
+    }
+
     _userProfiles[name] = Map<String, dynamic>.from(profile);
     _events.add({'type': 'profileCacheUpdated', 'username': name, ...profile});
   }
