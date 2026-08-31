@@ -437,21 +437,69 @@ class MainActivity : FlutterActivity() {
         return try { Uri.parse(uriString) } catch (_: Exception) { null }
     }
 
-    private fun getReceivedImageThumbnail(fileId: String, maxSize: Int): ByteArray? {
+    private fun getReceivedLocalFile(fileId: String): File? {
+        if (fileId.isBlank()) return null
+
+        val file = File(
+            File(filesDir, "received_files"),
+            fileId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        )
+
+        return if (file.exists() && file.length() > 0L) file else null
+    }
+
+    private fun getReceivedImageInputStream(fileId: String): java.io.InputStream? {
+        val localFile = getReceivedLocalFile(fileId)
+
+        if (localFile != null) {
+            try {
+                return localFile.inputStream()
+            } catch (_: Exception) {}
+        }
+
         val uri = getReceivedFileUri(fileId) ?: return null
+
         return try {
-            val resolver = contentResolver
+            contentResolver.openInputStream(uri)
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Received URI input stream failed",
+                e
+            )
+            null
+        }
+    }
+
+    private fun getReceivedImageThumbnail(
+        fileId: String,
+        maxSize: Int
+    ): ByteArray? {
+        if (fileId.isBlank()) return null
+
+        return try {
             val bounds = android.graphics.BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
             }
-            resolver.openInputStream(uri)?.use {
-                android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+
+            getReceivedImageInputStream(fileId)?.use { input ->
+                android.graphics.BitmapFactory.decodeStream(
+                    input,
+                    null,
+                    bounds
+                )
+            } ?: return null
+
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                return null
             }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
             var sample = 1
-            while (bounds.outWidth / sample > maxSize * 2 ||
-                bounds.outHeight / sample > maxSize * 2) {
+
+            while (
+                bounds.outWidth / sample > maxSize * 2 ||
+                bounds.outHeight / sample > maxSize * 2
+            ) {
                 sample *= 2
             }
 
@@ -459,52 +507,118 @@ class MainActivity : FlutterActivity() {
                 inSampleSize = sample
                 inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
             }
-            val bitmap = resolver.openInputStream(uri)?.use {
-                android.graphics.BitmapFactory.decodeStream(it, null, options)
+
+            val bitmap = getReceivedImageInputStream(fileId)?.use { input ->
+                android.graphics.BitmapFactory.decodeStream(
+                    input,
+                    null,
+                    options
+                )
             } ?: return null
 
-            val scale = minOf(1f, maxSize.toFloat() / maxOf(bitmap.width, bitmap.height).toFloat())
+            if (bitmap.width <= 0 || bitmap.height <= 0) {
+                bitmap.recycle()
+                return null
+            }
+
+            val scale = minOf(
+                1f,
+                maxSize.toFloat() /
+                    maxOf(bitmap.width, bitmap.height).toFloat()
+            )
+
             val resized = if (scale < 1f) {
                 android.graphics.Bitmap.createScaledBitmap(
                     bitmap,
-                    (bitmap.width * scale).roundToInt().coerceAtLeast(1),
-                    (bitmap.height * scale).roundToInt().coerceAtLeast(1),
+                    (bitmap.width * scale)
+                        .roundToInt()
+                        .coerceAtLeast(1),
+                    (bitmap.height * scale)
+                        .roundToInt()
+                        .coerceAtLeast(1),
                     true
                 )
-            } else bitmap
+            } else {
+                bitmap
+            }
 
             val stream = java.io.ByteArrayOutputStream()
-            resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, stream)
-            if (resized !== bitmap) resized.recycle()
+
+            resized.compress(
+                android.graphics.Bitmap.CompressFormat.JPEG,
+                82,
+                stream
+            )
+
+            if (resized !== bitmap) {
+                resized.recycle()
+            }
+
             bitmap.recycle()
+
             stream.toByteArray()
         } catch (e: Exception) {
-            android.util.Log.e("ZeroLogFile", "Thumbnail generation failed", e)
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Thumbnail generation failed",
+                e
+            )
             null
         }
     }
 
     private fun readReceivedImageBytes(fileId: String): ByteArray? {
-        val uri = getReceivedFileUri(fileId) ?: return null
+        if (fileId.isBlank()) return null
+
         return try {
-            contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            getReceivedLocalFile(fileId)?.inputStream()?.use {
+                it.readBytes()
+            } ?: getReceivedFileUri(fileId)?.let { uri ->
+                contentResolver.openInputStream(uri)?.use { input ->
+                    input.readBytes()
+                }
+            }
         } catch (e: Exception) {
-            android.util.Log.e("ZeroLogFile", "Received image read failed", e)
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Received image read failed",
+                e
+            )
             null
         }
     }
 
     private fun deleteReceivedFile(fileId: String): Boolean {
-        val uri = getReceivedFileUri(fileId) ?: return false
+        val uri = getReceivedFileUri(fileId)
+
         return try {
-            val deleted = contentResolver.delete(uri, null, null) > 0
+            var deleted = false
+
+            if (uri != null) {
+                deleted = try {
+                    contentResolver.delete(uri, null, null) > 0
+                } catch (_: Exception) {
+                    false
+                }
+            }
+
+            val localFile = getReceivedLocalFile(fileId)
+            if (localFile != null) {
+                deleted = localFile.delete() || deleted
+            }
+
             getSharedPreferences(receivedFileIndexPrefsName, MODE_PRIVATE)
                 .edit()
                 .remove("$receivedFileUriPrefix$fileId")
                 .apply()
+
             deleted
         } catch (e: Exception) {
-            android.util.Log.e("ZeroLogFile", "Received file delete failed", e)
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Received file delete failed",
+                e
+            )
             false
         }
     }
@@ -658,6 +772,45 @@ class MainActivity : FlutterActivity() {
                 )
             }
 
+            // Sohbet önizleme/okuma için uygulama içinde kalıcı bir
+            // kopya tutuyoruz. Kullanıcının seçtiği hedef URI'sinden
+            // bağımsız olarak çalışır ve history reload sonrasında da
+            // fileId üzerinden bulunabilir.
+            val receivedDir = File(filesDir, "received_files")
+            if (!receivedDir.exists() && !receivedDir.mkdirs()) {
+                throw IllegalStateException(
+                    "ZeroLog alınan dosya klasörü oluşturulamadı."
+                )
+            }
+
+            val localReceivedFile = File(
+                receivedDir,
+                fileId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            )
+
+            tempFile.inputStream().use { input ->
+                localReceivedFile.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+
+                    while (true) {
+                        val count = input.read(buffer)
+
+                        if (count <= 0) break
+
+                        output.write(buffer, 0, count)
+                    }
+
+                    output.flush()
+                }
+            }
+
+            if (!localReceivedFile.exists() || localReceivedFile.length() != tempFile.length()) {
+                localReceivedFile.delete()
+                throw IllegalStateException(
+                    "ZeroLog yerel alınan dosya kopyası doğrulanamadı."
+                )
+            }
+
             contentResolver.openOutputStream(
                 targetUri,
                 "w"
@@ -748,6 +901,10 @@ class MainActivity : FlutterActivity() {
                         null
                     )
                 }
+            } catch (_: Exception) {}
+
+            try {
+                getReceivedLocalFile(fileId)?.delete()
             } catch (_: Exception) {}
 
             incomingFileTargetCreated = false

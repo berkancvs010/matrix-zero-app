@@ -1837,7 +1837,10 @@ wss.on('connection',(ws)=>{
         avatarId:profile.avatarId,
         about:profile.about,
         photoAvailable:profile.photoAvailable===true,
-        photoData:profile.type==='photo' ? profile.photoData : '',
+        // Profil fotoğrafı burada broadcast edilmez.
+        // Büyük base64 payload'ın tüm bağlı kullanıcılara yayılması
+        // mesaj/presence WebSocket trafiğinde ciddi lag oluşturabilir.
+        // İhtiyaç halinde istemci getProfile ile fotoğrafı doğrudan ister.
       });
     }
 

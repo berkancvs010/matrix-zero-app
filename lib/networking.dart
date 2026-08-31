@@ -711,6 +711,18 @@ class WsClient {
       'callAnswer',
       'callIce',
       'callEnd',
+
+      // File-transfer signaling is also real-time state.
+      // Replaying stale OFFER/ICE/ANSWER/ACCEPT events after a
+      // reconnect can resurrect or corrupt an old transfer and
+      // can also flood the socket with obsolete signaling traffic.
+      'fileTransferOffer',
+      'fileTransferIce',
+      'fileTransferAnswer',
+      'fileTransferAccept',
+      'fileTransferReject',
+      'fileTransferComplete',
+      'fileTransferFailed',
     };
 
     return !transientTypes.contains(type);
