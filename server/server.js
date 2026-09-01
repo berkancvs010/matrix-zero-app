@@ -326,6 +326,15 @@ function storePendingFileTransfer(to,event){
 
   const stored=prepared;
 
+  if(stored.type==='fileTransferOffer'){
+    void sendFileTransferPush(target,stored).catch(error=>{
+      console.error(
+        `[FCM] file transfer push failed for ${target}:`,
+        error
+      );
+    });
+  }
+
   existing.nextSeq=Math.max(
     Number(existing.nextSeq)||1,
     Number(stored.seq)+1,
@@ -610,6 +619,59 @@ async function sendFcmPush(username, message){
     return false;
   }
 }
+async function sendFileTransferPush(username,event){
+  const target=safeNick(username);
+  if(!target)return false;
+
+  // Kullanıcı uygulamayı aktif olarak kullanıyorsa WebSocket üzerinden
+  // offer zaten teslim edilir; ikinci bildirim üretme.
+  if(isForegroundActive(target))return false;
+
+  const transferId=String(
+    event && (event.transferId || event.fileId) || ''
+  ).trim();
+
+  const from=safeNick(
+    event && (event.from || event.sender) || ''
+  );
+
+  const fileName=String(
+    event && event.fileName || 'Dosya'
+  ).trim() || 'Dosya';
+
+  const fileSize=String(
+    event && event.fileSize || '0'
+  );
+
+  if(!transferId || !from)return false;
+
+  return sendFcmPush(target,{
+    notification:{
+      title:from,
+      body:`${fileName} gönderiyor`,
+    },
+    data:{
+      type:'privateFileMessage',
+      from,
+      sender:from,
+      to:target,
+      recipient:target,
+      fileId:transferId,
+      transferId,
+      fileName,
+      fileSize,
+    },
+    android:{
+      priority:'high',
+      ttl:3600000,
+      notification:{
+        channelId:'zerolog_files_v1',
+        sound:'default',
+      },
+    },
+  });
+}
+
 async function sendCallStatusPush(username,callId,title,body){
   if(!callNotificationsEnabled(username))return false;
 

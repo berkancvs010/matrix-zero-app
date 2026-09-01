@@ -29,12 +29,15 @@ class ProfileController {
     final remotePhoto = (profile['photoData'] ?? '').toString();
     final prefs = await SharedPreferences.getInstance();
 
-    if (type == 'photo' && remotePhoto.isNotEmpty) {
+    // Remote profile paketinde fotoğraf alanı yoksa mevcut yerel
+    // fotoğrafı kesinlikle silme. Eski sunucu/cache cevapları yeni
+    // profil fotoğrafını yanlışlıkla boşaltmamalıdır.
+    if (remotePhoto.isNotEmpty) {
       await prefs.setString(photoDataKey, remotePhoto);
       await prefs.remove(photoKey);
       photoPath = null;
       photoData = remotePhoto;
-    } else if (type != 'photo') {
+    } else if (type == 'photo' && profile.containsKey('photoData')) {
       await prefs.remove(photoKey);
       await prefs.remove(photoDataKey);
       photoPath = null;

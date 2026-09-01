@@ -406,13 +406,7 @@ class ZeroLogPushService {
       } else if (type == 'privateMessage') {
         await showPrivateMessageNotification(message);
       } else if (type == 'privateFileMessage') {
-        await storeNotificationPayload(jsonEncode(message.data));
-
-        debugPrint(
-          '[FCM][foreground-file] pending file notification stored '
-          'fileId=${message.data['fileId']} '
-          'sender=${message.data['sender'] ?? message.data['from']}',
-        );
+        await showPrivateFileNotification(message);
       }
     });
 
@@ -505,6 +499,94 @@ class ZeroLogPushService {
     // callStatus is a lifecycle/control event, not a user notification.
     await cancelIncomingCallNotification();
     await clearPendingCall();
+  }
+
+  static Future<void> showPrivateFileNotification(
+    RemoteMessage message,
+  ) async {
+    try {
+      await _initializeNotifications(requestPermissions: false);
+
+      final from = (
+        message.data['from'] ??
+        message.data['sender'] ??
+        ''
+      ).toString().trim();
+
+      final fileId = (
+        message.data['fileId'] ??
+        message.data['transferId'] ??
+        ''
+      ).toString().trim();
+
+      final fileName = (
+        message.data['fileName'] ??
+        'Dosya'
+      ).toString().trim();
+
+      final to = (
+        message.data['to'] ??
+        message.data['recipient'] ??
+        ''
+      ).toString().trim();
+
+      if (from.isEmpty || fileId.isEmpty) return;
+
+      await storeNotificationPayload(jsonEncode({
+        'type': 'privateFileMessage',
+        'from': from,
+        'sender': from,
+        'to': to,
+        'recipient': to,
+        'fileId': fileId,
+        'transferId': fileId,
+        'fileName': fileName,
+        'fileSize': message.data['fileSize'] ?? '0',
+      }));
+
+      final activePeer = WsClient.instance.activePrivateChatPeer;
+
+      if (activePeer != null &&
+          activePeer.trim().isNotEmpty &&
+          activePeer.trim().toLowerCase() == from.toLowerCase()) {
+        return;
+      }
+
+      const androidDetails = AndroidNotificationDetails(
+        fileChannelId,
+        'Dosyalar',
+        channelDescription: 'ZeroLog dosya ve fotoğraf bildirimleri',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        showWhen: true,
+      );
+
+      final payload = jsonEncode({
+        'type': 'privateFileMessage',
+        'from': from,
+        'sender': from,
+        'to': to,
+        'recipient': to,
+        'fileId': fileId,
+        'transferId': fileId,
+        'fileName': fileName,
+        'fileSize': message.data['fileSize'] ?? '0',
+      });
+
+      await _notifications.show(
+        id: _stableNotificationId('file_$fileId'),
+        title: from,
+        body: '$fileName gönderiyor',
+        notificationDetails: const NotificationDetails(
+          android: androidDetails,
+        ),
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint('[FCM] private file notification failed: $e');
+    }
   }
 
   static Future<void> showPrivateMessageNotification(
