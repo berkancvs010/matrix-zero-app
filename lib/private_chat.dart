@@ -2204,9 +2204,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final isImage = RegExp(r'\.(jpg|jpeg|png|webp|gif|heic)$').hasMatch(lower);
     final isReceivedUri = message.localPath.startsWith('content://');
     final hasLocalImage = isImage &&
-        (message.status == 'completed' ||
-            isReceivedUri ||
-            (message.localPath.isNotEmpty && File(message.localPath).existsSync()));
+        (isReceivedUri ||
+            (message.localPath.isNotEmpty &&
+                File(message.localPath).existsSync()));
     final progress = message.fileSize > 0
         ? (message.transferBytes / message.fileSize).clamp(0.0, 1.0)
         : 0.0;
@@ -2217,10 +2217,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         !isReceivedUri &&
         File(message.localPath).existsSync();
 
-    final canOpen =
-        canOpenLocalImage ||
-        message.status == 'completed' ||
-        message.status == 'stored';
+    final canOpenReceived =
+        message.isFile &&
+        message.fileId.isNotEmpty &&
+        (message.status == 'completed' ||
+            message.status == 'stored' ||
+            isReceivedUri ||
+            canOpenLocalImage);
+
+    final canOpen = canOpenReceived;
 
     return InkWell(
       onTap: canOpen

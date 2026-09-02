@@ -638,11 +638,18 @@ class MainActivity : FlutterActivity() {
                 null
             )?.trim()
 
-            if (uriString.isNullOrEmpty()) {
-                return false
-            }
+            val uri = if (!uriString.isNullOrEmpty()) {
+                Uri.parse(uriString)
+            } else {
+                val localFile = getReceivedLocalFile(fileId)
+                    ?: return false
 
-            val uri = Uri.parse(uriString)
+                FileProvider.getUriForFile(
+                    this,
+                    "$packageName.fileprovider",
+                    localFile
+                )
+            }
 
             val extensionMime = MimeTypeMap.getSingleton()
                 .getMimeTypeFromExtension(
