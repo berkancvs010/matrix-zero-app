@@ -2203,8 +2203,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final lower = message.fileName.toLowerCase();
     final isImage = RegExp(r'\.(jpg|jpeg|png|webp|gif|heic)$').hasMatch(lower);
     final isReceivedUri = message.localPath.startsWith('content://');
+    final canUseNativeImagePreview =
+        isImage &&
+        message.fileId.isNotEmpty &&
+        (message.status == 'completed' ||
+            message.status == 'stored' ||
+            isReceivedUri);
     final hasLocalImage = isImage &&
         (isReceivedUri ||
+            canUseNativeImagePreview ||
             (message.localPath.isNotEmpty &&
                 File(message.localPath).existsSync()));
     final progress = message.fileSize > 0
@@ -2248,7 +2255,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (hasLocalImage) ...[
-              if (isReceivedUri)
+              if (isReceivedUri || canUseNativeImagePreview)
                 _receivedImagePreview(message, theme)
               else
                 ClipRRect(

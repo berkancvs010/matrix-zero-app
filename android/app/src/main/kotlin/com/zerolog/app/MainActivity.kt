@@ -20,6 +20,7 @@ import java.io.File
 import java.io.FileOutputStream
 import android.provider.Settings
 import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import java.util.Locale
 import kotlin.math.roundToInt
 import io.flutter.embedding.android.FlutterActivity
