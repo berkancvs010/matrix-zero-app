@@ -364,9 +364,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             elevation: 0,
             title: const Text('Profil'),
           ),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
-            children: [
+          body: StatefulBuilder(
+            builder: (pageContext, setPageState) => ListView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
+              children: [
               Material(
                 color: theme.surface,
                 borderRadius: BorderRadius.circular(28),
@@ -383,7 +384,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             shape: const CircleBorder(),
                             child: InkWell(
                               customBorder: const CircleBorder(),
-                              onTap: _openProfilePhotoActions,
+                              onTap: () async {
+                                await _openProfilePhotoActions();
+                                if (pageContext.mounted) {
+                                  setPageState(() {});
+                                }
+                              },
                               child: const Padding(
                                 padding: EdgeInsets.all(10),
                                 child: Icon(
@@ -442,7 +448,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       title: const Text('Kamerayla çek'),
                       subtitle: const Text('Yeni profil fotoğrafı oluştur'),
                       trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _takeProfilePhoto(),
+                      onTap: () async {
+                        await _takeProfilePhoto();
+                        if (pageContext.mounted) {
+                          setPageState(() {});
+                        }
+                      },
                     ),
                     Divider(height: 1, color: theme.text.withValues(alpha: 0.06)),
                     ListTile(
@@ -450,7 +461,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       title: const Text('Galeriden seç'),
                       subtitle: const Text('Cihazındaki bir fotoğrafı kullan'),
                       trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _pickProfilePhoto(),
+                      onTap: () async {
+                        await _pickProfilePhoto();
+                        if (pageContext.mounted) {
+                          setPageState(() {});
+                        }
+                      },
                     ),
                   ],
                 ),
@@ -486,10 +502,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   subtitle: const Text('Karşı tarafta profilinde gösterilir'),
                   trailing: IconButton(
                     tooltip: 'Düzenle',
-                    onPressed: _editProfileAbout,
+                    onPressed: () async {
+                      await _editProfileAbout();
+                      if (pageContext.mounted) {
+                        setPageState(() {});
+                      }
+                    },
                     icon: const Icon(Icons.edit_rounded),
                   ),
-                  onTap: _editProfileAbout,
+                  onTap: () async {
+                    await _editProfileAbout();
+                    if (pageContext.mounted) {
+                      setPageState(() {});
+                    }
+                  },
                 ),
               ),
               const SizedBox(height: 14),
@@ -535,7 +561,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   height: 1.45,
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

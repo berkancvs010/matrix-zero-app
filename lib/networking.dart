@@ -101,8 +101,45 @@ class WsClient {
       }
     }
 
-    _userProfiles[name] = Map<String, dynamic>.from(profile);
-    _events.add({'type': 'profileCacheUpdated', 'username': name, ...profile});
+    final incoming = Map<String, dynamic>.from(profile);
+    final existing = _userProfiles[name];
+
+    if (existing != null) {
+      final incomingRevision =
+          int.tryParse((incoming['profileRevision'] ?? '').toString()) ?? 0;
+      final existingRevision =
+          int.tryParse((existing['profileRevision'] ?? '').toString()) ?? 0;
+
+      // Eski profileUpdated/getProfile cevabı daha yeni profilin
+      // üzerine yazmasın.
+      if (incomingRevision > 0 &&
+          existingRevision > incomingRevision) {
+        return;
+      }
+
+      // profileUpdated bilinçli olarak photoData taşımaz.
+      // Ancak cache'te gerçek fotoğraf zaten varsa boş metadata
+      // paketi bu fotoğrafı silemez.
+      final incomingType =
+          (incoming['type'] ?? 'avatar').toString();
+      final incomingPhoto =
+          (incoming['photoData'] ?? '').toString();
+      final existingPhoto =
+          (existing['photoData'] ?? '').toString();
+
+      if (incomingType == 'photo' &&
+          incomingPhoto.isEmpty &&
+          existingPhoto.isNotEmpty) {
+        incoming['photoData'] = existingPhoto;
+      }
+    }
+
+    _userProfiles[name] = incoming;
+    _events.add({
+      'type': 'profileCacheUpdated',
+      'username': name,
+      ...incoming,
+    });
   }
 
   void clearProfileCache() {
