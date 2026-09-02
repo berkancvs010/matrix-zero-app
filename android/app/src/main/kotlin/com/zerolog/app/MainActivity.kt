@@ -752,6 +752,116 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun registerBackgroundReceivedFile(
+        fileId: String,
+        sourcePath: String
+    ): String? {
+        if (fileId.isBlank() || sourcePath.isBlank()) return null
+
+        return try {
+            val source = File(sourcePath)
+
+            if (!source.exists() || source.length() <= 0L) {
+                throw IllegalStateException(
+                    "Arka plan alınan dosya bulunamadı."
+                )
+            }
+
+            val receivedDir = File(filesDir, "received_files")
+
+            if (!receivedDir.exists() && !receivedDir.mkdirs()) {
+                throw IllegalStateException(
+                    "ZeroLog alınan dosya klasörü oluşturulamadı."
+                )
+            }
+
+            val safeId = fileId.replace(
+                Regex("[^A-Za-z0-9._-]"),
+                "_"
+            )
+
+            val target = File(receivedDir, safeId)
+            val tempTarget = File(receivedDir, "$safeId.bgpart")
+
+            if (tempTarget.exists()) {
+                tempTarget.delete()
+            }
+
+            source.inputStream().use { input ->
+                tempTarget.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+
+                    while (true) {
+                        val count = input.read(buffer)
+
+                        if (count <= 0) break
+
+                        output.write(buffer, 0, count)
+                    }
+
+                    output.flush()
+                }
+            }
+
+            if (!tempTarget.exists() ||
+                tempTarget.length() != source.length()
+            ) {
+                tempTarget.delete()
+
+                throw IllegalStateException(
+                    "Arka plan dosya kopyası doğrulanamadı."
+                )
+            }
+
+            if (target.exists()) {
+                target.delete()
+            }
+
+            if (!tempTarget.renameTo(target)) {
+                tempTarget.delete()
+
+                throw IllegalStateException(
+                    "Arka plan dosyası kalıcı konuma taşınamadı."
+                )
+            }
+
+            if (!target.exists() || target.length() <= 0L) {
+                throw IllegalStateException(
+                    "Kalıcı alınan dosya doğrulanamadı."
+                )
+            }
+
+            val uri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                target
+            )
+
+            getSharedPreferences(
+                receivedFileIndexPrefsName,
+                MODE_PRIVATE
+            )
+                .edit()
+                .putString(
+                    "$receivedFileUriPrefix$fileId",
+                    uri.toString()
+                )
+                .apply()
+
+            source.delete()
+
+            target.absolutePath
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Background received file registration failed",
+                e
+            )
+
+            null
+        }
+    }
+
     private fun finalizeIncomingFile(
         fileId: String
     ): String? {
@@ -1709,6 +1819,29 @@ class MainActivity : FlutterActivity() {
                               fileId,
                               fileName
                           )
+                      )
+                  }
+
+                  "registerBackgroundReceivedFile" -> {
+                      val fileId =
+                          call.argument<String>("fileId")
+                              ?.trim()
+                              .orEmpty()
+
+                      val sourcePath =
+                          call.argument<String>("sourcePath")
+                              ?.trim()
+                              .orEmpty()
+
+                      result.success(
+                          if (fileId.isEmpty() || sourcePath.isEmpty()) {
+                              null
+                          } else {
+                              registerBackgroundReceivedFile(
+                                  fileId,
+                                  sourcePath
+                              )
+                          }
                       )
                   }
 

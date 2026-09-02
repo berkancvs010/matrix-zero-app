@@ -6,9 +6,13 @@ import 'package:flutter/services.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:path_provider/path_provider.dart';
 
 class FileTransfer {
-  static const MethodChannel _systemChannel = MethodChannel('zerolog/system');
+  static const MethodChannel _systemChannel =
+      MethodChannel('zerolog/system');
+  static const MethodChannel _backgroundSystemChannel =
+      MethodChannel('zerolog/background_transfer');
   final dynamic ws;
   final String me;
   final String peer;
@@ -70,6 +74,11 @@ class FileTransfer {
   int _sentBytes = 0;
 
   bool _nativeFileOpen = false;
+
+  static bool backgroundTransferMode = false;
+
+  File? _backgroundOutputFile;
+  RandomAccessFile? _backgroundOutput;
 
   File? _sendingFile;
   bool _sending = false;
@@ -360,7 +369,7 @@ class FileTransfer {
   }
 
   Future<void> _startBackgroundTransferService() async {
-    if (_disposed) return;
+    if (_disposed || backgroundTransferMode) return;
 
     try {
       await _systemChannel.invokeMethod<bool>(
@@ -505,7 +514,12 @@ class FileTransfer {
     }
 
     try {
-      await _resetTransferState();
+      // Headless background isolate yeni FileTransfer örneğiyle gelir.
+      // Burada reset çağrısı foreground service'i durdurmamalıdır.
+      if (!backgroundTransferMode) {
+        await _resetTransferState();
+      }
+
       _incomingTransfer = true;
 
       // Bildirimden/arka plandan gelen transferde WebRTC peer'i
@@ -1070,6 +1084,16 @@ class FileTransfer {
     _eventsSub = ws.events.listen(_handleEvent);
   }
 
+  /// Headless/background transfer dispatcher.
+  ///
+  /// WsClient uses a broadcast stream, so the background isolate may
+  /// temporarily capture events before FileTransfer has attached its
+  /// normal listener. This public bridge lets the headless entry point
+  /// replay those events safely after the transfer state is prepared.
+  Future<void> handleExternalEvent(Map<String, dynamic> event) async {
+    await _handleEvent(event);
+  }
+
   Future<void> _handleEvent(Map<String, dynamic> event) async {
     if (_disposed) return;
 
@@ -1607,13 +1631,25 @@ class FileTransfer {
           throw StateError('Alınan veri beklenen dosya boyutunu aşıyor.');
         }
 
-        final written = await _systemChannel.invokeMethod<bool>(
-          'writeIncomingFile',
-          bytes,
-        );
+        if (backgroundTransferMode) {
+          final output = _backgroundOutput;
 
-        if (written != true) {
-          throw StateError('Dosya verisi diske yazılamadı.');
+          if (output == null) {
+            throw StateError(
+              'Arka plan dosya akışı hazır değil.',
+            );
+          }
+
+          await output.writeFrom(bytes);
+        } else {
+          final written = await _systemChannel.invokeMethod<bool>(
+            'writeIncomingFile',
+            bytes,
+          );
+
+          if (written != true) {
+            throw StateError('Dosya verisi diske yazılamadı.');
+          }
         }
 
         if (_disposed ||
@@ -1724,35 +1760,66 @@ class FileTransfer {
         );
       }
 
-      final closed = await _systemChannel.invokeMethod<bool>(
-        'closeIncomingFile',
-      );
+      String receivedSha256;
 
-      if (messageGeneration != _transferGeneration ||
-          _transferId != transferId ||
-          _disposed) {
-        return;
-      }
+      if (backgroundTransferMode) {
+        final output = _backgroundOutput;
+        final file = _backgroundOutputFile;
 
-      _nativeFileOpen = false;
+        if (output == null || file == null) {
+          throw StateError(
+            'Arka plan dosya akışı bulunamadı.',
+          );
+        }
 
-      if (closed != true) {
-        throw StateError('Dosya kayıt akışı kapatılamadı.');
+        await output.flush();
+        await output.close();
+
+        _backgroundOutput = null;
+        _nativeFileOpen = false;
+
+        receivedSha256 = await _calculateFileSha256(file);
+      } else {
+        final closed = await _systemChannel.invokeMethod<bool>(
+          'closeIncomingFile',
+        );
+
+        if (messageGeneration != _transferGeneration ||
+            _transferId != transferId ||
+            _disposed) {
+          return;
+        }
+
+        _nativeFileOpen = false;
+
+        if (closed != true) {
+          throw StateError('Dosya kayıt akışı kapatılamadı.');
+        }
+
+        if (declaredSha256.isEmpty) {
+          throw StateError('Gönderici SHA-256 göndermedi.');
+        }
+
+        final nativeSha256 =
+            await _systemChannel.invokeMethod<String>(
+          'getIncomingFileSha256',
+        );
+
+        if (nativeSha256 == null || nativeSha256.isEmpty) {
+          throw StateError(
+            'Alınan dosyanın SHA-256 değeri hesaplanamadı.',
+          );
+        }
+
+        receivedSha256 = nativeSha256;
       }
 
       if (declaredSha256.isEmpty) {
         throw StateError('Gönderici SHA-256 göndermedi.');
       }
 
-      final receivedSha256 = await _systemChannel.invokeMethod<String>(
-        'getIncomingFileSha256',
-      );
-
-      if (receivedSha256 == null || receivedSha256.isEmpty) {
-        throw StateError('Alınan dosyanın SHA-256 değeri hesaplanamadı.');
-      }
-
-      final normalizedReceivedSha256 = receivedSha256.trim().toLowerCase();
+      final normalizedReceivedSha256 =
+          receivedSha256.trim().toLowerCase();
 
       if (messageGeneration != _transferGeneration ||
           _transferId != transferId ||
@@ -1777,19 +1844,65 @@ class FileTransfer {
       // Şimdi ve yalnızca şimdi temp dosyayı kullanıcının seçtiği
       // gerçek hedef URI'ye atomik olmayan ama kontrollü şekilde
       // kopyalıyoruz.
-      final finalizedUri = await _systemChannel.invokeMethod<String>(
-        'finalizeIncomingFile',
-        <String, dynamic>{'fileId': transferId},
-      );
+      String? finalizedUri;
+
+      if (backgroundTransferMode) {
+        final source = _backgroundOutputFile;
+
+        if (source == null || !await source.exists()) {
+          throw StateError(
+            'Doğrulanan arka plan dosyası bulunamadı.',
+          );
+        }
+
+        final finalPath =
+            await _backgroundSystemChannel.invokeMethod<String>(
+          'registerBackgroundReceivedFile',
+          <String, dynamic>{
+            'fileId': transferId,
+            'sourcePath': source.path,
+          },
+        );
+
+        if (finalPath == null || finalPath.trim().isEmpty) {
+          throw StateError(
+            'Arka plan alınan dosya native depolamaya kaydedilemedi.',
+          );
+        }
+
+        final finalFile = File(finalPath);
+
+        if (!await finalFile.exists() ||
+            await finalFile.length() != _receivedBytes) {
+          throw StateError(
+            'Arka plan alınan dosya kalıcı depolamada doğrulanamadı.',
+          );
+        }
+
+        // Native kayıt artık kalıcı dosyayı kendi depolama alanında tutuyor.
+        // Reset/cleanup akışının bu dosyayı silmesine izin verme.
+        _backgroundOutputFile = null;
+        _nativeFileOpen = false;
+        finalizedUri = finalFile.path;
+      } else {
+        finalizedUri =
+            await _systemChannel.invokeMethod<String>(
+          'finalizeIncomingFile',
+          <String, dynamic>{'fileId': transferId},
+        );
+
+        if (finalizedUri == null ||
+            finalizedUri.trim().isEmpty) {
+          throw StateError(
+            'Doğrulanan dosya hedef konuma aktarılamadı.',
+          );
+        }
+      }
 
       if (messageGeneration != _transferGeneration ||
           _transferId != transferId ||
           _disposed) {
         return;
-      }
-
-      if (finalizedUri == null || finalizedUri.trim().isEmpty) {
-        throw StateError('Doğrulanan dosya hedef konuma aktarılamadı.');
       }
 
       _terminalEventHandled = true;
@@ -1955,12 +2068,20 @@ class FileTransfer {
     _diag('${incoming ? 'INCOMING' : 'OUTGOING'}_TRANSFER_FAILED: $reason');
 
     if (incoming) {
+      final cleanupChannel = backgroundTransferMode
+          ? _backgroundSystemChannel
+          : _systemChannel;
+
       try {
-        await _systemChannel.invokeMethod<bool>('closeIncomingFile');
+        await cleanupChannel.invokeMethod<bool>(
+          'closeIncomingFile',
+        );
       } catch (_) {}
 
       try {
-        await _systemChannel.invokeMethod<bool>('discardIncomingFile');
+        await cleanupChannel.invokeMethod<bool>(
+          'discardIncomingFile',
+        );
       } catch (_) {}
 
       _nativeFileOpen = false;
@@ -1991,6 +2112,39 @@ class FileTransfer {
   }
 
   Future<void> _openOutput() async {
+    if (backgroundTransferMode) {
+      final directory =
+          await getApplicationDocumentsDirectory();
+
+      final receivedDirectory = Directory(
+        '${directory.path}/received_files',
+      );
+
+      await receivedDirectory.create(recursive: true);
+
+      final safeId = (_transferId ?? 'unknown').replaceAll(
+        RegExp(r'[^A-Za-z0-9._-]'),
+        '_',
+      );
+
+      final partFile = File(
+        '${receivedDirectory.path}/$safeId.part',
+      );
+
+      if (await partFile.exists()) {
+        await partFile.delete();
+      }
+
+      _backgroundOutputFile = partFile;
+      _backgroundOutput = await partFile.open(
+        mode: FileMode.write,
+      );
+
+      _nativeFileOpen = true;
+      _receivedBytes = 0;
+      return;
+    }
+
     final safeName = (_fileName ?? 'received_file').replaceAll(
       RegExp(r'[/\\]'),
       '_',
@@ -2014,7 +2168,12 @@ class FileTransfer {
   }
 
   Future<void> _resetTransferState() async {
-    await _stopBackgroundTransferService();
+    // Background isolate kendi foreground service'i tarafından çalıştırılır.
+    // İlk prepare aşamasında service'i kapatmamak gerekir.
+    // Terminal reset sonrasında ise service kapatılabilir.
+    if (!backgroundTransferMode) {
+      await _stopBackgroundTransferService();
+    }
 
     if (_disposed) return;
 
@@ -2026,13 +2185,34 @@ class FileTransfer {
     _lastSignalSeqByTransfer.clear();
 
     if (_nativeFileOpen) {
-      try {
-        await _systemChannel.invokeMethod<bool>('closeIncomingFile');
-      } catch (_) {}
+      if (backgroundTransferMode) {
+        try {
+          await _backgroundOutput?.close();
+        } catch (_) {}
 
-      try {
-        await _systemChannel.invokeMethod<bool>('discardIncomingFile');
-      } catch (_) {}
+        _backgroundOutput = null;
+
+        try {
+          final file = _backgroundOutputFile;
+          if (file != null && await file.exists()) {
+            await file.delete();
+          }
+        } catch (_) {}
+
+        _backgroundOutputFile = null;
+      } else {
+        try {
+          await _systemChannel.invokeMethod<bool>(
+            'closeIncomingFile',
+          );
+        } catch (_) {}
+
+        try {
+          await _systemChannel.invokeMethod<bool>(
+            'discardIncomingFile',
+          );
+        } catch (_) {}
+      }
 
       _nativeFileOpen = false;
     }
@@ -2064,6 +2244,17 @@ class FileTransfer {
 
     await _pc?.close();
     _pc = null;
+
+    if (backgroundTransferMode) {
+      try {
+        const backgroundChannel = MethodChannel(
+          'zerolog/background_transfer',
+        );
+        await backgroundChannel.invokeMethod<dynamic>(
+          'stopService',
+        );
+      } catch (_) {}
+    }
   }
 
   Future<void> dispose() async {
@@ -2078,13 +2269,34 @@ class FileTransfer {
     await _eventsSub?.cancel();
 
     if (_nativeFileOpen) {
-      try {
-        await _systemChannel.invokeMethod<bool>('closeIncomingFile');
-      } catch (_) {}
+      if (backgroundTransferMode) {
+        try {
+          await _backgroundOutput?.close();
+        } catch (_) {}
 
-      try {
-        await _systemChannel.invokeMethod<bool>('discardIncomingFile');
-      } catch (_) {}
+        _backgroundOutput = null;
+
+        try {
+          final file = _backgroundOutputFile;
+          if (file != null && await file.exists()) {
+            await file.delete();
+          }
+        } catch (_) {}
+
+        _backgroundOutputFile = null;
+      } else {
+        try {
+          await _systemChannel.invokeMethod<bool>(
+            'closeIncomingFile',
+          );
+        } catch (_) {}
+
+        try {
+          await _systemChannel.invokeMethod<bool>(
+            'discardIncomingFile',
+          );
+        } catch (_) {}
+      }
 
       _nativeFileOpen = false;
     }

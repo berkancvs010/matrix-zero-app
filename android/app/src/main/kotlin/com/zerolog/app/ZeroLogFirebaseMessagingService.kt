@@ -210,6 +210,9 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             }
 
             "privateFileMessage" -> {
+                if (isAutoAcceptFileTransferEnabled()) {
+                    startBackgroundFileTransfer(message)
+                }
                 showFileNotification(message)
             }
         }
@@ -530,6 +533,101 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             "Incoming call state cleared after matching callStatus " +
                 "callId=$callId"
         )
+    }
+
+    private fun isAutoAcceptFileTransferEnabled(): Boolean {
+        return getSharedPreferences(
+            "FlutterSharedPreferences",
+            Context.MODE_PRIVATE
+        ).getBoolean(
+            "flutter.zerolog.notifications.auto_accept_files",
+            true
+        )
+    }
+
+    private fun startBackgroundFileTransfer(
+        message: RemoteMessage
+    ) {
+        val data = message.data
+
+        val sender =
+            (data["sender"] ?: data["from"] ?: "").trim()
+
+        val recipient =
+            (data["recipient"] ?: data["to"] ?: "").trim()
+
+        val fileId =
+            (data["fileId"] ?: data["transferId"] ?: "").trim()
+
+        val fileName =
+            (data["fileName"] ?: "received_file").trim()
+
+        val fileSize =
+            (data["fileSize"] ?: "0").trim()
+
+        if (sender.isEmpty() ||
+            recipient.isEmpty() ||
+            fileId.isEmpty() ||
+            (fileSize.toLongOrNull() ?: 0L) <= 0L
+        ) {
+            android.util.Log.w(
+                "ZeroLogFile",
+                "Invalid background transfer metadata"
+            )
+            return
+        }
+
+        val intent = Intent(
+            this,
+            FileTransferForegroundService::class.java
+        ).apply {
+            action =
+                FileTransferForegroundService.ACTION_START
+
+            putExtra(
+                FileTransferForegroundService.EXTRA_SENDER,
+                sender
+            )
+            putExtra(
+                FileTransferForegroundService.EXTRA_RECIPIENT,
+                recipient
+            )
+            putExtra(
+                FileTransferForegroundService.EXTRA_FILE_ID,
+                fileId
+            )
+            putExtra(
+                FileTransferForegroundService.EXTRA_FILE_NAME,
+                fileName
+            )
+            putExtra(
+                FileTransferForegroundService.EXTRA_FILE_SIZE,
+                fileSize
+            )
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                androidx.core.content.ContextCompat
+                    .startForegroundService(
+                        this,
+                        intent
+                    )
+            } else {
+                startService(intent)
+            }
+
+            android.util.Log.d(
+                "ZeroLogFile",
+                "Background transfer started: $fileId"
+            )
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogFile",
+                "Background transfer start failed",
+                e
+            )
+        }
     }
 
     private fun showFileNotification(message: RemoteMessage) {

@@ -326,15 +326,6 @@ function storePendingFileTransfer(to,event){
 
   const stored=prepared;
 
-  if(stored.type==='fileTransferOffer'){
-    void sendFileTransferPush(target,stored).catch(error=>{
-      console.error(
-        `[FCM] file transfer push failed for ${target}:`,
-        error
-      );
-    });
-  }
-
   existing.nextSeq=Math.max(
     Number(existing.nextSeq)||1,
     Number(stored.seq)+1,
