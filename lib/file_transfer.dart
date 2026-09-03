@@ -1861,6 +1861,7 @@ class FileTransfer {
           <String, dynamic>{
             'fileId': transferId,
             'sourcePath': source.path,
+            'fileName': _fileName ?? 'received_file',
           },
         );
 
@@ -1870,20 +1871,13 @@ class FileTransfer {
           );
         }
 
-        final finalFile = File(finalPath);
-
-        if (!await finalFile.exists() ||
-            await finalFile.length() != _receivedBytes) {
-          throw StateError(
-            'Arka plan alınan dosya kalıcı depolamada doğrulanamadı.',
-          );
-        }
-
-        // Native kayıt artık kalıcı dosyayı kendi depolama alanında tutuyor.
-        // Reset/cleanup akışının bu dosyayı silmesine izin verme.
+        // Android 10+ background kayıt MediaStore content URI döndürür.
+        // Android 9 ve altında FileProvider/local path dönebilir.
+        // Native tarafı boyutu ve kalıcı hedefi zaten doğruladığı için
+        // burada content:// URI'yi File() ile kontrol etmiyoruz.
         _backgroundOutputFile = null;
         _nativeFileOpen = false;
-        finalizedUri = finalFile.path;
+        finalizedUri = finalPath.trim();
       } else {
         finalizedUri =
             await _systemChannel.invokeMethod<String>(

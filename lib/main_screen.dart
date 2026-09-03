@@ -1048,9 +1048,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         if (isOwnProfile &&
             _pendingProfilePhotoData != null &&
+            (profile['photoData'] ?? '').toString().isNotEmpty &&
             profile['photoData'] != _pendingProfilePhotoData) {
-          // Geç gelen eski getProfile cevabı yeni seçilen fotoğrafı
-          // cache'e geri yazmamalı.
+          // Yalnızca gerçekten fotoğraf taşıyan ve revizyon kontrolünden
+          // geçmiş bir cevap seçilen yeni fotoğrafla çelişiyorsa reddedilir.
           return;
         }
 
@@ -1073,7 +1074,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           final pendingPhoto = _pendingProfilePhotoData;
           final remotePhoto = (profile['photoData'] ?? '').toString();
 
-          if (pendingPhoto != null && remotePhoto == pendingPhoto) {
+          if (pendingPhoto != null &&
+              remotePhoto.isNotEmpty &&
+              (profile['type'] ?? 'avatar').toString() == 'photo') {
             _pendingProfilePhotoData = null;
             _profilePhotoSaving = false;
             if (mounted) {
@@ -1121,11 +1124,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           return;
         }
 
-        if (isOwnProfile &&
-            _pendingProfilePhotoData != null &&
-            profile['photoData'] != _pendingProfilePhotoData) {
-          return;
-        }
+        // profileUpdated yayınında fotoğrafın kendisi bilinçli olarak
+        // gönderilmez. Pending fotoğrafı bu metadata paketi yüzünden
+        // reddetme; aşağıdaki getProfile isteği gerçek photoData'yı getirir.
 
         WsClient.instance.cacheProfile(username, profile);
 
@@ -1147,7 +1148,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           final pendingPhoto = _pendingProfilePhotoData;
           final remotePhoto = (profile['photoData'] ?? '').toString();
 
-          if (pendingPhoto != null && remotePhoto == pendingPhoto) {
+          if (pendingPhoto != null &&
+              remotePhoto.isNotEmpty &&
+              (profile['type'] ?? 'avatar').toString() == 'photo') {
             _pendingProfilePhotoData = null;
             _profilePhotoSaving = false;
             ScaffoldMessenger.of(context).showSnackBar(

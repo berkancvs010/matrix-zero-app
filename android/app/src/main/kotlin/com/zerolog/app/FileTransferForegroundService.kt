@@ -7,6 +7,10 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.Environment
+import android.provider.MediaStore
+import android.content.ContentValues
+import android.webkit.MimeTypeMap
 import java.io.File
 import androidx.core.content.FileProvider
 import android.util.Log
@@ -224,13 +228,20 @@ class FileTransferForegroundService : Service() {
                                 ?.trim()
                                 .orEmpty()
 
+                        val fileName =
+                            call.argument<String>("fileName")
+                                ?.trim()
+                                .ifEmpty { "received_file" }
+                                ?: "received_file"
+
                         result.success(
                             if (fileId.isEmpty() || sourcePath.isEmpty()) {
                                 null
                             } else {
                                 registerBackgroundReceivedFile(
                                     fileId,
-                                    sourcePath
+                                    sourcePath,
+                                    fileName
                                 )
                             }
                         )
@@ -268,7 +279,8 @@ class FileTransferForegroundService : Service() {
 
     private fun registerBackgroundReceivedFile(
         fileId: String,
-        sourcePath: String
+        sourcePath: String,
+        fileName: String
     ): String? {
         if (fileId.isBlank() || sourcePath.isBlank()) return null
 
@@ -281,92 +293,237 @@ class FileTransferForegroundService : Service() {
                 )
             }
 
-            val receivedDir = File(filesDir, "received_files")
+            val safeName = fileName
+                .replace(Regex("[\\r\\n<>]"), "_")
+                .trim()
+                .ifEmpty { "received_file" }
+                .take(255)
 
-            if (!receivedDir.exists() && !receivedDir.mkdirs()) {
-                throw IllegalStateException(
-                    "ZeroLog alınan dosya klasörü oluşturulamadı."
+            val extension = safeName.substringAfterLast('.', "")
+                .trim()
+                .lowercase()
+
+            val mimeType = MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(extension)
+                ?: "application/octet-stream"
+
+            // Android 10+:
+            // Background transfer doğrudan kullanıcı tarafından görülebilen
+            // gerçek hedefe yazılır. Fotoğraflar Pictures/ZeroLog,
+            // diğer dosyalar Downloads/ZeroLog altında tutulur.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val isImage = extension in setOf(
+                    "jpg", "jpeg", "png", "webp", "gif", "heic", "heif"
                 )
-            }
 
-            val safeId = fileId.replace(
-                Regex("[^A-Za-z0-9._-]"),
-                "_"
-            )
-
-            val target = File(receivedDir, safeId)
-            val tempTarget = File(receivedDir, "$safeId.bgpart")
-
-            if (tempTarget.exists()) {
-                tempTarget.delete()
-            }
-
-            source.inputStream().use { input ->
-                tempTarget.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count <= 0) break
-                        output.write(buffer, 0, count)
+                val collection =
+                    if (isImage) {
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    } else {
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI
                     }
 
-                    output.flush()
+                val relativePath =
+                    if (isImage) {
+                        "${Environment.DIRECTORY_PICTURES}/ZeroLog"
+                    } else {
+                        Environment.DIRECTORY_DOWNLOADS
+                    }
+
+                val values = ContentValues().apply {
+                    put(
+                        MediaStore.MediaColumns.DISPLAY_NAME,
+                        safeName
+                    )
+                    put(
+                        MediaStore.MediaColumns.MIME_TYPE,
+                        mimeType
+                    )
+                    put(
+                        MediaStore.MediaColumns.RELATIVE_PATH,
+                        relativePath
+                    )
+                    put(
+                        MediaStore.MediaColumns.IS_PENDING,
+                        1
+                    )
                 }
-            }
 
-            if (!tempTarget.exists() ||
-                tempTarget.length() != source.length()
-            ) {
-                tempTarget.delete()
-                throw IllegalStateException(
-                    "Arka plan dosya kopyası doğrulanamadı."
+                val targetUri = contentResolver.insert(
+                    collection,
+                    values
+                ) ?: throw IllegalStateException(
+                    "Arka plan dosyası için MediaStore hedefi oluşturulamadı."
                 )
-            }
 
-            if (target.exists()) {
-                target.delete()
-            }
+                try {
+                    contentResolver.openOutputStream(targetUri)
+                        ?.use { output ->
+                            source.inputStream().use { input ->
+                                val buffer = ByteArray(64 * 1024)
 
-            if (!tempTarget.renameTo(target)) {
-                tempTarget.delete()
-                throw IllegalStateException(
-                    "Arka plan dosyası kalıcı konuma taşınamadı."
+                                while (true) {
+                                    val count = input.read(buffer)
+                                    if (count <= 0) break
+                                    output.write(buffer, 0, count)
+                                }
+                            }
+
+                            output.flush()
+                        }
+                        ?: throw IllegalStateException(
+                            "Arka plan dosyası için çıktı akışı açılamadı."
+                        )
+
+                    val expectedSize = source.length()
+
+                    val copiedSize =
+                        contentResolver.openFileDescriptor(
+                            targetUri,
+                            "r"
+                        )?.use { it.statSize }
+                            ?: -1L
+
+                    if (copiedSize != expectedSize) {
+                        throw IllegalStateException(
+                            "Arka plan dosya boyutu doğrulanamadı: " +
+                                "$copiedSize / $expectedSize"
+                        )
+                    }
+
+                    val publishValues = ContentValues().apply {
+                        put(
+                            MediaStore.MediaColumns.IS_PENDING,
+                            0
+                        )
+                    }
+
+                    contentResolver.update(
+                        targetUri,
+                        publishValues,
+                        null,
+                        null
+                    )
+
+                    getSharedPreferences(
+                        "zerolog_received_files",
+                        MODE_PRIVATE
+                    )
+                        .edit()
+                        .putString(
+                            "uri_$fileId",
+                            targetUri.toString()
+                        )
+                        .apply()
+
+                    source.delete()
+
+                    targetUri.toString()
+                } catch (e: Exception) {
+                    try {
+                        contentResolver.delete(
+                            targetUri,
+                            null,
+                            null
+                        )
+                    } catch (_: Exception) {}
+
+                    throw e
+                }
+            } else {
+                // Android 9 ve altı için izin gerektirmeyen güvenli fallback.
+                // Bu sürümlerde FileProvider URI ile ZeroLog içinden erişim
+                // korunur.
+                val receivedDir = File(
+                    filesDir,
+                    "received_files"
                 )
-            }
 
-            if (!target.exists() || target.length() <= 0L) {
-                throw IllegalStateException(
-                    "Kalıcı alınan dosya doğrulanamadı."
+                if (!receivedDir.exists() && !receivedDir.mkdirs()) {
+                    throw IllegalStateException(
+                        "ZeroLog alınan dosya klasörü oluşturulamadı."
+                    )
+                }
+
+                val safeId = fileId.replace(
+                    Regex("[^A-Za-z0-9._-]"),
+                    "_"
                 )
-            }
 
-            val uri = FileProvider.getUriForFile(
-                applicationContext,
-                "$packageName.fileprovider",
-                target
-            )
-
-            getSharedPreferences(
-                "zerolog_received_files",
-                MODE_PRIVATE
-            )
-                .edit()
-                .putString(
-                    "uri_$fileId",
-                    uri.toString()
+                val target = File(receivedDir, safeId)
+                val tempTarget = File(
+                    receivedDir,
+                    "$safeId.bgpart"
                 )
-                .apply()
 
-            source.delete()
+                if (tempTarget.exists()) {
+                    tempTarget.delete()
+                }
 
-            target.absolutePath
+                source.inputStream().use { input ->
+                    tempTarget.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count <= 0) break
+                            output.write(buffer, 0, count)
+                        }
+
+                        output.flush()
+                    }
+                }
+
+                if (!tempTarget.exists() ||
+                    tempTarget.length() != source.length()
+                ) {
+                    tempTarget.delete()
+
+                    throw IllegalStateException(
+                        "Arka plan dosya kopyası doğrulanamadı."
+                    )
+                }
+
+                if (target.exists()) {
+                    target.delete()
+                }
+
+                if (!tempTarget.renameTo(target)) {
+                    tempTarget.delete()
+
+                    throw IllegalStateException(
+                        "Arka plan dosyası kalıcı konuma taşınamadı."
+                    )
+                }
+
+                val uri = FileProvider.getUriForFile(
+                    applicationContext,
+                    "$packageName.fileprovider",
+                    target
+                )
+
+                getSharedPreferences(
+                    "zerolog_received_files",
+                    MODE_PRIVATE
+                )
+                    .edit()
+                    .putString(
+                        "uri_$fileId",
+                        uri.toString()
+                    )
+                    .apply()
+
+                source.delete()
+
+                target.absolutePath
+            }
         } catch (e: Exception) {
             Log.e(
                 TAG,
                 "Background received file registration failed",
                 e
             )
+
             null
         }
     }

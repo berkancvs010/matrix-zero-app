@@ -533,6 +533,27 @@ class WsClient {
                 }
               }
 
+              if (data['type'] == 'profile') {
+                final name = (data['username'] ?? '').toString().trim();
+
+                if (name.isNotEmpty) {
+                  cacheProfile(name, <String, dynamic>{
+                    'type': (data['profileType'] ?? data['type'] ?? 'avatar')
+                        .toString(),
+                    'avatarId': data['avatarId'],
+                    'about': (data['about'] ?? '').toString(),
+                    'photoAvailable': data['photoAvailable'] == true,
+                    'photoData': (data['photoData'] ?? '').toString(),
+                    'profileRevision': data['profileRevision'] is num
+                        ? (data['profileRevision'] as num).toInt()
+                        : int.tryParse(
+                              (data['profileRevision'] ?? '').toString(),
+                            ) ??
+                            0,
+                  });
+                }
+              }
+
               if (data['type'] == 'profileUpdated') {
                 final name = (data['username'] ?? '').toString().trim();
 
@@ -543,6 +564,12 @@ class WsClient {
                     'about': (data['about'] ?? '').toString(),
                     'photoAvailable': data['photoAvailable'] == true,
                     'photoData': (data['photoData'] ?? '').toString(),
+                    'profileRevision': data['profileRevision'] is num
+                        ? (data['profileRevision'] as num).toInt()
+                        : int.tryParse(
+                              (data['profileRevision'] ?? '').toString(),
+                            ) ??
+                            0,
                   };
 
                   cacheProfile(name, profile);

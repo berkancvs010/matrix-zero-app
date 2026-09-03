@@ -672,15 +672,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
         _updateFileMessageStatus(transferId, status, localPath: localUri);
 
-        if (status == 'completed') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Dosya başarıyla alındı.')),
-          );
-        } else if (status == 'failed') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Dosya transferi başarısız oldu.')),
-          );
-        }
       },
     );
 
@@ -898,7 +889,23 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             fileId: isFile ? (fileId.isNotEmpty ? fileId : messageId) : '',
             fileName: isFile ? (fileName.isNotEmpty ? fileName : 'Dosya') : '',
             fileSize: isFile ? fileSize : 0,
-            transferBytes: 0,
+            transferBytes: isFile
+                ? (() {
+                    final rawTransferBytes = map['transferBytes'];
+                    final parsedTransferBytes = rawTransferBytes is num
+                        ? rawTransferBytes.toInt()
+                        : int.tryParse(
+                              rawTransferBytes?.toString() ?? '',
+                            ) ??
+                            0;
+                    return parsedTransferBytes > 0
+                        ? parsedTransferBytes
+                        : ((map['transferStatus'] ?? '').toString() ==
+                                  'completed'
+                              ? fileSize
+                              : 0);
+                  })()
+                : 0,
             expiresAt: expiresAt,
             localPath: '',
           );
@@ -1225,14 +1232,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       final existing = existingIndex >= 0 ? _messages[existingIndex] : null;
 
-      final transferStatus = (data['transferStatus'] ?? '').toString().trim().isNotEmpty
-          ? (data['transferStatus'] ?? '').toString().trim()
-          : (existing == null ||
-                  existing.status == 'stored' ||
-                  existing.status == 'read' ||
-                  existing.status == 'delivered')
-              ? 'stored'
-              : existing.status;
+      final incomingTransferStatus =
+          (data['transferStatus'] ?? '').toString().trim();
+
+      final transferStatus = existing?.status == 'completed' &&
+              incomingTransferStatus == 'stored'
+          ? 'completed'
+          : incomingTransferStatus.isNotEmpty
+              ? incomingTransferStatus
+              : (existing == null ||
+                      existing.status == 'stored' ||
+                      existing.status == 'read' ||
+                      existing.status == 'delivered')
+                  ? 'stored'
+                  : existing.status;
 
       final transferBytes = existing?.transferBytes ?? 0;
 
@@ -1453,14 +1466,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       _rememberLocalTransferPath(transferId, path);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Dosya gönderme isteği gönderildi.')),
-      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Dosya gönderilemedi: $e')),
-      );
     }
   }
 
@@ -1525,15 +1532,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Fotoğraf gönderme isteği gönderildi.')),
-      );
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Fotoğraf gönderilemedi: $e')));
     }
   }
 
@@ -1567,14 +1568,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             : message.fileName,
       );
       if (transferId == null || transferId.isEmpty || !mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Transfer yeniden başlatıldı.')),
-      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tekrar denenemedi: $e')),
-      );
     }
   }
 
@@ -2061,7 +2056,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       case 'accepting':
         return 'Kabul ediliyor…';
       case 'completed':
-        return 'Tamamlandı';
+        return 'Gönderildi';
       case 'failed':
         return 'Transfer başarısız';
       case 'rejected':
@@ -2156,10 +2151,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Future<Uint8List?> _loadReceivedThumbnail(String fileId) {
     return _fileThumbnailCache.putIfAbsent(fileId, () async {
       try {
+        // Full image read is already verified by the working viewer.
+        // Reuse that path for the inline preview.
         return await const MethodChannel('zerolog/system')
             .invokeMethod<Uint8List>(
-          'getReceivedImageThumbnail',
-          <String, dynamic>{'fileId': fileId, 'maxSize': 640},
+          'readReceivedImageBytes',
+          <String, dynamic>{'fileId': fileId},
         );
       } catch (_) {
         return null;
@@ -2214,8 +2211,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             canUseNativeImagePreview ||
             (message.localPath.isNotEmpty &&
                 File(message.localPath).existsSync()));
+    final displayedTransferBytes =
+        (message.status == 'completed' || message.status == 'stored') &&
+                message.fileSize > 0
+            ? message.fileSize
+            : message.transferBytes;
+
     final progress = message.fileSize > 0
-        ? (message.transferBytes / message.fileSize).clamp(0.0, 1.0)
+        ? (displayedTransferBytes / message.fileSize).clamp(0.0, 1.0)
         : 0.0;
 
     final canOpenLocalImage =
@@ -2472,7 +2475,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                    if (mine && message.status.isNotEmpty) ...[
+                    if (mine &&
+                        message.status.isNotEmpty &&
+                        !message.isFile) ...[
                       const SizedBox(width: 5),
                       Text(
                         _messageStatusLabel(message.status),

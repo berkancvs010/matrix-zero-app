@@ -1557,56 +1557,10 @@ wss.on('connection',(ws)=>{
       : [];
 
     if(pending.length){
-      const pendingSent = send(ws,{
+      send(ws,{
         type:'pendingPrivateMessages',
         messages:pending,
       });
-
-      if(pendingSent){
-        for(const pendingMessage of pending){
-          const sender=safeNick(
-            pendingMessage && pendingMessage.from != null
-              ? pendingMessage.from
-              : ''
-          );
-
-          const messageId=String(
-            pendingMessage && pendingMessage.id != null
-              ? pendingMessage.id
-              : ''
-          ).trim();
-
-          const clientMessageId=String(
-            pendingMessage && pendingMessage.clientMessageId != null
-              ? pendingMessage.clientMessageId
-              : ''
-          ).trim();
-
-          if(!sender || (!messageId && !clientMessageId)) continue;
-
-          const delivered=markPrivateMessageDelivered(
-            sender,
-            account.username,
-            messageId,
-            clientMessageId
-          );
-
-          if(delivered){
-            send(
-              sockets.get(sender),
-              {
-                type:'messageDelivered',
-                messageId:delivered.id||null,
-                clientMessageId:delivered.clientMessageId||null,
-                from:account.username,
-                to:sender,
-                deliveredTo:account.username,
-                ts:delivered.deliveredAt||Date.now(),
-              }
-            );
-          }
-        }
-      }
     }
 
     broadcastUserOnline(account.username);
@@ -2113,7 +2067,9 @@ wss.on('connection',(ws)=>{
       ts:Date.now(),
       expiresAt:Date.now()+PRIVATE_MESSAGE_TTL_MS,
       delivered:false,
-      transferStatus:'stored',
+      // privateFileMessage is created only after receiver completion.
+      transferStatus:'completed',
+      transferBytes:fileSize,
     };
 
     const stored=addPrivate(me,to,msg);
@@ -2131,7 +2087,7 @@ wss.on('connection',(ws)=>{
     if(recipientForeground){
       send(recipient,stored);
     }else if(messageNotificationsEnabled(to)){
-      const pushSent=await sendFcmPush(to,{
+      await sendFcmPush(to,{
         data:{
           type:'privateFileMessage',
           messageId:String(stored.id||''),
@@ -2147,20 +2103,7 @@ wss.on('connection',(ws)=>{
           ttl:3600000,
         },
       });
-      if(pushSent){
-        const delivered=markPrivateMessageDelivered(me,to,stored.id,stored.clientMessageId);
-        if(delivered){
-          send(socketFor(me),{
-            type:'messageDelivered',
-            messageId:delivered.id||null,
-            clientMessageId:delivered.clientMessageId||null,
-            from:to,
-            to:me,
-            deliveredTo:to,
-            ts:delivered.deliveredAt||Date.now(),
-          });
-        }
-      }
+
     }
 
     break;
@@ -2230,7 +2173,7 @@ wss.on('connection',(ws)=>{
     if(recipientForeground){
       send(recipient,stored);
     }else if(messageNotificationsEnabled(to)){
-      const pushSent=await sendFcmPush(to,{
+      await sendFcmPush(to,{
         // DATA-ONLY:
         // Android arka planda kendi launcher notification'ını
         // oluşturmamalı. Native FCM service kendi PendingIntent'ini
@@ -2248,20 +2191,7 @@ wss.on('connection',(ws)=>{
           ttl:86400000,
         },
       });
-      if(pushSent){
-        const delivered=markPrivateMessageDelivered(me,to,stored.id,stored.clientMessageId);
-        if(delivered){
-          send(socketFor(me),{
-            type:'messageDelivered',
-            messageId:delivered.id||null,
-            clientMessageId:delivered.clientMessageId||null,
-            from:to,
-            to:me,
-            deliveredTo:to,
-            ts:delivered.deliveredAt||Date.now(),
-          });
-        }
-      }
+
     }
 
     break;
