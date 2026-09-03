@@ -231,8 +231,8 @@ class FileTransferForegroundService : Service() {
                         val fileName =
                             call.argument<String>("fileName")
                                 ?.trim()
+                                .orEmpty()
                                 .ifEmpty { "received_file" }
-                                ?: "received_file"
 
                         result.success(
                             if (fileId.isEmpty() || sourcePath.isEmpty()) {
