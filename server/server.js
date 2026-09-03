@@ -1308,6 +1308,49 @@ function disconnect(ws){
 
   const nickKey=normalizeUsername(nick);
 
+  users.delete(ws);
+
+  // A background file-transfer service may temporarily open a second
+  // authenticated WebSocket for the same account. When that socket closes,
+  // restore the user's still-live primary socket instead of marking the
+  // account offline or dropping active calls.
+  let replacementSocket=null;
+
+  if(sockets.get(nick)===ws){
+    sockets.delete(nick);
+
+    for(const candidate of users.keys()){
+      const candidateNick=users.get(candidate);
+
+      if(
+        candidateNick &&
+        normalizeUsername(candidateNick)===nickKey &&
+        candidate.readyState===1
+      ){
+        replacementSocket=candidate;
+        break;
+      }
+    }
+
+    if(replacementSocket){
+      sockets.set(nick,replacementSocket);
+    }
+  }
+
+  if(replacementSocket){
+    // Preserve the lifecycle state of the remaining primary socket.
+    if(!appStates.has(nickKey)){
+      appStates.set(nickKey,'background');
+    }
+
+    if(!appStateUpdatedAt.has(nickKey)){
+      appStateUpdatedAt.set(nickKey,Date.now());
+    }
+
+    updatePresence();
+    return;
+  }
+
   for(const [callId,call] of activeCalls){
     if(!isCallParty(call,nick))continue;
 
@@ -1324,12 +1367,6 @@ function disconnect(ws){
       to:peer,
       callId,
     });
-  }
-
-  users.delete(ws);
-
-  if(sockets.get(nick)===ws){
-    sockets.delete(nick);
   }
 
   appStates.delete(nickKey);

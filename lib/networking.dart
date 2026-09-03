@@ -104,6 +104,9 @@ class WsClient {
     final incoming = Map<String, dynamic>.from(profile);
     final existing = _userProfiles[name];
 
+    final incomingType =
+        (incoming['type'] ?? 'avatar').toString();
+
     if (existing != null) {
       final incomingRevision =
           int.tryParse((incoming['profileRevision'] ?? '').toString()) ?? 0;
@@ -120,8 +123,6 @@ class WsClient {
       // profileUpdated bilinçli olarak photoData taşımaz.
       // Ancak cache'te gerçek fotoğraf zaten varsa boş metadata
       // paketi bu fotoğrafı silemez.
-      final incomingType =
-          (incoming['type'] ?? 'avatar').toString();
       final incomingPhoto =
           (incoming['photoData'] ?? '').toString();
       final existingPhoto =
@@ -136,9 +137,10 @@ class WsClient {
 
     _userProfiles[name] = incoming;
     _events.add({
-      'type': 'profileCacheUpdated',
-      'username': name,
       ...incoming,
+      'type': 'profileCacheUpdated',
+      'profileType': incomingType,
+      'username': name,
     });
   }
 

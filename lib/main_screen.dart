@@ -35,6 +35,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (!mounted) return;
 
     setState(() {});
+
+    // Local cache provides an immediate preview, but the server is the
+    // authoritative source. Fetch the full profile after every app start
+    // so a photo cannot disappear after process/app restart.
+    if (WsClient.instance.connected) {
+      WsClient.instance.requestProfile(widget.nickname);
+    }
   }
 
   Future<String?> _encodeProfilePhoto(String path) async {
@@ -1093,6 +1100,55 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
+    if (type == 'profileCacheUpdated') {
+      final username = (data['username'] ?? '').toString().trim();
+
+      if (username.isEmpty || !mounted) return;
+
+      final profile = <String, dynamic>{
+        'type': (data['profileType'] ?? data['type'] ?? 'avatar').toString(),
+        'avatarId': data['avatarId'],
+        'about': (data['about'] ?? '').toString(),
+        'photoAvailable': data['photoAvailable'] == true,
+        'photoData': (data['photoData'] ?? '').toString(),
+        'profileRevision': data['profileRevision'] is num
+            ? (data['profileRevision'] as num).toInt()
+            : int.tryParse((data['profileRevision'] ?? '').toString()) ?? 0,
+      };
+
+      final isOwnProfile =
+          username.toLowerCase() == widget.nickname.toLowerCase();
+
+      if (profile['photoAvailable'] == true &&
+          (profile['photoData'] as String).isEmpty) {
+        if (isOwnProfile) {
+          WsClient.instance.requestProfile(username);
+        } else if (!_profileFetchRequested.contains(username.toLowerCase()) &&
+            WsClient.instance.connected) {
+          _profileFetchRequested.add(username.toLowerCase());
+          WsClient.instance.requestProfile(username);
+        }
+      }
+
+      // userDirectory intentionally carries only profile metadata. Never
+      // let an empty photoData field from that metadata erase a valid local
+      // photo. A full profile response is required before applying a photo.
+      if (isOwnProfile &&
+          ((profile['type'] ?? 'avatar').toString() != 'photo' ||
+              (profile['photoData'] as String).isNotEmpty)) {
+        await _applyRemoteOwnProfile(profile);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        if (!isOwnProfile) {
+          _profileFetchRequested.remove(username.toLowerCase());
+        }
+      });
+
+      return;
+    }
+
     if (type == 'profileUpdated') {
       final username = (data['username'] ?? '').toString().trim();
 
@@ -1215,6 +1271,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (type == 'connectionRestored' || type == 'registered') {
       _profileFetchRequested.clear();
       WsClient.instance.requestUserDirectory();
+      WsClient.instance.requestProfile(widget.nickname);
 
       setState(() {
         _connected = true;

@@ -218,7 +218,7 @@ class FileTransfer {
   void _startConnectionTimeout(String transferId, {bool incoming = false}) {
     _connectionTimeoutTimer?.cancel();
 
-    _connectionTimeoutTimer = Timer(const Duration(seconds: 30), () {
+    _connectionTimeoutTimer = Timer(const Duration(seconds: 90), () {
       if (_disposed || _transferId != transferId || _terminalEventHandled) {
         return;
       }
@@ -228,7 +228,7 @@ class FileTransfer {
       unawaited(
         _failTransfer(
           transferId,
-          'Dosya bağlantısı zaman aşımına uğradı.',
+          'Dosya bağlantısı 90 saniye içinde kurulamadı.',
           reset: true,
           incoming: incoming,
         ),

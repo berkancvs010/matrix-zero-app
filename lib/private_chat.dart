@@ -2201,6 +2201,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final isImage = RegExp(r'\.(jpg|jpeg|png|webp|gif|heic)$').hasMatch(lower);
     final isReceivedUri = message.localPath.startsWith('content://');
     final canUseNativeImagePreview =
+        !mine &&
         isImage &&
         message.fileId.isNotEmpty &&
         (message.status == 'completed' ||
@@ -2210,6 +2211,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         (isReceivedUri ||
             canUseNativeImagePreview ||
             (message.localPath.isNotEmpty &&
+                !message.localPath.startsWith('content://') &&
                 File(message.localPath).existsSync()));
     final displayedTransferBytes =
         (message.status == 'completed' || message.status == 'stored') &&
