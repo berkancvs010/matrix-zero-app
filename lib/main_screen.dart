@@ -150,7 +150,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _profileController.photoData = photoData;
     });
 
-    WsClient.instance.send({
+    final sent = WsClient.instance.send({
       'type': 'setProfile',
       'profileType': 'photo',
       'avatarId': null,
@@ -158,6 +158,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'about': _profileAbout,
       'profileRevision': _profileRevision,
     });
+
+    if (!sent && mounted) {
+      _pendingProfilePhotoData = null;
+      _profilePhotoSaving = false;
+      if (_previousProfilePhotoData.isNotEmpty) {
+        await _profileController.setPhotoData(_previousProfilePhotoData);
+      } else {
+        await _profileController.clearPhoto();
+      }
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profil fotoğrafı gönderilemedi: bağlantı hazır değil.')),
+      );
+    }
   }
 
   Future<void> _takeProfilePhoto() async {
@@ -194,7 +209,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _profileController.photoData = photoData;
     });
 
-    WsClient.instance.send({
+    final sent = WsClient.instance.send({
       'type': 'setProfile',
       'profileType': 'photo',
       'avatarId': null,
@@ -202,6 +217,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'about': _profileAbout,
       'profileRevision': _profileRevision,
     });
+
+    if (!sent && mounted) {
+      _pendingProfilePhotoData = null;
+      _profilePhotoSaving = false;
+      if (_previousProfilePhotoData.isNotEmpty) {
+        await _profileController.setPhotoData(_previousProfilePhotoData);
+      } else {
+        await _profileController.clearPhoto();
+      }
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profil fotoğrafı gönderilemedi: bağlantı hazır değil.')),
+      );
+    }
   }
 
 
@@ -1074,7 +1104,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         final photoNeedsFetch =
             profile['photoAvailable'] == true &&
-            (profile['photoData'] as String).isEmpty;
+            (profile['photoData'] ?? '').toString().isEmpty;
 
         if (username.toLowerCase() == widget.nickname.toLowerCase() &&
             !photoNeedsFetch) {
@@ -1120,7 +1150,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           username.toLowerCase() == widget.nickname.toLowerCase();
 
       if (profile['photoAvailable'] == true &&
-          (profile['photoData'] as String).isEmpty) {
+          (profile['photoData'] ?? '').toString().isEmpty) {
         if (isOwnProfile) {
           WsClient.instance.requestProfile(username);
         } else if (!_profileFetchRequested.contains(username.toLowerCase()) &&
@@ -1135,7 +1165,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // photo. A full profile response is required before applying a photo.
       if (isOwnProfile &&
           ((profile['type'] ?? 'avatar').toString() != 'photo' ||
-              (profile['photoData'] as String).isNotEmpty)) {
+              (profile['photoData'] ?? '').toString().isNotEmpty)) {
         await _applyRemoteOwnProfile(profile);
       }
 
@@ -1191,8 +1221,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _profileRevision = incomingRevision;
         }
 
-        if (profile['photoAvailable'] == true &&
-            (profile['photoData'] as String).isEmpty) {
+        final photoData = (profile['photoData'] ?? '').toString();
+
+        // profileUpdated artık fotoğrafı da taşıyabilir. Fotoğraf mevcutsa
+        // ayrı getProfile round-trip'i gerekmez; yalnızca metadata geldiyse
+        // eski sunucularla uyumluluk için full profile isteği yap.
+        if (profile['photoAvailable'] == true && photoData.isEmpty) {
           WsClient.instance.requestProfile(username);
         }
 

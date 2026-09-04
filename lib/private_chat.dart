@@ -1468,6 +1468,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dosya gönderilemedi: $e')),
+      );
     }
   }
 
@@ -1534,7 +1537,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     } catch (e) {
       if (!mounted) return;
-
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fotoğraf gönderilemedi: $e')),
+      );
     }
   }
 
@@ -1570,6 +1575,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (transferId == null || transferId.isEmpty || !mounted) return;
     } catch (e) {
       if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dosya yeniden gönderilemedi: $e')),
+      );
     }
   }
 

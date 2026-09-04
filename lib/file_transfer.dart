@@ -421,12 +421,15 @@ class FileTransfer {
 
     await _resetTransferState();
 
+    if (!ws.connected) {
+      throw StateError('Dosya gönderilemedi: bağlantı hazır değil.');
+    }
+
     await _createPeer();
 
     final transferId = '${DateTime.now().microsecondsSinceEpoch}-$me';
 
     _transferId = transferId;
-    unawaited(_startBackgroundTransferService());
     _fileName = fileName;
     _fileSize = size;
 
@@ -469,7 +472,7 @@ class FileTransfer {
      * SDP offer daha sonra _startOutgoingTransfer() içinde
      * oluşturulur ve gönderilir.
      */
-    ws.send({
+    final sent = ws.send({
       'type': 'fileTransferOffer',
       'from': me,
       'to': peer,
@@ -477,6 +480,15 @@ class FileTransfer {
       'fileName': _fileName,
       'fileSize': size,
     });
+
+    if (!sent) {
+      await _failTransfer(
+        transferId,
+        'Dosya teklifi karşı tarafa iletilemedi.',
+        reset: true,
+      );
+      throw StateError('Dosya teklifi karşı tarafa iletilemedi.');
+    }
 
     // Metadata offer artık server/client signaling zincirine
     // girdi. Bundan sonra oluşturulmuş ICE candidate'ları gönder.
@@ -568,6 +580,14 @@ class FileTransfer {
     if (_disposed) return;
     if (_transferId != transferId) return;
 
+    // FCM + WebSocket aynı transfer için ACCEPT'i iki kez tetikleyebilir.
+    // İlk ACCEPT sonrasında ikinci çağrı yeni native/SDP durumu
+    // oluşturmamalıdır.
+    if (_accepted) {
+      _diag('ACCEPT_DUPLICATE_IGNORED transfer=$transferId');
+      return;
+    }
+
     try {
       // Kayıt konumunu sender'a ACCEPT göndermeden önce seç.
       // Böylece sender veri göndermeye başladığında receiver hazır olur.
@@ -579,12 +599,16 @@ class FileTransfer {
 
       onIncomingStatus?.call(transferId: transferId, status: 'accepting');
 
-      ws.send({
+      final sent = ws.send({
         'type': 'fileTransferAccept',
         'from': me,
         'to': peer,
         'transferId': transferId,
       });
+
+      if (!sent) {
+        throw StateError('Dosya kabulü karşı tarafa iletilemedi.');
+      }
     } catch (e) {
       _accepted = false;
 
@@ -749,7 +773,7 @@ class FileTransfer {
 
     _diag('LOCAL_DESCRIPTION_SET');
 
-    ws.send({
+    final sent = ws.send({
       'type': 'fileTransferOffer',
       'from': me,
       'to': peer,
@@ -758,6 +782,10 @@ class FileTransfer {
       'fileSize': _fileSize,
       'sdp': {'type': offer.type, 'sdp': offer.sdp},
     });
+
+    if (!sent) {
+      throw StateError('Dosya bağlantı teklifi karşı tarafa iletilemedi.');
+    }
 
     onProgress?.call(
       transferId: transferId,
@@ -1227,7 +1255,15 @@ class FileTransfer {
       // ait olmalıdır.
       if (incomingId != _transferId) return;
 
-      await _handleOfferSdp(event);
+      try {
+        await _handleOfferSdp(event);
+      } catch (e) {
+        await _handleSignalingFailure(
+          incomingId,
+          'Dosya bağlantı teklifi işlenemedi.',
+          e,
+        );
+      }
       return;
     }
 
@@ -1241,7 +1277,18 @@ class FileTransfer {
           if (_sendingFile == null || _transferId == null) return;
           if (_sending) return;
 
-          await _startOutgoingTransfer();
+          try {
+            await _startOutgoingTransfer();
+          } catch (e) {
+            final transferId = _transferId;
+            if (transferId != null && transferId.isNotEmpty) {
+              await _handleSignalingFailure(
+                transferId,
+                'Dosya bağlantısı başlatılamadı.',
+                e,
+              );
+            }
+          }
         }
         break;
 
@@ -1263,7 +1310,18 @@ class FileTransfer {
         break;
 
       case 'fileTransferAnswer':
-        await _handleAnswer(event);
+        try {
+          await _handleAnswer(event);
+        } catch (e) {
+          final transferId = _transferId;
+          if (transferId != null && transferId.isNotEmpty) {
+            await _handleSignalingFailure(
+              transferId,
+              'Dosya bağlantı cevabı işlenemedi.',
+              e,
+            );
+          }
+        }
         break;
 
       case 'fileTransferIce':
@@ -1365,10 +1423,9 @@ class FileTransfer {
 
     _incomingTransfer = true;
 
-    // Incoming WebRTC transferi peer kurulmadan önce servis tarafından
-    // korunmalı; özellikle uygulama arka plandayken bu kritik.
-    await _startBackgroundTransferService();
-
+    // Foreground sohbet zaten uygulama süreci tarafından korunuyor.
+    // Background service yalnızca FCM tarafından başlatılan headless
+    // transfer akışında kullanılmalıdır.
     await _createPeer();
 
     _transferId = incomingId;
@@ -1387,6 +1444,32 @@ class FileTransfer {
       fileName: _fileName!,
       fileSize: _fileSize,
       sender: peer,
+    );
+  }
+
+  Future<void> _handleSignalingFailure(
+    String transferId,
+    String reason,
+    Object error,
+  ) async {
+    _diag(
+      'SIGNALING_FAILED '
+      'transfer=$transferId '
+      'reason=$reason '
+      'error=$error',
+    );
+
+    if (_disposed ||
+        _transferId != transferId ||
+        _terminalEventHandled) {
+      return;
+    }
+
+    await _failTransfer(
+      transferId,
+      reason,
+      reset: true,
+      incoming: _incomingTransfer,
     );
   }
 
@@ -1415,13 +1498,17 @@ class FileTransfer {
 
     await _pc!.setLocalDescription(answer);
 
-    ws.send({
+    final sent = ws.send({
       'type': 'fileTransferAnswer',
       'from': me,
       'to': peer,
       'transferId': _transferId,
       'sdp': {'type': answer.type, 'sdp': answer.sdp},
     });
+
+    if (!sent) {
+      throw StateError('Dosya bağlantı cevabı karşı tarafa iletilemedi.');
+    }
 
     onIncomingStatus?.call(transferId: _transferId!, status: 'transferring');
   }
@@ -1447,7 +1534,7 @@ class FileTransfer {
   }
 
   void _sendLocalIceCandidate(RTCIceCandidate candidate, String transferId) {
-    ws.send({
+    final sent = ws.send({
       'type': 'fileTransferIce',
       'from': me,
       'to': peer,
@@ -1458,6 +1545,10 @@ class FileTransfer {
         'sdpMLineIndex': candidate.sdpMLineIndex,
       },
     });
+
+    if (!sent) {
+      _diag('ICE_SEND_FAILED transfer=$transferId');
+    }
   }
 
   Future<void> _flushLocalIce() async {

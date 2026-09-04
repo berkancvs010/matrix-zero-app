@@ -89,10 +89,37 @@ class WsClient {
 
     if (name.isEmpty) return;
 
-    // Kullanıcı adı büyük/küçük harf farkıyla tekrar cache'e girerse
-    // eski kaydın kalıp yeni profil güncellemesini gölgelemesine izin verme.
+    final normalizedName = name.toLowerCase();
+
+    // Önce mevcut kaydı bul. Eski sürümde farklı büyük/küçük harf ile
+    // gelen kullanıcı adı stale kaydı silip existing'i null bırakabiliyordu.
+    String? existingKey;
+    for (final key in _userProfiles.keys) {
+      if (key.trim().toLowerCase() == normalizedName) {
+        existingKey = key;
+        break;
+      }
+    }
+
+    final existing = existingKey == null
+        ? null
+        : Map<String, dynamic>.from(_userProfiles[existingKey]!);
+
+    final incomingRevision =
+        int.tryParse((profile['profileRevision'] ?? '').toString()) ?? 0;
+    final existingRevision =
+        int.tryParse((existing?['profileRevision'] ?? '').toString()) ?? 0;
+
+    // Önce revizyonu kontrol et. Eski bir profil farklı büyük/küçük harf
+    // ile gelirse stale key'i silip daha yeni cache kaydını kaybetmemeliyiz.
+    if (existing != null &&
+        incomingRevision > 0 &&
+        existingRevision > incomingRevision) {
+      return;
+    }
+
     final staleKeys = _userProfiles.keys
-        .where((key) => key.trim().toLowerCase() == name.toLowerCase())
+        .where((key) => key.trim().toLowerCase() == normalizedName)
         .toList(growable: false);
 
     for (final key in staleKeys) {
@@ -102,7 +129,6 @@ class WsClient {
     }
 
     final incoming = Map<String, dynamic>.from(profile);
-    final existing = _userProfiles[name];
 
     final incomingType =
         (incoming['type'] ?? 'avatar').toString();
@@ -128,10 +154,10 @@ class WsClient {
       final existingPhoto =
           (existing['photoData'] ?? '').toString();
 
-      if (incomingType == 'photo' &&
-          incomingPhoto.isEmpty &&
-          existingPhoto.isNotEmpty) {
-        incoming['photoData'] = existingPhoto;
+      if (incomingPhoto.isEmpty && existingPhoto.isNotEmpty) {
+        if (incomingType == 'photo' || incomingRevision == 0) {
+          incoming['photoData'] = existingPhoto;
+        }
       }
     }
 
@@ -143,6 +169,7 @@ class WsClient {
       'username': name,
     });
   }
+
 
   void clearProfileCache() {
     _userProfiles.clear();
@@ -577,7 +604,7 @@ class WsClient {
                   cacheProfile(name, profile);
 
                   if (profile['photoAvailable'] == true &&
-                      (profile['photoData'] as String).isEmpty) {
+                      (profile['photoData'] ?? '').toString().isEmpty) {
                     requestProfile(name);
                   }
                 }
@@ -794,23 +821,25 @@ class WsClient {
     return !transientTypes.contains(type);
   }
 
-  void send(Map<String, dynamic> data) {
+  bool send(Map<String, dynamic> data) {
     final payload = Map<String, dynamic>.from(data);
 
     if (!connected || _channel == null) {
       if (_shouldQueueWhileDisconnected(payload)) {
         _outgoingQueue.add(payload);
       }
-      return;
+      return false;
     }
 
     try {
       _channel!.sink.add(jsonEncode(payload));
+      return true;
     } catch (_) {
       if (_shouldQueueWhileDisconnected(payload)) {
         _outgoingQueue.add(payload);
       }
       _handleConnectionLost();
+      return false;
     }
   }
 

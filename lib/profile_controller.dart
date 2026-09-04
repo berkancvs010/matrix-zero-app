@@ -37,7 +37,10 @@ class ProfileController {
       await prefs.remove(photoKey);
       photoPath = null;
       photoData = remotePhoto;
-    } else if (type == 'photo' && profile.containsKey('photoData')) {
+    } else if (type == 'avatar') {
+      // Avatar profili sunucu tarafından fotoğrafın bilinçli olarak
+      // kaldırıldığını gösterir. Boş photoData ise tek başına silme
+      // sebebi değildir; metadata paketleri photoData taşımayabilir.
       await prefs.remove(photoKey);
       await prefs.remove(photoDataKey);
       photoPath = null;

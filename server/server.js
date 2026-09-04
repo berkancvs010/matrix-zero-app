@@ -740,20 +740,10 @@ function send(ws,data){
     ws.send(JSON.stringify(data));
     return true;
   }catch{
-    const nick=users.get(ws);
-
-    if(nick){
-      users.delete(ws);
-      if(sockets.get(nick)===ws){
-        sockets.delete(nick);
-
-        // Socket kapandıysa state artık foreground/background ayrımı
-        // yapmadan offline kabul edilir.
-        appStates.delete(normalizeUsername(nick));
-      }
-      broadcastUserOffline(nick);
-      updatePresence();
-    }
+    // Socket kapanışını tek merkezden yönet. Özellikle aynı hesap için
+    // background transfer servisi ikinci WebSocket açmışsa, burada doğrudan
+    // offline yayınlamak canlı primary socket'i yanlışlıkla offline gösterir.
+    disconnect(ws);
 
     try{ws.close();}catch{}
     return false;
@@ -1311,12 +1301,19 @@ function disconnect(ws){
   users.delete(ws);
 
   // A background file-transfer service may temporarily open a second
-  // authenticated WebSocket for the same account. When that socket closes,
-  // restore the user's still-live primary socket instead of marking the
-  // account offline or dropping active calls.
+  // authenticated WebSocket for the same account. If the socket being
+  // closed is not the primary socket and another live socket remains,
+  // this disconnect must have no lifecycle side effects.
   let replacementSocket=null;
 
-  if(sockets.get(nick)===ws){
+  const currentPrimary=socketFor(nick);
+
+  if(currentPrimary && currentPrimary!==ws && currentPrimary.readyState===1){
+    updatePresence();
+    return;
+  }
+
+  if(currentPrimary===ws){
     sockets.delete(nick);
 
     for(const candidate of users.keys()){
@@ -1881,10 +1878,10 @@ wss.on('connection',(ws)=>{
         avatarId:profile.avatarId,
         about:profile.about,
         photoAvailable:profile.photoAvailable===true,
-        // Profil fotoğrafı burada broadcast edilmez.
-        // Büyük base64 payload'ın tüm bağlı kullanıcılara yayılması
-        // mesaj/presence WebSocket trafiğinde ciddi lag oluşturabilir.
-        // İhtiyaç halinde istemci getProfile ile fotoğrafı doğrudan ister.
+        // Profil fotoğrafı base64 olarak yüzlerce KB olabilir. Bunu tüm
+        // bağlı kullanıcılara broadcast etmek mesaj/presence trafiğini
+        // gereksiz şekilde büyütür. İstemci photoAvailable=true ve
+        // photoData boş gördüğünde getProfile ile tekil tam profili ister.
       });
     }
 
@@ -2691,17 +2688,28 @@ wss.on('connection',(ws)=>{
     let deliveredLive=false;
 
     /*
-     * Dosya OFFER'ı yalnızca alıcı gerçekten foreground'da ise
-     * canlı WebSocket üzerinden teslim edilir.
+     * KRİTİK: Established transfer signaling'i yalnızca foreground
+     * durumuna bağlamak güvenilir değildir.
      *
-     * Android arka planda WebSocket'i bir süre açık tutabilir. Eski
-     * davranışta bu durumda OFFER socket'e gönderiliyor ve FCM hiç
-     * gönderilmiyordu. Kullanıcı bu yüzden dosya bildirimi alamıyordu.
+     * ACCEPT / SDP / ICE / COMPLETE gibi event'ler, karşı cihazın
+     * WebSocket'i bağlı olduğu sürece canlı socket'e teslim edilmelidir.
+     * Aksi halde heartbeat 45 saniyelik TTL'nin dışına çıktığında
+     * sunucu event'i pending kuyruğuna alır; ancak bu event'ler için
+     * FCM gönderilmediğinden sender/receiver sonsuza kadar bekler.
+     * Bu özellikle kullanıcıda "Kabul ediliyor…" durumunda kalan
+     * transferin doğrudan sebebidir.
      *
-     * Background durumda OFFER + ICE pending kuyruğunda tutulur ve
-     * FCM alıcıyı uygulamaya geri getirir.
+     * İlk metadata OFFER ise foreground/background davranışını korur:
+     * foreground'da canlı teslim, background'da pending + FCM.
+     * Transfer başladıktan sonraki tüm signaling event'leri bağlı
+     * socket'e doğrudan teslim edilir. Socket yoksa pending kuyruğu
+     * kullanılır.
      */
-    if(recipientForeground){
+    const isInitialOffer=
+      d.type==='fileTransferOffer' &&
+      d.sdp==null;
+
+    if(recipientConnected && (!isInitialOffer || recipientForeground)){
       deliveredLive=send(recipient,routedEvent);
     }
 

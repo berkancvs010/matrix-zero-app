@@ -27,6 +27,7 @@ class _CallScreenState extends State<CallScreen> {
   late final StreamSubscription<Map<String, dynamic>> _subscription;
 
   final List<RTCIceCandidate> _pendingIceCandidates = [];
+  final List<RTCIceCandidate> _pendingOutgoingIceCandidates = [];
 
   bool _accepted = false;
   bool _connected = false;
@@ -78,6 +79,35 @@ class _CallScreenState extends State<CallScreen> {
         }
       });
     } catch (_) {}
+  }
+
+  void _flushPendingOutgoingIce() {
+    if (_closing || _pendingOutgoingIceCandidates.isEmpty) return;
+
+    final pending =
+        List<RTCIceCandidate>.from(_pendingOutgoingIceCandidates);
+    _pendingOutgoingIceCandidates.clear();
+
+    for (final candidate in pending) {
+      if (_closing || widget.callId == null || widget.callId!.isEmpty) {
+        break;
+      }
+
+      final sent = WsClient.instance.send({
+        'type': 'callIce',
+        'from': widget.myNick,
+        'to': widget.targetNick,
+        'callId': widget.callId,
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
+      });
+
+      if (!sent) {
+        _pendingOutgoingIceCandidates.add(candidate);
+        break;
+      }
+    }
   }
 
   @override
@@ -150,7 +180,7 @@ class _CallScreenState extends State<CallScreen> {
       peer.onIceCandidate = (RTCIceCandidate candidate) {
         if (_closing || candidate.candidate == null) return;
 
-        WsClient.instance.send({
+        final sent = WsClient.instance.send({
           'type': 'callIce',
           'from': widget.myNick,
           'to': widget.targetNick,
@@ -159,6 +189,10 @@ class _CallScreenState extends State<CallScreen> {
           'sdpMid': candidate.sdpMid,
           'sdpMLineIndex': candidate.sdpMLineIndex,
         });
+
+        if (!sent && !_closing) {
+          _pendingOutgoingIceCandidates.add(candidate);
+        }
       };
 
       peer.onConnectionState = (RTCPeerConnectionState state) {
@@ -263,12 +297,21 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
-    WsClient.instance.send({
+    final inviteSent = WsClient.instance.send({
       'type': 'callInvite',
       'from': widget.myNick,
       'to': widget.targetNick,
       'callId': callId,
     });
+
+    if (!inviteSent) {
+      await ZeroLogPushService.stopOutgoingCallTone();
+      if (mounted && !_closing) {
+        _showError('Arama başlatılamadı: bağlantı hazır değil.');
+      }
+      await _finish(sendSignal: false);
+      return;
+    }
 
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = Timer(const Duration(seconds: 60), () {
@@ -315,13 +358,17 @@ class _CallScreenState extends State<CallScreen> {
 
       if (_closing) return;
 
-      WsClient.instance.send({
+      final sent = WsClient.instance.send({
         'type': 'callOffer',
         'from': widget.myNick,
         'to': widget.targetNick,
         'callId': widget.callId,
         'sdp': offer.sdp,
       });
+
+      if (!sent) {
+        throw StateError('Arama bağlantı teklifi gönderilemedi.');
+      }
 
       if (mounted) {
         setState(() {
@@ -330,9 +377,13 @@ class _CallScreenState extends State<CallScreen> {
 
         await _initProximitySensor();
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[CALL][OFFER] failed: $e');
       if (mounted && !_closing) {
         _showError('Arama başlatılamadı.');
+      }
+      if (!_closing) {
+        await _finish(sendSignal: false);
       }
     }
   }
@@ -360,12 +411,16 @@ class _CallScreenState extends State<CallScreen> {
           'callId=${widget.callId}',
         );
 
-        WsClient.instance.send({
+        final sent = WsClient.instance.send({
           'type': 'callAccept',
           'from': widget.myNick,
           'to': widget.targetNick,
           'callId': widget.callId,
         });
+
+        if (!sent) {
+          throw StateError('Arama kabulü gönderilemedi.');
+        }
 
         if (mounted) {
           setState(() {
@@ -380,9 +435,13 @@ class _CallScreenState extends State<CallScreen> {
       }
 
       await _handleIncomingOffer(incomingOffer);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[CALL][ACCEPT] failed: $e');
       if (mounted && !_closing) {
         _showError('Arama kabul edilemedi.');
+      }
+      if (!_closing) {
+        await _finish(sendSignal: false);
       }
     }
   }
@@ -413,13 +472,17 @@ class _CallScreenState extends State<CallScreen> {
 
       if (_closing) return;
 
-      WsClient.instance.send({
+      final sent = WsClient.instance.send({
         'type': 'callAnswer',
         'from': widget.myNick,
         'to': widget.targetNick,
         'callId': widget.callId,
         'sdp': answer.sdp,
       });
+
+      if (!sent) {
+        throw StateError('Arama cevabı gönderilemedi.');
+      }
 
       if (mounted) {
         setState(() {
@@ -430,9 +493,13 @@ class _CallScreenState extends State<CallScreen> {
       }
 
       await ZeroLogPushService.cancelIncomingCallNotification();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[CALL][ANSWER] failed: $e');
       if (mounted && !_closing) {
-        _showError('Arama kabul edilemedi.');
+        _showError('Arama bağlantısı kurulamadı.');
+      }
+      if (!_closing) {
+        await _finish(sendSignal: false);
       }
     }
   }
@@ -441,6 +508,15 @@ class _CallScreenState extends State<CallScreen> {
     if (!mounted || _closing) return;
 
     final type = data['type'];
+
+    if (type == 'connectionRestored' || type == 'registered') {
+      _flushPendingOutgoingIce();
+      if (_remoteDescriptionSet) {
+        unawaited(_flushPendingIceCandidates());
+      }
+      return;
+    }
+
     final from = (data['from'] ?? '').toString();
     final to = (data['to'] ?? '').toString();
 
@@ -546,7 +622,13 @@ class _CallScreenState extends State<CallScreen> {
 
       _remoteDescriptionSet = true;
       await _flushPendingIceCandidates();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[CALL][ANSWER] remote description failed: $e');
+      if (mounted && !_closing) {
+        _showError('Arama bağlantı cevabı işlenemedi.');
+        await _finish(sendSignal: false);
+      }
+    }
   }
 
   Future<void> _handleIceCandidate(Map<String, dynamic> data) async {
@@ -571,7 +653,10 @@ class _CallScreenState extends State<CallScreen> {
 
     try {
       await peer.addCandidate(ice);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[CALL][ICE] add candidate failed: $e');
+      _pendingIceCandidates.add(ice);
+    }
   }
 
   Future<void> _flushPendingIceCandidates() async {
@@ -590,7 +675,10 @@ class _CallScreenState extends State<CallScreen> {
     for (final candidate in pending) {
       try {
         await peer.addCandidate(candidate);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[CALL][ICE] pending candidate failed: $e');
+        _pendingIceCandidates.add(candidate);
+      }
     }
   }
 
@@ -698,6 +786,8 @@ class _CallScreenState extends State<CallScreen> {
       } catch (_) {}
       _proximityScreenOffEnabled = false;
     }
+
+    _pendingOutgoingIceCandidates.clear();
 
     if (sendSignal) {
       WsClient.instance.send({
