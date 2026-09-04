@@ -1214,6 +1214,35 @@ function updatePrivateFileMessageTransferState(a,b,fileId,state){
   return arr[index];
 }
 
+function privateMessageStatusSync(username){
+  const target=normalizeUsername(username);
+  const result=[];
+
+  try{
+    for(const file of fs.readdirSync(DATA)){
+      if(!file.startsWith('private-') || !file.endsWith('.json'))continue;
+
+      const list=load(file,[]);
+      if(!Array.isArray(list))continue;
+
+      for(const msg of list){
+        if(!msg || normalizeUsername(msg.from)!==target)continue;
+        if(!msg.id && !msg.clientMessageId)continue;
+        if(messageExpiresAt(msg) && messageExpiresAt(msg)<=Date.now())continue;
+
+        result.push({
+          messageId:String(msg.id||''),
+          clientMessageId:String(msg.clientMessageId||''),
+          delivered:msg.delivered===true,
+          read:msg.read===true,
+        });
+      }
+    }
+  }catch{}
+
+  return result.slice(-300);
+}
+
 function pendingPrivateMessages(username){
   const target=normalizeUsername(username);
   const result=[];
@@ -1594,6 +1623,14 @@ wss.on('connection',(ws)=>{
       send(ws,{
         type:'pendingPrivateMessages',
         messages:pending,
+      });
+    }
+
+    const ownMessageStatuses=privateMessageStatusSync(account.username);
+    if(ownMessageStatuses.length){
+      send(ws,{
+        type:'privateMessageStatusSync',
+        messages:ownMessageStatuses,
       });
     }
 

@@ -826,6 +826,17 @@ class WsClient {
 
     if (!connected || _channel == null) {
       if (_shouldQueueWhileDisconnected(payload)) {
+        final type = (payload['type'] ?? '').toString();
+        final clientMessageId = (payload['clientMessageId'] ?? '').toString().trim();
+
+        if (type == 'privateMessage' && clientMessageId.isNotEmpty) {
+          _outgoingQueue.removeWhere(
+            (queued) =>
+                queued['type'] == 'privateMessage' &&
+                (queued['clientMessageId'] ?? '').toString().trim() == clientMessageId,
+          );
+        }
+
         _outgoingQueue.add(payload);
       }
       return false;
@@ -849,7 +860,6 @@ class WsClient {
     }
 
     final pending = List<Map<String, dynamic>>.from(_outgoingQueue);
-
     _outgoingQueue.clear();
 
     for (final data in pending) {

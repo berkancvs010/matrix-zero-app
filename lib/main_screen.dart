@@ -29,6 +29,43 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     setState(() {});
   }
 
+  void _requestRemoteProfilePhoto(String username) {
+    final name = username.trim();
+    if (name.isEmpty || !WsClient.instance.connected) return;
+
+    final normalized = name.toLowerCase();
+    if (_profileFetchRequested.contains(normalized)) return;
+
+    _profileFetchRequested.add(normalized);
+
+    unawaited(() async {
+      for (var attempt = 0; attempt < 3; attempt++) {
+        if (!mounted || !WsClient.instance.connected) break;
+
+        WsClient.instance.requestProfile(name);
+
+        await Future<void>.delayed(
+          Duration(milliseconds: 250 + attempt * 350),
+        );
+
+        final profile = WsClient.instance.profileFor(name);
+        final type = (profile?['type'] ?? 'avatar').toString();
+        final photo = (profile?['photoData'] ?? '').toString().trim();
+
+        if (type != 'photo' || photo.isNotEmpty) {
+          break;
+        }
+      }
+
+      if (mounted) {
+        _profileFetchRequested.remove(normalized);
+        setState(() {});
+      } else {
+        _profileFetchRequested.remove(normalized);
+      }
+    }());
+  }
+
   Future<void> _loadProfileData() async {
     await _profileController.load();
 
@@ -1153,10 +1190,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           (profile['photoData'] ?? '').toString().isEmpty) {
         if (isOwnProfile) {
           WsClient.instance.requestProfile(username);
-        } else if (!_profileFetchRequested.contains(username.toLowerCase()) &&
-            WsClient.instance.connected) {
-          _profileFetchRequested.add(username.toLowerCase());
-          WsClient.instance.requestProfile(username);
+        } else if (WsClient.instance.connected) {
+          _requestRemoteProfilePhoto(username);
         }
       }
 
@@ -1227,7 +1262,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         // ayrı getProfile round-trip'i gerekmez; yalnızca metadata geldiyse
         // eski sunucularla uyumluluk için full profile isteği yap.
         if (profile['photoAvailable'] == true && photoData.isEmpty) {
-          WsClient.instance.requestProfile(username);
+          _requestRemoteProfilePhoto(username);
         }
 
         setState(() {
@@ -1811,16 +1846,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     remotePhotoData = (remoteProfile?['photoData'] ?? '').toString().trim();
 
-    final normalizedName = name.trim().toLowerCase();
     if (!isMyProfile &&
         WsClient.instance.connected &&
         (remoteProfile == null ||
             ((remoteProfile['type'] ?? 'avatar').toString() == 'photo' &&
                 remotePhotoData.isEmpty))) {
-      if (!_profileFetchRequested.contains(normalizedName)) {
-        _profileFetchRequested.add(normalizedName);
-        WsClient.instance.requestProfile(name);
-      }
+      _requestRemoteProfilePhoto(name);
     }
 
     final profileFile = profilePath == null || profilePath.isEmpty

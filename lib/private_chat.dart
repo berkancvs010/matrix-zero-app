@@ -263,9 +263,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       status: 'incoming',
     );
 
-    if (_autoAcceptIncomingFiles) {
-      await _fileTransfer.acceptIncoming(transferId);
-    } else {
+    // Auto-accept açıkken bu bildirim zaten native background service
+    // tarafından yönetiliyor. UI isolate ikinci bir ACCEPT gönderirse
+    // arka plandaki transfer ile yarışabilir ve sohbet kaydının UI'a
+    // taşınmasını bozabilir. Sohbet geçmişi/normal signaling tek kaynak
+    // olarak kullanılmalı.
+    if (!_autoAcceptIncomingFiles) {
       await _showIncomingFileOffer(
         transferId: transferId,
         fileName: fileName,
@@ -288,6 +291,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     required int fileSize,
     required int transferBytes,
     required String status,
+    String? localPath,
   }) {
     if (!mounted || transferId.isEmpty) return;
 
@@ -315,7 +319,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       fileSize: fileSize > 0 ? fileSize : (existing?.fileSize ?? 0),
       transferBytes: transferBytes,
       expiresAt: expiresAt,
-      localPath: existing?.localPath ?? '',
+      localPath: localPath != null && localPath.isNotEmpty
+          ? localPath
+          : (existing?.localPath ?? ''),
     );
 
     setState(() {
@@ -630,6 +636,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               fileSize: totalBytes,
               transferBytes: sentBytes,
               status: status,
+              // Transfer callback sendFile() tamamlanmadan gelebilir.
+              // Gönderici önizlemesini transferId döndükten sonraya
+              // bırakma; seçilen yerel dosya hemen kullanılabilir.
+              localPath: existing?.localPath.isNotEmpty == true
+                  ? existing!.localPath
+                  : (sender.toLowerCase() == widget.myNick.toLowerCase()
+                      ? _lastOutgoingFile?.path
+                      : null),
             );
           },
       onIncomingOffer:
@@ -1032,6 +1046,71 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           });
         }
       }
+    }
+
+    if (data['type'] == 'privateMessageStatusSync') {
+      final list = data['messages'];
+
+      if (list is List) {
+        var changed = false;
+
+        for (final item in list) {
+          if (item is! Map) continue;
+
+          final map = Map<String, dynamic>.from(item);
+          final messageId = (map['messageId'] ?? '').toString();
+          final clientMessageId = (map['clientMessageId'] ?? '').toString();
+
+          if (messageId.isEmpty && clientMessageId.isEmpty) continue;
+
+          var targetIndex = -1;
+          for (var i = 0; i < _messages.length; i++) {
+            final message = _messages[i];
+            if ((clientMessageId.isNotEmpty &&
+                    message.clientMessageId == clientMessageId) ||
+                (messageId.isNotEmpty && message.id == messageId)) {
+              targetIndex = i;
+              break;
+            }
+          }
+
+          if (targetIndex < 0) continue;
+
+          final current = _messages[targetIndex];
+          final nextStatus = map['read'] == true
+              ? 'read'
+              : map['delivered'] == true
+                  ? 'delivered'
+                  : 'stored';
+
+          const rank = <String, int>{
+            'sending': 0,
+            'stored': 1,
+            'delivered': 2,
+            'read': 3,
+          };
+
+          if ((rank[nextStatus] ?? 0) <= (rank[current.status] ?? 0)) {
+            continue;
+          }
+
+          _messages[targetIndex] = current.copyWith(
+            id: messageId.isNotEmpty ? messageId : current.id,
+            clientMessageId: clientMessageId.isNotEmpty
+                ? clientMessageId
+                : current.clientMessageId,
+            status: nextStatus,
+          );
+          changed = true;
+        }
+
+        if (changed && mounted) {
+          setState(() {});
+          await _saveHistoryCache();
+        }
+      }
+
+      return;
     }
 
     if (data['type'] == 'messageAck') {
