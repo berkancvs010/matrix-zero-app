@@ -764,7 +764,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final transferId = (data['transferId'] ?? '').toString().trim();
     final sender = (data['from'] ?? '').toString().trim();
-    final fileName = (data['fileName'] ?? 'Dosya').toString().trim();
     final rawSize = data['fileSize'];
     final fileSize = rawSize is num
         ? rawSize.toInt()
@@ -787,14 +786,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       await transfer.initialize();
 
-      final prepared = await transfer.prepareIncomingFromNotification(
-        transferId: transferId,
-        fileName: fileName.isEmpty ? 'Dosya' : fileName,
-        fileSize: fileSize,
-        sender: sender,
+      // MainScreen bu olayı yalnızca uygulama foreground'dayken görür.
+      // Bu durumda native background service başlatmak yerine mevcut
+      // foreground WebSocket üzerinden normal incoming state oluştur.
+      await transfer.handleExternalEvent(
+        Map<String, dynamic>.from(data),
       );
 
-      if (!prepared) return;
+      if (transfer.currentTransferId != transferId) return;
 
       await transfer.acceptIncoming(transferId);
     } catch (e) {
@@ -1694,7 +1693,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (type == 'privateFileMessage') {
       final fileId = (data['fileId'] ?? '').toString().trim();
-      final fileName = (data['fileName'] ?? 'Dosya').toString().trim();
+        final fileName = (data['fileName'] ?? 'Dosya').toString().trim();
       final rawFileSize = data['fileSize'];
 
       final fileSize = rawFileSize is num

@@ -167,6 +167,7 @@ Future<void> zerologBackgroundTransferMain() async {
     final connected = await ws.connect(
       session['username']!,
       session['password']!,
+      backgroundTransfer: true,
     );
 
     if (!connected) {

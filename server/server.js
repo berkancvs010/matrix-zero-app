@@ -1489,8 +1489,9 @@ wss.on('connection',(ws)=>{
     }
 
     const old=sockets.get(account.username);
+    const backgroundTransfer=d.backgroundTransfer===true;
 
-    if(old && old!==ws){
+    if(old && old!==ws && !backgroundTransfer){
       send(ws,{type:'authError',code:'ACCOUNT_IN_USE',message:'Bu hesap başka bir cihazda aktif.'});
       return;
     }
@@ -1563,10 +1564,12 @@ wss.on('connection',(ws)=>{
     users.set(ws,account.username);
     sockets.set(account.username,ws);
 
-    // Login sonrası ilk durum foreground kabul edilir. Flutter hemen
-    // gerçek lifecycle durumunu ayrıca bildirir.
+    // Normal uygulama oturumu foreground, headless dosya-transfer oturumu
+    // ise background kabul edilir. Background socket mevcut primary socket'i
+    // geçici olarak devralabilir; disconnect() eski socket kapandığında
+    // replacement socket'i yeniden primary yapar.
     const loginStateKey=normalizeUsername(account.username);
-    appStates.set(loginStateKey,'foreground');
+    appStates.set(loginStateKey,backgroundTransfer?'background':'foreground');
     appStateUpdatedAt.set(loginStateKey,Date.now());
 
     if(fcmToken){
@@ -1915,10 +1918,10 @@ wss.on('connection',(ws)=>{
         avatarId:profile.avatarId,
         about:profile.about,
         photoAvailable:profile.photoAvailable===true,
-        // Profil fotoğrafı base64 olarak yüzlerce KB olabilir. Bunu tüm
-        // bağlı kullanıcılara broadcast etmek mesaj/presence trafiğini
-        // gereksiz şekilde büyütür. İstemci photoAvailable=true ve
-        // photoData boş gördüğünde getProfile ile tekil tam profili ister.
+        // Profil güncellemesinde tam fotoğrafı da gönder. Böylece remote
+        // avatar için ayrı getProfile yarışına gerek kalmaz; profileUpdated
+        // tek başına tutarlı bir snapshot taşır.
+        photoData:profile.photoData||'',
       });
     }
 
@@ -2109,9 +2112,20 @@ wss.on('connection',(ws)=>{
       break;
     }
 
+    /*
+     * privateFileMessage event'i transferi ALAN socket'ten gelir.
+     * Ancak sohbet mesajının yönü transferin orijinal yönü olmalıdır:
+     *
+     *   me = alıcı
+     *   to = orijinal gönderici
+     *
+     * Bu yüzden mesajı (to -> me) yönünde kaydediyoruz. Eski kod (me -> to)
+     * kaydettiği için dosya geçmişi ters tarafta görünür, statusSync yanlış
+     * kullanıcıya bağlanır ve sender/receiver önizleme durumu bozulurdu.
+     */
     const existing=findPrivateMessageByClientId(
-      me,
       to,
+      me,
       clientMessageId
     );
 
@@ -2130,33 +2144,39 @@ wss.on('connection',(ws)=>{
       id:makeMessageId(),
       clientMessageId:clientMessageId||null,
       type:'privateFileMessage',
-      from:me,
-      to,
+      from:to,
+      to:me,
       fileId,
       fileName,
       fileSize,
       ts:Date.now(),
       expiresAt:Date.now()+PRIVATE_MESSAGE_TTL_MS,
-      delivered:false,
-      // privateFileMessage is created only after receiver completion.
+      // Transfer tamamlandığı için orijinal sender bu olayı zaten alıcıdan
+      // geri almıştır; ayrıca delivery durumunu bekletmeye gerek yok.
+      delivered:true,
       transferStatus:'completed',
       transferBytes:fileSize,
     };
 
-    const stored=addPrivate(me,to,msg);
+    const stored=addPrivate(to,me,msg);
 
-    send(ws,{
+    // Completion event'ini gönderen socket'e (receiver) değil, dosyanın
+    // orijinal sahibine ACK olarak geri bildir.
+    send(socketFor(to),{
       type:'messageAck',
       messageId:stored.id||null,
       clientMessageId:stored.clientMessageId||null,
       status:'stored',
     });
 
-    const recipient=socketFor(to);
-    const recipientForeground=!!recipient && isForegroundActive(to);
+    // Orijinal sender'ın chat'i açık/arka planda olabilir. Live socket varsa
+    // dosya mesajını gönder; yoksa sender'ın normal private-message FCM
+    // kanalını kullan.
+    const senderSocket=socketFor(to);
+    const senderForeground=!!senderSocket && isForegroundActive(to);
 
-    if(recipientForeground){
-      send(recipient,stored);
+    if(senderForeground){
+      send(senderSocket,stored);
     }else if(messageNotificationsEnabled(to)){
       await sendFcmPush(to,{
         data:{
@@ -2174,7 +2194,6 @@ wss.on('connection',(ws)=>{
           ttl:3600000,
         },
       });
-
     }
 
     break;

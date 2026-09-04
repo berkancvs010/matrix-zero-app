@@ -387,10 +387,17 @@ class WsClient {
     send({'type': 'fcmToken', 'token': clean});
   }
 
-  Future<bool> connect(String username, String password) async {
+  bool _backgroundTransfer = false;
+
+  Future<bool> connect(
+    String username,
+    String password, {
+    bool backgroundTransfer = false,
+  }) async {
     _manualDisconnect = false;
     this.username = username.trim();
     this.password = password;
+    _backgroundTransfer = backgroundTransfer;
     nickname = this.username;
     _reconnectAttempt = 0;
     _reconnectTimer?.cancel();
@@ -680,6 +687,7 @@ class WsClient {
           'username': username,
           'password': password,
           'fcmToken': ZeroLogPushService.currentToken,
+          'backgroundTransfer': _backgroundTransfer,
         }),
       );
 

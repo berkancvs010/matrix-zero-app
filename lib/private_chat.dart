@@ -241,9 +241,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       return;
     }
 
-    // Normal socket event'i uygulama açıldıktan sonra zaten geldiyse
-    // ikinci kez dialog açma.
-    if (_fileTransfer.currentTransferId != transferId) {
+    // Auto-accept açıkken native FCM servisi transferi zaten yürütür.
+    // Bildirime dokunulduğunda burada ikinci bir WebRTC oturumu başlatmak
+    // yerine yalnızca sohbet kaydını göster; güncel geçmiş aşağıda ayrıca
+    // sunucudan istenir.
+    if (!_autoAcceptIncomingFiles &&
+        _fileTransfer.currentTransferId != transferId) {
       final prepared = await _fileTransfer.prepareIncomingFromNotification(
         transferId: transferId,
         fileName: fileName,
@@ -1077,6 +1080,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           if (targetIndex < 0) continue;
 
           final current = _messages[targetIndex];
+
+          // Dosya transferinin terminal durumu (completed/failed/rejected)
+          // mesaj delivery/read sinyalleri tarafından ezilmemeli.
+          // Bunlar ayrı lifecycle'lar ve özellikle COMPLETE sonrası gelen
+          // statusSync dosyayı tekrar "stored" gösterebilir.
+          if (current.isFile) continue;
+
           final nextStatus = map['read'] == true
               ? 'read'
               : map['delivered'] == true
@@ -1126,7 +1136,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             if (message.clientMessageId == clientMessageId) {
               _messages[i] = message.copyWith(
                 id: messageId.isNotEmpty ? messageId : message.id,
-                status: 'stored',
+                status: message.isFile && message.status == 'completed'
+                    ? message.status
+                    : 'stored',
               );
               break;
             }
@@ -1154,6 +1166,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               (messageId.isNotEmpty && message.id == messageId);
 
           if (matches) {
+            if (message.isFile && message.status == 'completed') {
+              break;
+            }
+
             _messages[i] = message.copyWith(
               id: messageId.isNotEmpty ? messageId : message.id,
               clientMessageId: clientMessageId.isNotEmpty
@@ -1191,6 +1207,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               (messageId.isNotEmpty && message.id == messageId);
 
           if (matches) {
+            if (message.isFile && message.status == 'completed') {
+              break;
+            }
+
             _messages[i] = message.copyWith(
               id: messageId.isNotEmpty ? messageId : message.id,
               clientMessageId: clientMessageId.isNotEmpty
