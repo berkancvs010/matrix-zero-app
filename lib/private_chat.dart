@@ -63,8 +63,8 @@ Future<void> _showPrivacyIntroDialog(BuildContext context) async {
               _privacyInfoItem(
                 theme,
                 Icons.devices_outlined,
-                'Dosya transferi cihazlar arasında',
-                'Dosya içeriği sunucuda depolanmaz. Transfer cihazlar arasında gerçekleştirilir.',
+                'Dosya aktarımı',
+                'Dosya içeriği sunucuda kalıcı olarak depolanmaz; şifreli bağlantı üzerinden güvenilir şekilde aktarılır.',
               ),
             ],
           ),
@@ -156,6 +156,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   bool _connected = true;
   bool _autoAcceptIncomingFiles = true;
   final Map<String, Future<Uint8List?>> _fileThumbnailCache = {};
+
+  MemoryImage? _chatPeerProfileImage;
+  String _chatPeerProfileImageVersion = '';
 
   Future<void> _loadFileTransferPreference() async {
     final prefs = await SharedPreferences.getInstance();
@@ -434,7 +437,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     if (expiredFiles.isNotEmpty) {
       for (final fileId in expiredFiles) {
-        _fileThumbnailCache.remove(fileId);
+        _fileThumbnailCache.removeWhere(
+          (key, _) => key == fileId || key.startsWith('$fileId|'),
+        );
         unawaited(const MethodChannel('zerolog/system').invokeMethod<bool>(
           'deleteReceivedFile',
           <String, dynamic>{'fileId': fileId},
@@ -762,6 +767,61 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
   }
 
+  int _messageStatusRank(String status) {
+    switch (status) {
+      case 'sending':
+        return 0;
+      case 'stored':
+        return 1;
+      case 'delivered':
+        return 2;
+      case 'read':
+        return 3;
+      default:
+        return 0;
+    }
+  }
+
+  void _setMessageStatusMonotonic({
+    required String messageId,
+    required String clientMessageId,
+    required String status,
+  }) {
+    if (!mounted) return;
+
+    final incomingRank = _messageStatusRank(status);
+
+    setState(() {
+      for (var i = 0; i < _messages.length; i++) {
+        final message = _messages[i];
+
+        final matches =
+            (clientMessageId.isNotEmpty &&
+                message.clientMessageId == clientMessageId) ||
+            (messageId.isNotEmpty && message.id == messageId);
+
+        if (!matches) continue;
+
+        if (message.isFile) return;
+
+        if (incomingRank <= _messageStatusRank(message.status)) {
+          return;
+        }
+
+        _messages[i] = message.copyWith(
+          id: messageId.isNotEmpty ? messageId : message.id,
+          clientMessageId: clientMessageId.isNotEmpty
+              ? clientMessageId
+              : message.clientMessageId,
+          status: status,
+        );
+        return;
+      }
+    });
+
+    unawaited(_saveHistoryCache());
+  }
+
   Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
@@ -883,7 +943,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     : (map['delivered'] == true)
                     ? 'delivered'
                     : 'stored')
-              : ((map['read'] == true) ? 'read' : 'delivered');
+              : ((map['read'] == true)
+                  ? 'read'
+                  : (map['delivered'] == true)
+                      ? 'delivered'
+                      : 'stored');
 
           final message = ChatMessage(
             id:
@@ -936,20 +1000,31 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           );
 
           if (existingIndex >= 0) {
-            // Server geçmişi authoritative kaynaktır.
-            // Özellikle sending -> stored -> delivered -> read geçişlerini
-            // cache'deki eski durumun üzerine uygula.
+            // History mevcut mesajın metadata kaynağıdır ancak status
+            // monotoniktir: read > delivered > stored > sending.
+            // Reconnect/history sırasında daha ileri bir local durum
+            // kesinlikle geriye düşürülmez.
+            final existingMessage = _messages[existingIndex];
+
+            final mergedStatus =
+                message.isFile
+                    ? message.status
+                    : (_messageStatusRank(existingMessage.status) >=
+                            _messageStatusRank(message.status)
+                        ? existingMessage.status
+                        : message.status);
+
             historyMessages.add(
               message.copyWith(
                 id: message.id,
                 clientMessageId: message.clientMessageId,
-                status: message.status,
+                status: mergedStatus,
                 timestamp: message.timestamp > 0
                     ? message.timestamp
-                    : _messages[existingIndex].timestamp,
+                    : existingMessage.timestamp,
                 localPath: message.localPath.isNotEmpty
                     ? message.localPath
-                    : _messages[existingIndex].localPath,
+                    : existingMessage.localPath,
               ),
             );
           } else {
@@ -1014,18 +1089,29 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             WsClient.instance.activePrivateChatPeer?.trim().toLowerCase() ==
                 widget.targetNick.trim().toLowerCase();
 
-        if (canMarkHistoryRead) {
-          for (final map in unreadHistoryMessages) {
+        // History mesajı client'a ulaştı. Gerçek teslimat ACK'i,
+        // mesajın daha önce delivered olarak işaretlenmiş olup
+        // olmamasından bağımsız olarak güvenli şekilde tekrar gönderilebilir.
+        for (final map in unreadHistoryMessages) {
           final sender = (map['sender'] ?? map['from'] ?? '').toString();
 
           final messageId = (map['id'] ?? '').toString();
-          final clientMessageId = (map['clientMessageId'] ?? '').toString();
+          final clientMessageId =
+              (map['clientMessageId'] ?? '').toString();
 
           if (sender.isEmpty ||
               (messageId.isEmpty && clientMessageId.isEmpty)) {
             continue;
           }
 
+          WsClient.instance.send({
+            'type': 'messageDelivered',
+            'from': sender,
+            'messageId': messageId,
+            'clientMessageId': clientMessageId,
+          });
+
+          if (canMarkHistoryRead) {
             WsClient.instance.send({
               'type': 'messageRead',
               'from': sender,
@@ -1171,36 +1257,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     if (data['type'] == 'messageDelivered') {
       final messageId = (data['messageId'] ?? '').toString();
-
       final clientMessageId = (data['clientMessageId'] ?? '').toString();
 
-      setState(() {
-        for (var i = 0; i < _messages.length; i++) {
-          final message = _messages[i];
+      if (messageId.isEmpty && clientMessageId.isEmpty) return;
 
-          final matches =
-              (clientMessageId.isNotEmpty &&
-                  message.clientMessageId == clientMessageId) ||
-              (messageId.isNotEmpty && message.id == messageId);
-
-          if (matches) {
-            if (message.isFile && message.status == 'completed') {
-              break;
-            }
-
-            _messages[i] = message.copyWith(
-              id: messageId.isNotEmpty ? messageId : message.id,
-              clientMessageId: clientMessageId.isNotEmpty
-                  ? clientMessageId
-                  : message.clientMessageId,
-              status: 'delivered',
-            );
-            break;
-          }
-        }
-      });
-
-      await _saveHistoryCache();
+      _setMessageStatusMonotonic(
+        messageId: messageId,
+        clientMessageId: clientMessageId,
+        status: 'delivered',
+      );
 
       return;
     }
@@ -1209,39 +1274,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final messageId = (data['messageId'] ?? '').toString();
       final clientMessageId = (data['clientMessageId'] ?? '').toString();
 
-      if (messageId.isEmpty && clientMessageId.isEmpty) {
-        return;
-      }
+      if (messageId.isEmpty && clientMessageId.isEmpty) return;
 
-      if (!mounted) return;
-
-      setState(() {
-        for (var i = 0; i < _messages.length; i++) {
-          final message = _messages[i];
-
-          final matches =
-              (clientMessageId.isNotEmpty &&
-                  message.clientMessageId == clientMessageId) ||
-              (messageId.isNotEmpty && message.id == messageId);
-
-          if (matches) {
-            if (message.isFile && message.status == 'completed') {
-              break;
-            }
-
-            _messages[i] = message.copyWith(
-              id: messageId.isNotEmpty ? messageId : message.id,
-              clientMessageId: clientMessageId.isNotEmpty
-                  ? clientMessageId
-                  : message.clientMessageId,
-              status: 'read',
-            );
-            break;
-          }
-        }
-      });
-
-      await _saveHistoryCache();
+      _setMessageStatusMonotonic(
+        messageId: messageId,
+        clientMessageId: clientMessageId,
+        status: 'read',
+      );
 
       return;
     }
@@ -1868,22 +1907,45 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     Widget avatar;
 
+    MemoryImage? peerImage;
+
     if (type == 'photo' && photoData.isNotEmpty) {
-      try {
-        avatar = ClipOval(
-          child: SizedBox(
-            width: 42,
-            height: 42,
-            child: Image.memory(
-              base64Decode(photoData),
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-            ),
-          ),
-        );
-      } catch (_) {
-        avatar = _fallbackChatAvatar(theme, letter);
+      final revision =
+          int.tryParse((profile?['profileRevision'] ?? '').toString()) ?? 0;
+      final version = revision > 0
+          ? 'r:$revision:${photoData.length}:${photoData.hashCode}'
+          : 'h:${photoData.length}:${photoData.hashCode}';
+
+      if (_chatPeerProfileImageVersion == version &&
+          _chatPeerProfileImage != null) {
+        peerImage = _chatPeerProfileImage;
+      } else {
+        try {
+          peerImage = MemoryImage(base64Decode(photoData));
+          _chatPeerProfileImage = peerImage;
+          _chatPeerProfileImageVersion = version;
+        } catch (_) {
+          _chatPeerProfileImage = null;
+          _chatPeerProfileImageVersion = '';
+        }
       }
+    } else {
+      _chatPeerProfileImage = null;
+      _chatPeerProfileImageVersion = '';
+    }
+
+    if (peerImage != null) {
+      avatar = ClipOval(
+        child: SizedBox(
+          width: 42,
+          height: 42,
+          child: Image(
+            image: peerImage,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          ),
+        ),
+      );
     } else {
       avatar = _fallbackChatAvatar(theme, letter);
     }
@@ -2273,11 +2335,23 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
   }
 
-  Future<Uint8List?> _loadReceivedThumbnail(String fileId) {
-    return _fileThumbnailCache.putIfAbsent(fileId, () async {
+  Future<Uint8List?> _loadReceivedThumbnail(
+    String fileId,
+    String localPath,
+  ) {
+    final cacheKey = '$fileId|$localPath';
+
+    return _fileThumbnailCache.putIfAbsent(cacheKey, () async {
       try {
-        // Full image read is already verified by the working viewer.
-        // Reuse that path for the inline preview.
+        if (localPath.isNotEmpty &&
+            !localPath.startsWith('content://')) {
+          final localFile = File(localPath);
+          if (await localFile.exists()) {
+            final bytes = await localFile.readAsBytes();
+            if (bytes.isNotEmpty) return bytes;
+          }
+        }
+
         return await const MethodChannel('zerolog/system')
             .invokeMethod<Uint8List>(
           'readReceivedImageBytes',
@@ -2294,7 +2368,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     ZeroLogThemeData theme,
   ) {
     return FutureBuilder<Uint8List?>(
-      future: _loadReceivedThumbnail(message.fileId),
+      future: _loadReceivedThumbnail(
+          message.fileId,
+          message.localPath,
+        ),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes == null || bytes.isEmpty) {

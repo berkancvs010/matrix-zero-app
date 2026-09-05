@@ -44,6 +44,12 @@ const sockets=new Map(); // nick -> primary foreground ws
 const backgroundSockets=new Map(); // normalized nick -> Map(transferId -> {ws,transferId})
 const backgroundSocketByWs=new Map(); // ws -> transferId
 
+// Reliable WebSocket file-transfer sessions. File bytes are relayed only;
+// the server does not persist file contents.
+const reliableFileTransfers=new Map(); // transferId -> session
+const RELIABLE_FILE_TRANSFER_TTL_MS=30*60*1000;
+const RELIABLE_FILE_MAX_CHUNK_BYTES=64*1024;
+
 // WebSocket bağlantısı açık kalsa bile uygulamanın gerçek UI durumunu
 // takip eder. foreground dışındaki kullanıcılar çağrı açısından offline
 // kabul edilir ve FCM üzerinden native çağrı bildirimi alır.
@@ -265,6 +271,551 @@ function prepareFileTransferSignal(to,event){
     transferId,
     seq,
   };
+}
+
+
+function cleanupReliableFileTransfers(){
+  const now=Date.now();
+
+  for(const [transferId,session] of reliableFileTransfers){
+    if(
+      !session ||
+      !session.updatedAt ||
+      now-session.updatedAt>RELIABLE_FILE_TRANSFER_TTL_MS
+    ){
+      reliableFileTransfers.delete(transferId);
+    }
+  }
+}
+
+function reliableFileSession(transferId){
+  cleanupReliableFileTransfers();
+  return reliableFileTransfers.get(String(transferId||'').trim())||null;
+}
+
+function sendBinary(ws,buffer){
+  if(
+    !ws ||
+    ws.readyState!==1 ||
+    !Buffer.isBuffer(buffer) ||
+    buffer.length===0
+  ){
+    return false;
+  }
+
+  try{
+    ws.send(buffer);
+    return true;
+  }catch(error){
+    console.error('[FILE_TRANSFER] binary send failed:',error && error.message || error);
+    disconnect(ws);
+    return false;
+  }
+}
+
+function reliableFileOffer(session){
+  return {
+    type:'fileTransferOffer',
+    from:session.from,
+    to:session.to,
+    transferId:session.transferId,
+    fileName:session.fileName,
+    fileSize:session.fileSize,
+    sha256:session.sha256,
+  };
+}
+
+async function sendReliableFileOffer(session){
+  const recipient=fileSocketFor(session.to,session.transferId);
+
+  if(recipient && isForegroundActive(session.to)){
+    return send(recipient,reliableFileOffer(session));
+  }
+
+  if(messageNotificationsEnabled(session.to)){
+    await sendFcmPush(session.to,{
+      notification:{
+        title:session.from,
+        body:`${session.fileName} gönderiyor`,
+      },
+      data:{
+        type:'privateFileMessage',
+        from:session.from,
+        sender:session.from,
+        to:session.to,
+        recipient:session.to,
+        fileId:session.transferId,
+        transferId:session.transferId,
+        fileName:session.fileName,
+        fileSize:String(session.fileSize),
+        clientMessageId:session.clientMessageId,
+        messageId:session.messageId,
+      },
+      android:{
+        priority:'high',
+        ttl:3600000,
+      },
+    });
+  }
+
+  return false;
+}
+
+function updateReliableFileMessage(from,to,transferId,status,extra={}){
+  const arr=getPrivate(from,to);
+  const index=arr.findIndex(item =>
+    item &&
+    item.type==='privateFileMessage' &&
+    String(item.fileId||'')===String(transferId||'')
+  );
+
+  if(index<0)return null;
+
+  arr[index]={
+    ...arr[index],
+    transferStatus:status,
+    ...extra,
+  };
+
+  if(status==='completed'){
+    arr[index].delivered=true;
+    arr[index].transferBytes=Number(arr[index].fileSize)||0;
+    arr[index].deliveredAt=Date.now();
+  }
+
+  save(privateFile(from,to),arr);
+  return arr[index];
+}
+
+async function handleReliableFileEvent(ws,d,me){
+  const type=String(d && d.type || '');
+
+  if(![
+    'fileTransferStart',
+    'fileTransferAccept',
+    'fileTransferReject',
+    'fileTransferChunkAck',
+    'fileTransferEnd',
+    'fileTransferFailed',
+  ].includes(type)){
+    return false;
+  }
+
+  if(!me)return true;
+
+  const transferId=String(d.transferId||'').trim();
+  if(!transferId)return true;
+
+  if(type==='fileTransferStart'){
+    const to=safeNick(d.to);
+    const fileName=String(d.fileName||'Dosya').trim().slice(0,512);
+    const fileSize=Number(d.fileSize||0);
+    const sha256=String(d.sha256||'').trim().toLowerCase();
+    const clientMessageId=String(d.clientMessageId||transferId).trim();
+
+    if(
+      !to ||
+      !fileName ||
+      !Number.isSafeInteger(fileSize) ||
+      fileSize<=0 ||
+      fileSize>1024*1024*1024 ||
+      !/^[a-f0-9]{64}$/.test(sha256)
+    ){
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Geçersiz dosya bilgisi.',
+      });
+      return true;
+    }
+
+    if(normalizeUsername(to)===normalizeUsername(me)){
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Dosya kendinize gönderilemez.',
+      });
+      return true;
+    }
+
+    if(!privateMessagesEnabled(to)){
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Karşı kullanıcı özel mesajları kabul etmiyor.',
+      });
+      return true;
+    }
+
+    cleanupReliableFileTransfers();
+
+    const existing=reliableFileTransfers.get(transferId);
+    if(existing){
+      if(
+        existing.fromKey!==normalizeUsername(me) ||
+        existing.toKey!==normalizeUsername(to)
+      ){
+        send(ws,{
+          type:'fileTransferFailed',
+          transferId,
+          reason:'Transfer kimliği zaten kullanımda.',
+        });
+        return true;
+      }
+
+      send(ws,{
+        type:'fileTransferStartAck',
+        transferId,
+        status:'stored',
+      });
+      return true;
+    }
+
+    const msg={
+      id:makeMessageId(),
+      clientMessageId,
+      type:'privateFileMessage',
+      from:me,
+      to,
+      fileId:transferId,
+      fileName,
+      fileSize,
+      ts:Date.now(),
+      expiresAt:Date.now()+PRIVATE_MESSAGE_TTL_MS,
+      delivered:false,
+      read:false,
+      transferStatus:'waiting',
+      transferBytes:0,
+    };
+
+    const stored=addPrivate(me,to,msg);
+
+    const session={
+      transferId,
+      from:me,
+      to,
+      fromKey:normalizeUsername(me),
+      toKey:normalizeUsername(to),
+      fileName,
+      fileSize,
+      sha256,
+      clientMessageId,
+      messageId:stored.id,
+      state:'waiting',
+      accepted:false,
+      receivedBytes:0,
+      updatedAt:Date.now(),
+    };
+
+    reliableFileTransfers.set(transferId,session);
+
+    send(ws,{
+      type:'fileTransferStartAck',
+      transferId,
+      messageId:stored.id,
+      clientMessageId:stored.clientMessageId,
+      status:'stored',
+    });
+
+    const recipient=socketFor(to);
+    if(recipient && isForegroundActive(to)){
+      send(recipient,{
+        ...stored,
+        transferStatus:'waiting',
+        transferBytes:0,
+      });
+      send(recipient,reliableFileOffer(session));
+    }else{
+      await sendReliableFileOffer(session);
+    }
+
+    return true;
+  }
+
+  const session=reliableFileSession(transferId);
+  if(!session){
+    send(ws,{
+      type:'fileTransferFailed',
+      transferId,
+      reason:'Dosya transferi bulunamadı veya süresi doldu.',
+    });
+    return true;
+  }
+
+  session.updatedAt=Date.now();
+
+  const meKey=normalizeUsername(me);
+  const isSender=meKey===session.fromKey;
+  const isReceiver=meKey===session.toKey;
+
+  if(type==='fileTransferAccept'){
+    if(!isReceiver){
+      return true;
+    }
+
+    if(session.state==='completed' || session.state==='failed' || session.state==='rejected'){
+      return true;
+    }
+
+    session.accepted=true;
+    session.state='accepted';
+
+    const sender=fileSocketFor(session.from,transferId);
+    if(!sender){
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Gönderici bağlantısı bulunamadı.',
+      });
+      return true;
+    }
+
+    send(sender,{
+      type:'fileTransferAccept',
+      from:session.to,
+      to:session.from,
+      transferId,
+    });
+
+    return true;
+  }
+
+  if(type==='fileTransferReject'){
+    if(!isReceiver)return true;
+
+    session.state='rejected';
+    updateReliableFileMessage(
+      session.from,
+      session.to,
+      session.transferId,
+      'rejected',
+    );
+
+    send(fileSocketFor(session.from,transferId),{
+      type:'fileTransferReject',
+      from:session.to,
+      to:session.from,
+      transferId,
+    });
+
+    reliableFileTransfers.delete(transferId);
+    return true;
+  }
+
+  if(type==='fileTransferChunkAck'){
+    if(!isReceiver)return true;
+
+    const receivedSeq=Number(d.receivedSeq);
+    if(!Number.isSafeInteger(receivedSeq) || receivedSeq<0)return true;
+
+    send(fileSocketFor(session.from,transferId),{
+      type:'fileTransferChunkAck',
+      from:session.to,
+      to:session.from,
+      transferId,
+      receivedSeq,
+    });
+
+    return true;
+  }
+
+  if(type==='fileTransferEnd'){
+    if(!isReceiver || !session.accepted)return true;
+
+    const fileSize=Number(d.fileSize||0);
+    const sha256=String(d.sha256||'').trim().toLowerCase();
+
+    if(
+      fileSize!==session.fileSize ||
+      !/^[a-f0-9]{64}$/.test(sha256) ||
+      sha256!==session.sha256
+    ){
+      session.state='failed';
+      updateReliableFileMessage(
+        session.from,
+        session.to,
+        session.transferId,
+        'failed',
+      );
+
+      send(fileSocketFor(session.from,transferId),{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Dosya doğrulama bilgisi eşleşmedi.',
+      });
+
+      reliableFileTransfers.delete(transferId);
+      return true;
+    }
+
+    // The server relays bytes but does not count them as received. The
+    // receiver has already verified the exact size and SHA-256 before this
+    // event is sent.
+    session.state='completed';
+
+    const completed=updateReliableFileMessage(
+      session.from,
+      session.to,
+      session.transferId,
+      'completed',
+      {
+        transferBytes:session.fileSize,
+      },
+    );
+
+    if(completed){
+      send(fileSocketFor(session.from,transferId),{
+        type:'fileTransferComplete',
+        from:session.to,
+        to:session.from,
+        transferId,
+        fileSize:session.fileSize,
+        sha256:session.sha256,
+      });
+
+      send(socketFor(session.from),completed);
+      send(ws,completed);
+    }
+
+    reliableFileTransfers.delete(transferId);
+    return true;
+  }
+
+  if(type==='fileTransferFailed'){
+    if(!isSender && !isReceiver)return true;
+
+    session.state='failed';
+
+    updateReliableFileMessage(
+      session.from,
+      session.to,
+      session.transferId,
+      'failed',
+    );
+
+    const other=isSender
+      ? fileSocketFor(session.to,transferId)
+      : fileSocketFor(session.from,transferId);
+
+    send(other,{
+      type:'fileTransferFailed',
+      from:me,
+      to:isSender ? session.to : session.from,
+      transferId,
+      reason:String(d.reason||'Dosya transferi başarısız oldu.'),
+    });
+
+    reliableFileTransfers.delete(transferId);
+    return true;
+  }
+
+  return true;
+}
+
+function handleReliableFileBinary(ws,buffer,me){
+  if(!me || !Buffer.isBuffer(buffer))return false;
+
+  // ZLF2 + version + uint16 transferIdLength + transferId + uint32 seq + payload.
+  if(
+    buffer.length<11 ||
+    buffer[0]!==0x5a ||
+    buffer[1]!==0x4c ||
+    buffer[2]!==0x46 ||
+    buffer[3]!==0x32 ||
+    buffer[4]!==1
+  ){
+    return false;
+  }
+
+  const idLength=buffer.readUInt16BE(5);
+  const headerLength=11+idLength;
+
+  if(
+    idLength<=0 ||
+    buffer.length<=headerLength ||
+    buffer.length>headerLength+RELIABLE_FILE_MAX_CHUNK_BYTES
+  ){
+    return true;
+  }
+
+  const transferId=buffer.toString('utf8',7,7+idLength).trim();
+  const seq=buffer.readUInt32BE(7+idLength);
+  const payload=buffer.subarray(headerLength);
+
+  const session=reliableFileSession(transferId);
+  if(!session){
+    return true;
+  }
+
+  if(
+    normalizeUsername(me)!==session.fromKey ||
+    !session.accepted ||
+    session.state!=='accepted'
+  ){
+    return true;
+  }
+
+  const recipient=fileSocketFor(session.to,transferId);
+  if(!recipient){
+    send(ws,{
+      type:'fileTransferFailed',
+      transferId,
+      reason:'Alıcı bağlantısı kesildi.',
+    });
+
+    session.state='failed';
+    updateReliableFileMessage(
+      session.from,
+      session.to,
+      transferId,
+      'failed',
+    );
+    reliableFileTransfers.delete(transferId);
+    return true;
+  }
+
+  session.updatedAt=Date.now();
+
+  if(!sendBinary(recipient,buffer)){
+    send(ws,{
+      type:'fileTransferFailed',
+      transferId,
+      reason:'Dosya parçası alıcıya iletilemedi.',
+    });
+
+    session.state='failed';
+    updateReliableFileMessage(
+      session.from,
+      session.to,
+      transferId,
+      'failed',
+    );
+    reliableFileTransfers.delete(transferId);
+  }
+
+  return true;
+}
+
+function deliverReliableFileTransfers(ws,username){
+  const key=normalizeUsername(username);
+
+  for(const session of reliableFileTransfers.values()){
+    if(!session || session.toKey!==key)continue;
+
+    if(session.state==='waiting'){
+      const message=findPrivateMessageByClientId(
+        session.from,
+        session.to,
+        session.clientMessageId,
+      );
+
+      if(message){
+        send(ws,message);
+      }
+
+      send(ws,reliableFileOffer(session));
+    }
+  }
 }
 
 function cleanupPendingFileTransfers(){
@@ -1210,10 +1761,14 @@ function markPrivateMessageDelivered(a,b,messageId,clientMessageId){
 
   if(index<0)return null;
 
+  if(arr[index].read===true){
+    return arr[index];
+  }
+
   arr[index]={
     ...arr[index],
     delivered:true,
-    deliveredAt:Date.now(),
+    deliveredAt:arr[index].deliveredAt||Date.now(),
   };
 
   save(privateFile(a,b),arr);
@@ -1502,7 +2057,21 @@ wss.on('connection',(ws)=>{
   ws._rooms=new Set();
   ws.isAlive=true;
   ws.on('pong',()=>{ws.isAlive=true;});
-  ws.on('message',async (buf)=>{let d;try{d=JSON.parse(buf.toString());}catch{return;}const me=users.get(ws);
+  ws.on('message',async (buf)=>{
+ const me=users.get(ws);
+
+ if(Buffer.isBuffer(buf)){
+   handleReliableFileBinary(ws,buf,me);
+   return;
+ }
+
+ let d;
+ try{d=JSON.parse(buf.toString());}catch{return;}
+
+ if(await handleReliableFileEvent(ws,d,me)){
+   return;
+ }
+
  switch(d.type){
   case 'registerAccount':{
     refreshAccounts();
@@ -1737,6 +2306,8 @@ wss.on('connection',(ws)=>{
       backgroundTransfer ? backgroundTransferId : ''
     );
 
+    deliverReliableFileTransfers(ws,account.username);
+
     const pending=privateMessagesEnabled(account.username)
       ? pendingPrivateMessages(account.username)
       : [];
@@ -1906,10 +2477,10 @@ wss.on('connection',(ws)=>{
     });
 
     send(ws,{
-      type:'profile',
-      username:account.username,
-      profileType:profile.type,
       ...profile,
+      type:'profile',
+      profileType:profile.type,
+      username:account.username,
     });
 
     break;
@@ -2021,9 +2592,10 @@ wss.on('connection',(ws)=>{
     });
 
     send(ws,{
-      type:'profile',
-      username:account.username,
       ...profile,
+      type:'profile',
+      profileType:profile.type,
+      username:account.username,
     });
 
     for(const peer of users.keys()){
@@ -2371,6 +2943,9 @@ wss.on('connection',(ws)=>{
     const recipientForeground=!!recipient && isForegroundActive(to);
 
     if(recipientForeground){
+      // WebSocket.send() başarısı yalnızca verinin socket'e yazıldığını
+      // gösterir. Gerçek delivered durumu alıcının messageDelivered
+      // ACK'i geldikten sonra oluşturulmalıdır.
       send(recipient,stored);
     }else if(messageNotificationsEnabled(to)){
       const pushed=await sendFcmPush(to,{
@@ -2392,33 +2967,10 @@ wss.on('connection',(ws)=>{
         },
       });
 
-      // A successful FCM send means the push has reached Firebase's
-      // delivery pipeline even though the recipient application may be
-      // fully closed. Mark the message delivered here so the sender gets
-      // the second tick without waiting for the app to open.
-      if(pushed){
-        const delivered=markPrivateMessageDelivered(
-          me,
-          to,
-          stored.id,
-          stored.clientMessageId,
-        );
-
-        if(delivered){
-          send(
-            socketFor(me),
-            {
-              type:'messageDelivered',
-              messageId:delivered.id||null,
-              clientMessageId:delivered.clientMessageId||null,
-              from:to,
-              to:me,
-              deliveredTo:to,
-              ts:delivered.deliveredAt||Date.now(),
-            },
-          );
-        }
-      }
+      // FCM'nin Firebase tarafından kabul edilmesi, ZeroLog
+      // client'ının mesajı gerçekten aldığı anlamına gelmez.
+      // Gerçek delivered durumu yalnızca client'ın
+      // messageDelivered ACK'i ile oluşturulur.
     }
 
     break;

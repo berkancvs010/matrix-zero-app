@@ -472,6 +472,18 @@ class WsClient {
       _subscription = channel.stream.listen(
         (raw) {
           try {
+            if (raw is List<int>) {
+              final bytes = raw is Uint8List
+                  ? raw
+                  : Uint8List.fromList(raw);
+
+              final fileChunk = _decodeFileTransferChunk(bytes);
+              if (fileChunk != null) {
+                _events.add(fileChunk);
+                return;
+              }
+            }
+
             final decoded = jsonDecode(raw.toString());
 
             if (decoded is Map) {
@@ -860,6 +872,61 @@ class WsClient {
     }
 
     return !transientTypes.contains(type);
+  }
+
+  Map<String, dynamic>? _decodeFileTransferChunk(Uint8List frame) {
+    // ZLF2 + version + uint16 transferIdLength + transferId + uint32 seq + data.
+    if (frame.length < 11 ||
+        frame[0] != 0x5a ||
+        frame[1] != 0x4c ||
+        frame[2] != 0x46 ||
+        frame[3] != 0x32 ||
+        frame[4] != 1) {
+      return null;
+    }
+
+    final data = ByteData.sublistView(frame);
+    final idLength = data.getUint16(5);
+
+    final headerLength = 11 + idLength;
+    if (idLength <= 0 || frame.length < headerLength) {
+      return null;
+    }
+
+    final transferId = utf8.decode(
+      frame.sublist(7, 7 + idLength),
+      allowMalformed: false,
+    );
+
+    final seq = data.getUint32(7 + idLength);
+    final payload = Uint8List.fromList(
+      frame.sublist(headerLength),
+    );
+
+    if (payload.isEmpty || transferId.trim().isEmpty) {
+      return null;
+    }
+
+    return {
+      'type': 'fileTransferChunk',
+      'transferId': transferId,
+      'seq': seq,
+      'bytes': payload,
+    };
+  }
+
+  bool sendBinary(Uint8List data) {
+    if (!connected || _channel == null || data.isEmpty) {
+      return false;
+    }
+
+    try {
+      _channel!.sink.add(data);
+      return true;
+    } catch (_) {
+      _handleConnectionLost();
+      return false;
+    }
   }
 
   bool send(Map<String, dynamic> data) {

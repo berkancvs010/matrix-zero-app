@@ -20,7 +20,6 @@ import 'file_transfer.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
-
 part 'app_bootstrap.dart';
 part 'push_service.dart';
 part 'theme.dart';
@@ -37,21 +36,15 @@ part 'message_input.dart';
 part 'models.dart';
 part 'profile_controller.dart';
 
-
 @pragma('vm:entry-point')
 Future<void> zerologBackgroundTransferMain() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  const channel = MethodChannel(
-    'zerolog/background_transfer',
-  );
+  const channel = MethodChannel('zerolog/background_transfer');
   StreamSubscription<Map<String, dynamic>>? backgroundEventsSub;
 
   try {
-
-    final raw = await channel.invokeMethod<dynamic>(
-      'getPendingTransfer',
-    );
+    final raw = await channel.invokeMethod<dynamic>('getPendingTransfer');
 
     if (raw is! Map) {
       await channel.invokeMethod<dynamic>('stopService');
@@ -60,23 +53,15 @@ Future<void> zerologBackgroundTransferMain() async {
 
     final data = Map<String, dynamic>.from(raw);
 
-    final sender =
-        (data['sender'] ?? '').toString().trim();
+    final sender = (data['sender'] ?? '').toString().trim();
 
-    final recipient =
-        (data['recipient'] ?? '').toString().trim();
+    final recipient = (data['recipient'] ?? '').toString().trim();
 
-    final transferId =
-        (data['fileId'] ?? '').toString().trim();
+    final transferId = (data['fileId'] ?? '').toString().trim();
 
-    final fileName =
-        (data['fileName'] ?? 'received_file').toString().trim();
+    final fileName = (data['fileName'] ?? 'received_file').toString().trim();
 
-    final fileSize =
-        int.tryParse(
-          (data['fileSize'] ?? '').toString(),
-        ) ??
-        0;
+    final fileSize = int.tryParse((data['fileSize'] ?? '').toString()) ?? 0;
 
     if (sender.isEmpty ||
         recipient.isEmpty ||
@@ -86,14 +71,10 @@ Future<void> zerologBackgroundTransferMain() async {
       return;
     }
 
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
     final autoAccept =
-        prefs.getBool(
-              'zerolog.notifications.auto_accept_files',
-            ) ??
-            true;
+        prefs.getBool('zerolog.notifications.auto_accept_files') ?? true;
 
     if (!autoAccept) {
       await channel.invokeMethod<dynamic>('stopService');
@@ -107,12 +88,9 @@ Future<void> zerologBackgroundTransferMain() async {
       return;
     }
 
-    final username =
-        session['username']!.trim();
+    final username = session['username']!.trim();
 
-    if (username.isEmpty ||
-        username.toLowerCase() !=
-            recipient.toLowerCase()) {
+    if (username.isEmpty || username.toLowerCase() != recipient.toLowerCase()) {
       await channel.invokeMethod<dynamic>('stopService');
       return;
     }
@@ -142,9 +120,7 @@ Future<void> zerologBackgroundTransferMain() async {
       if (!isFileSignal) return;
 
       if (!transferReady) {
-        pendingFileEvents.add(
-          Map<String, dynamic>.from(event),
-        );
+        pendingFileEvents.add(Map<String, dynamic>.from(event));
         return;
       }
 
@@ -158,9 +134,7 @@ Future<void> zerologBackgroundTransferMain() async {
       );
 
       unawaited(
-        currentTransfer.handleExternalEvent(
-          Map<String, dynamic>.from(event),
-        ),
+        currentTransfer.handleExternalEvent(Map<String, dynamic>.from(event)),
       );
     });
 
@@ -196,8 +170,26 @@ Future<void> zerologBackgroundTransferMain() async {
       turnUrls: ws.turnUrls,
     );
 
-    final prepared =
-        await transfer.prepareIncomingFromNotification(
+    final backgroundTransferDone = Completer<void>();
+    var backgroundTransferCompleted = false;
+
+    transfer.bindCallbacks(
+      onIncomingStatus:
+          ({
+            required String transferId,
+            required String status,
+            String? localUri,
+          }) {
+            if (status == 'completed' || status == 'failed') {
+              if (!backgroundTransferCompleted) {
+                backgroundTransferCompleted = true;
+                backgroundTransferDone.complete();
+              }
+            }
+          },
+    );
+
+    final prepared = await transfer.prepareIncomingFromNotification(
       transferId: transferId,
       fileName: fileName,
       fileSize: fileSize,
@@ -212,12 +204,13 @@ Future<void> zerologBackgroundTransferMain() async {
 
     await transfer.acceptIncoming(transferId);
 
-    // ACCEPT has been sent. The receive-side WebRTC state is now ready.
-    // Replay signaling events captured during authentication.
+    // ACCEPT has been sent. FileTransfer now owns subsequent transfer events.
+
+    await backgroundEventsSub.cancel();
+    backgroundEventsSub = null;
     transferReady = true;
 
-    final capturedEvents =
-        List<Map<String, dynamic>>.from(pendingFileEvents);
+    final capturedEvents = List<Map<String, dynamic>>.from(pendingFileEvents);
 
     pendingFileEvents.clear();
 
@@ -225,14 +218,20 @@ Future<void> zerologBackgroundTransferMain() async {
       await transfer.handleExternalEvent(event);
     }
 
+    if (!backgroundTransferCompleted) {
+      await backgroundTransferDone.future.timeout(
+        const Duration(minutes: 5),
+        onTimeout: () {},
+      );
+    }
+
+    await channel.invokeMethod<void>('stopService');
   } catch (e, stack) {
     debugPrint('[BG_TRANSFER] $e');
     debugPrint('$stack');
 
     try {
-      await channel.invokeMethod<dynamic>(
-        'stopService',
-      );
+      await channel.invokeMethod<dynamic>('stopService');
     } catch (_) {}
   }
 }

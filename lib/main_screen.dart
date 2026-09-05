@@ -338,7 +338,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // old server does not provide one, use a compact fingerprint instead of
     // retaining a second copy of the potentially 680 KB base64 string.
     final version = revision > 0
-        ? 'r:$revision'
+        ? 'r:$revision:${source.length}:${source.hashCode}'
         : 'h:${source.length}:${source.hashCode}';
 
     if (_profileImageVersionByUser[key] == version) {
@@ -843,6 +843,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     // Özel sohbet ekranı transferi zaten yönetiyorsa ikinci ACCEPT gönderme.
     if (FileTransfer.active(widget.nickname, sender) != null) return;
+
+    if (WsClient.instance.activePrivateChatPeer?.trim().toLowerCase() ==
+        sender.toLowerCase()) {
+      return;
+    }
 
     final transfer = FileTransfer.shared(
       ws: WsClient.instance,
@@ -1402,7 +1407,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _connected = false;
         _reconnecting = true;
         _onlineUsers.clear();
-        WsClient.instance.clearProfileCache();
       });
     }
 
@@ -1914,18 +1918,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         : null;
 
     remotePhotoData = (remoteProfile?['photoData'] ?? '').toString().trim();
-
-    if (!isMyProfile &&
-        WsClient.instance.connected &&
-        (remoteProfile == null ||
-            ((remoteProfile['type'] ?? 'avatar').toString() == 'photo' &&
-                remotePhotoData.isEmpty))) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _requestRemoteProfilePhoto(name);
-        }
-      });
-    }
 
     final profileFile = profilePath == null || profilePath.isEmpty
         ? null
