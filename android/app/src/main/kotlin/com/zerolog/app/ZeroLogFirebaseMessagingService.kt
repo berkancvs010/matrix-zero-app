@@ -215,6 +215,13 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 }
                 showFileNotification(message)
             }
+
+            // Gönderen uygulama kapalıyken dosyanın alıcı tarafından
+            // tamamlandığını bildiren FCM. Bu bir transfer OFFER değildir;
+            // kesinlikle background receive servisini başlatmamalıdır.
+            "privateFileStored" -> {
+                showFileNotification(message)
+            }
         }
     }
 

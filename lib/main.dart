@@ -168,6 +168,7 @@ Future<void> zerologBackgroundTransferMain() async {
       session['username']!,
       session['password']!,
       backgroundTransfer: true,
+      backgroundTransferId: transferId,
     );
 
     if (!connected) {

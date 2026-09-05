@@ -57,12 +57,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         }
       }
 
-      if (mounted) {
-        _profileFetchRequested.remove(normalized);
-        setState(() {});
-      } else {
-        _profileFetchRequested.remove(normalized);
-      }
+      _profileFetchRequested.remove(normalized);
     }());
   }
 
@@ -329,25 +324,92 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     });
   }
 
+  MemoryImage? _cachedProfileImage(
+    String username,
+    String photoData, {
+    int revision = 0,
+  }) {
+    final key = username.trim().toLowerCase();
+    final source = photoData.trim();
+
+    if (key.isEmpty || source.isEmpty) return null;
+
+    // Revision is the authoritative identity of a profile snapshot. If an
+    // old server does not provide one, use a compact fingerprint instead of
+    // retaining a second copy of the potentially 680 KB base64 string.
+    final version = revision > 0
+        ? 'r:$revision'
+        : 'h:${source.length}:${source.hashCode}';
+
+    if (_profileImageVersionByUser[key] == version) {
+      return _profileImageByUser[key];
+    }
+
+    try {
+      final image = MemoryImage(base64Decode(source));
+      _profileImageVersionByUser[key] = version;
+      _profileImageByUser[key] = image;
+
+      // Bound decoded-image memory when many users have profile photos.
+      if (_profileImageByUser.length > 64) {
+        final oldestKey = _profileImageByUser.keys.first;
+        _profileImageByUser.remove(oldestKey);
+        _profileImageVersionByUser.remove(oldestKey);
+      }
+
+      return image;
+    } catch (e) {
+      _profileImageVersionByUser.remove(key);
+      _profileImageByUser.remove(key);
+      debugPrint('[PROFILE] cached photo decode failed: $e');
+      return null;
+    }
+  }
+
+  MemoryImage? _cachedOwnProfileImage(String photoData) {
+    final source = photoData.trim();
+
+    if (source.isEmpty) {
+      _ownProfileImage = null;
+      _ownProfileImageSource = '';
+      return null;
+    }
+
+    if (_ownProfileImageSource == source && _ownProfileImage != null) {
+      return _ownProfileImage;
+    }
+
+    try {
+      final image = MemoryImage(base64Decode(source));
+      _ownProfileImageSource = source;
+      _ownProfileImage = image;
+      return image;
+    } catch (e) {
+      _ownProfileImageSource = '';
+      _ownProfileImage = null;
+      debugPrint('[PROFILE] own photo decode failed: $e');
+      return null;
+    }
+  }
+
   Widget _profileAvatar({double radius = 25}) {
     final theme = ThemeController.instance.data;
 
 
-    if (_profilePhotoData.isNotEmpty) {
-      try {
-        return ClipOval(
-          child: SizedBox(
-            width: radius * 2,
-            height: radius * 2,
-            child: Image(
-              image: MemoryImage(base64Decode(_profilePhotoData)),
-              fit: BoxFit.cover,
-            ),
+    final ownPhotoImage = _cachedOwnProfileImage(_profilePhotoData);
+
+    if (ownPhotoImage != null) {
+      return ClipOval(
+        child: SizedBox(
+          width: radius * 2,
+          height: radius * 2,
+          child: Image(
+            image: ownPhotoImage,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
           ),
-        );
-      } catch (e) {
-        debugPrint('[PROFILE] local photo decode failed: $e');
-      }
+        ),
+      );
     }
 
 
@@ -656,6 +718,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final List<String> _knownUsers = [];
 
   final Set<String> _profileFetchRequested = <String>{};
+
+  // Keep decoded profile images stable between rebuilds. Creating a new
+  // MemoryImage/Uint8List on every build can make Flutter briefly replace
+  // the image, producing the visible "blink" seen during profile updates.
+  final Map<String, String> _profileImageVersionByUser = <String, String>{};
+  final Map<String, MemoryImage> _profileImageByUser = <String, MemoryImage>{};
+  MemoryImage? _ownProfileImage;
+  String _ownProfileImageSource = '';
 
   // WhatsApp benzeri kişi bazlı okunmamış özel mesaj sayaçları.
   // Okunmamış özel mesajları mesaj ID'si bazında tut.
@@ -1850,7 +1920,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         (remoteProfile == null ||
             ((remoteProfile['type'] ?? 'avatar').toString() == 'photo' &&
                 remotePhotoData.isEmpty))) {
-      _requestRemoteProfilePhoto(name);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _requestRemoteProfilePhoto(name);
+        }
+      });
     }
 
     final profileFile = profilePath == null || profilePath.isEmpty
@@ -1860,11 +1934,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     MemoryImage? remotePhotoImage;
 
     if (!isMyProfile && remotePhotoData.isNotEmpty) {
-      try {
-        remotePhotoImage = MemoryImage(base64Decode(remotePhotoData));
-      } catch (e) {
-        debugPrint('[PROFILE] avatar photo decode failed: $e');
-      }
+      remotePhotoImage = _cachedProfileImage(
+      name,
+      remotePhotoData,
+      revision: int.tryParse(
+            (remoteProfile?['profileRevision'] ?? '').toString(),
+          ) ??
+          0,
+    );
     }
 
     final remoteType = (remoteProfile?['type'] ?? 'avatar').toString();
@@ -1879,7 +1956,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             child: SizedBox(
               width: 50,
               height: 50,
-              child: Image(image: remotePhotoImage, fit: BoxFit.cover),
+              child: Image(
+                image: remotePhotoImage,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
             ),
           )
         else
@@ -2465,16 +2546,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final profileType = (profile?['type'] ?? 'avatar').toString();
 
     final photoData = (profile?['photoData'] ?? '').toString().trim();
+    final photoRevision = int.tryParse(
+          (profile?['profileRevision'] ?? '').toString(),
+        ) ??
+        0;
 
     ImageProvider? photoImage;
 
     if (profileType == 'photo' && photoData.isNotEmpty) {
-      try {
-        final bytes = base64Decode(photoData);
-        photoImage = MemoryImage(bytes);
-      } catch (e) {
-        debugPrint('[PROFILE] remote photo decode failed: $e');
-      }
+      photoImage = _cachedProfileImage(
+        user,
+        photoData,
+        revision: photoRevision,
+      );
     }
 
     await showModalBottomSheet<void>(
@@ -2494,7 +2578,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             child: SizedBox(
               width: 92,
               height: 92,
-              child: Image(image: photoImage, fit: BoxFit.cover),
+              child: Image(
+                image: photoImage,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
             ),
           );
         } else {

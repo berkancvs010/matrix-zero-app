@@ -1134,9 +1134,27 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             final message = _messages[i];
 
             if (message.clientMessageId == clientMessageId) {
+              const rank = <String, int>{
+                'sending': 0,
+                'stored': 1,
+                'delivered': 2,
+                'read': 3,
+                'waiting': 0,
+                'connecting': 0,
+                'transferring': 0,
+                'accepting': 0,
+                'incoming': 0,
+                'completed': 4,
+                'failed': 4,
+                'rejected': 4,
+              };
+
+              final currentRank = rank[message.status] ?? 0;
+              final storedRank = rank['stored']!;
+
               _messages[i] = message.copyWith(
                 id: messageId.isNotEmpty ? messageId : message.id,
-                status: message.isFile && message.status == 'completed'
+                status: currentRank >= storedRank
                     ? message.status
                     : 'stored',
               );

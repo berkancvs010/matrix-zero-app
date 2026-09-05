@@ -159,6 +159,27 @@ class WsClient {
           incoming['photoData'] = existingPhoto;
         }
       }
+
+      // Aynı profil snapshot'ı tekrar geldiğinde event üretme. Bu hem
+      // gereksiz rebuild'leri hem de MemoryImage'ın yeniden seçilmesini
+      // azaltarak profil fotoğrafı "göz kırpması"nı engeller.
+      final mergedPhoto =
+          (incoming['photoData'] ?? '').toString();
+      final sameSnapshot =
+          existingRevision == incomingRevision &&
+          (existing['type'] ?? 'avatar').toString() ==
+              incomingType &&
+          (existing['avatarId'] ?? '').toString() ==
+              (incoming['avatarId'] ?? '').toString() &&
+          (existing['about'] ?? '').toString() ==
+              (incoming['about'] ?? '').toString() &&
+          (existing['photoAvailable'] == true) ==
+              (incoming['photoAvailable'] == true) &&
+          existingPhoto == mergedPhoto;
+
+      if (sameSnapshot) {
+        return;
+      }
     }
 
     _userProfiles[name] = incoming;
@@ -388,16 +409,19 @@ class WsClient {
   }
 
   bool _backgroundTransfer = false;
+  String _backgroundTransferId = '';
 
   Future<bool> connect(
     String username,
     String password, {
     bool backgroundTransfer = false,
+    String backgroundTransferId = '',
   }) async {
     _manualDisconnect = false;
     this.username = username.trim();
     this.password = password;
     _backgroundTransfer = backgroundTransfer;
+    _backgroundTransferId = backgroundTransferId.trim();
     nickname = this.username;
     _reconnectAttempt = 0;
     _reconnectTimer?.cancel();
@@ -688,6 +712,7 @@ class WsClient {
           'password': password,
           'fcmToken': ZeroLogPushService.currentToken,
           'backgroundTransfer': _backgroundTransfer,
+          'backgroundTransferId': _backgroundTransferId,
         }),
       );
 
@@ -826,6 +851,14 @@ class WsClient {
       'fileTransferFailed',
     };
 
+    // Transfer completion is persistent chat state. If the receiver's
+    // socket briefly drops exactly when the verified file finishes, the
+    // privateFileMessage must survive the disconnect and be flushed after
+    // reconnect instead of disappearing.
+    if (type == 'privateFileMessage') {
+      return true;
+    }
+
     return !transientTypes.contains(type);
   }
 
@@ -837,11 +870,14 @@ class WsClient {
         final type = (payload['type'] ?? '').toString();
         final clientMessageId = (payload['clientMessageId'] ?? '').toString().trim();
 
-        if (type == 'privateMessage' && clientMessageId.isNotEmpty) {
+        if ((type == 'privateMessage' ||
+                type == 'privateFileMessage') &&
+            clientMessageId.isNotEmpty) {
           _outgoingQueue.removeWhere(
             (queued) =>
-                queued['type'] == 'privateMessage' &&
-                (queued['clientMessageId'] ?? '').toString().trim() == clientMessageId,
+                (queued['type'] == type) &&
+                (queued['clientMessageId'] ?? '').toString().trim() ==
+                    clientMessageId,
           );
         }
 
@@ -855,6 +891,21 @@ class WsClient {
       return true;
     } catch (_) {
       if (_shouldQueueWhileDisconnected(payload)) {
+        final type = (payload['type'] ?? '').toString();
+        final clientMessageId =
+            (payload['clientMessageId'] ?? '').toString().trim();
+
+        if ((type == 'privateMessage' ||
+                type == 'privateFileMessage') &&
+            clientMessageId.isNotEmpty) {
+          _outgoingQueue.removeWhere(
+            (queued) =>
+                queued['type'] == type &&
+                (queued['clientMessageId'] ?? '').toString().trim() ==
+                    clientMessageId,
+          );
+        }
+
         _outgoingQueue.add(payload);
       }
       _handleConnectionLost();

@@ -40,7 +40,9 @@ const roomMessages=new Map();
 const PRIVATE_MESSAGE_TTL_MS=24*60*60*1000;
 const privateMessages=new Map();
 const users=new Map(); // ws -> nick
-const sockets=new Map(); // nick -> ws
+const sockets=new Map(); // nick -> primary foreground ws
+const backgroundSockets=new Map(); // normalized nick -> Map(transferId -> {ws,transferId})
+const backgroundSocketByWs=new Map(); // ws -> transferId
 
 // WebSocket bağlantısı açık kalsa bile uygulamanın gerçek UI durumunu
 // takip eder. foreground dışındaki kullanıcılar çağrı açısından offline
@@ -419,13 +421,19 @@ function storeTerminalPendingFileTransfer(to,event){
   });
 }
 
-function deliverPendingFileTransfers(ws,username){
+function deliverPendingFileTransfers(ws,username,transferId=''){
+  const requestedTransferId=String(transferId||'').trim();
   cleanupPendingFileTransfers();
 
   const targetKey=normalizeUsername(username);
 
   for(const [key,pending] of pendingFileTransfers){
     if(!pending || key.split('|')[0]!==targetKey)continue;
+
+    if(
+      requestedTransferId &&
+      String(pending.transferId||'').trim()!==requestedTransferId
+    )continue;
 
     let events=[];
 
@@ -534,12 +542,55 @@ function socketFor(username){
   if(!targetKey)return null;
 
   for(const [nick,ws] of sockets){
-    if(normalizeUsername(nick)===targetKey){
+    if(normalizeUsername(nick)===targetKey &&
+       ws && ws.readyState===1){
       return ws;
     }
   }
 
   return null;
+}
+
+function backgroundSocketFor(username,transferId=''){
+  const targetKey=normalizeUsername(username);
+  const id=String(transferId||'').trim();
+
+  if(!targetKey || !id)return null;
+
+  const transfers=backgroundSockets.get(targetKey);
+  if(!transfers)return null;
+
+  const entry=transfers.get(id);
+
+  if(
+    entry &&
+    entry.ws &&
+    entry.ws.readyState===1 &&
+    entry.transferId===id
+  ){
+    return entry.ws;
+  }
+
+  if(entry){
+    transfers.delete(id);
+    backgroundSocketByWs.delete(entry.ws);
+  }
+
+  if(transfers.size===0){
+    backgroundSockets.delete(targetKey);
+  }
+
+  return null;
+}
+
+function isBackgroundSocket(ws){
+  return backgroundSocketByWs.has(ws);
+}
+
+function fileSocketFor(username,transferId=''){
+  const background=backgroundSocketFor(username,transferId);
+  if(background)return background;
+  return socketFor(username);
 }
 const accountsFile=path.join(DATA,'users.json');
 let accounts=load('users.json',{});
@@ -751,7 +802,8 @@ function send(ws,data){
 }
 function broadcast(data,except=null){
   for(const ws of users.keys()){
-    if(ws!==except)send(ws,data);
+    if(ws===except || isBackgroundSocket(ws))continue;
+    send(ws,data);
   }
 }
 function sendUserDirectory(ws){
@@ -1030,6 +1082,8 @@ function listUsers(){
 }
 function updatePresence(){
   for(const ws of users.keys()){
+    if(isBackgroundSocket(ws))continue;
+
     send(ws,{
       type:'userList',
       users:visibleUsersFor(ws),
@@ -1042,6 +1096,8 @@ function updatePresence(){
   }
 
   for(const ws of users.keys()){
+    if(isBackgroundSocket(ws))continue;
+
     const rs=ws._rooms||new Set();
 
     for(const id of rs){
@@ -1058,6 +1114,8 @@ function broadcastUserOnline(nick){
   if(!presenceVisible(nick))return;
 
   for(const ws of users.keys()){
+    if(isBackgroundSocket(ws))continue;
+
     const viewer=users.get(ws);
 
     if(
@@ -1076,6 +1134,8 @@ function broadcastUserOnline(nick){
 
 function broadcastUserOffline(nick){
   for(const ws of users.keys()){
+    if(isBackgroundSocket(ws))continue;
+
     const viewer=users.get(ws);
 
     if(
@@ -1322,22 +1382,52 @@ function deleteRoomMessagesForUser(username){
 
 function disconnect(ws){
   const nick=users.get(ws);
-
   if(!nick)return;
 
   const nickKey=normalizeUsername(nick);
 
   users.delete(ws);
 
-  // A background file-transfer service may temporarily open a second
-  // authenticated WebSocket for the same account. If the socket being
-  // closed is not the primary socket and another live socket remains,
-  // this disconnect must have no lifecycle side effects.
-  let replacementSocket=null;
+  const backgroundKey=backgroundSocketByWs.get(ws);
+
+  if(backgroundKey){
+    backgroundSocketByWs.delete(ws);
+
+    const transfers=backgroundSockets.get(nickKey);
+
+    if(transfers){
+      const entry=transfers.get(backgroundKey);
+      if(entry && entry.ws===ws){
+        transfers.delete(backgroundKey);
+      }
+
+      if(transfers.size===0){
+        backgroundSockets.delete(nickKey);
+      }
+    }
+
+    const primary=socketFor(nick);
+
+    if(primary){
+      appStates.set(nickKey,'foreground');
+      appStateUpdatedAt.set(nickKey,Date.now());
+    }else if(backgroundSockets.has(nickKey)){
+      appStates.set(nickKey,'background');
+      appStateUpdatedAt.set(nickKey,Date.now());
+    }else{
+      appStates.delete(nickKey);
+      appStateUpdatedAt.delete(nickKey);
+      broadcastUserOffline(nick);
+    }
+
+    updatePresence();
+    return;
+  }
 
   const currentPrimary=socketFor(nick);
 
-  if(currentPrimary && currentPrimary!==ws && currentPrimary.readyState===1){
+  // This socket is an old/non-primary connection.
+  if(currentPrimary && currentPrimary!==ws){
     updatePresence();
     return;
   }
@@ -1345,36 +1435,17 @@ function disconnect(ws){
   if(currentPrimary===ws){
     sockets.delete(nick);
 
-    for(const candidate of users.keys()){
-      const candidateNick=users.get(candidate);
-
-      if(
-        candidateNick &&
-        normalizeUsername(candidateNick)===nickKey &&
-        candidate.readyState===1
-      ){
-        replacementSocket=candidate;
-        break;
-      }
-    }
-
-    if(replacementSocket){
-      sockets.set(nick,replacementSocket);
-    }
-  }
-
-  if(replacementSocket){
-    // Preserve the lifecycle state of the remaining primary socket.
-    if(!appStates.has(nickKey)){
+    // Never promote a background transfer socket to primary. If the
+    // foreground session closes while one or more background transfers
+    // are active, normal messages must use FCM rather than a headless
+    // file socket.
+    if(backgroundSockets.has(nickKey)){
       appStates.set(nickKey,'background');
-    }
-
-    if(!appStateUpdatedAt.has(nickKey)){
       appStateUpdatedAt.set(nickKey,Date.now());
+      broadcastUserOffline(nick);
+      updatePresence();
+      return;
     }
-
-    updatePresence();
-    return;
   }
 
   for(const [callId,call] of activeCalls){
@@ -1490,6 +1561,7 @@ wss.on('connection',(ws)=>{
 
     const old=sockets.get(account.username);
     const backgroundTransfer=d.backgroundTransfer===true;
+    const backgroundTransferId=String(d.backgroundTransferId||'').trim();
 
     if(old && old!==ws && !backgroundTransfer){
       send(ws,{type:'authError',code:'ACCOUNT_IN_USE',message:'Bu hesap başka bir cihazda aktif.'});
@@ -1562,15 +1634,58 @@ wss.on('connection',(ws)=>{
     saveAccounts();
 
     users.set(ws,account.username);
-    sockets.set(account.username,ws);
 
-    // Normal uygulama oturumu foreground, headless dosya-transfer oturumu
-    // ise background kabul edilir. Background socket mevcut primary socket'i
-    // geçici olarak devralabilir; disconnect() eski socket kapandığında
-    // replacement socket'i yeniden primary yapar.
     const loginStateKey=normalizeUsername(account.username);
-    appStates.set(loginStateKey,backgroundTransfer?'background':'foreground');
-    appStateUpdatedAt.set(loginStateKey,Date.now());
+
+    if(backgroundTransfer){
+      // Headless file-transfer socket hiçbir zaman normal uygulamanın
+      // primary socket'ini devralmamalıdır. Aksi halde normal mesajlar,
+      // profile updates ve delivery/read event'leri yalnızca dosya
+      // servisinin dinlediği socket'e gider ve kaybolur.
+      if(!backgroundTransferId){
+        send(ws,{
+          type:'authError',
+          code:'BACKGROUND_TRANSFER_ID_REQUIRED',
+          message:'Arka plan dosya aktarımı için transferId gereklidir.',
+        });
+        users.delete(ws);
+        try{ws.close();}catch{}
+        break;
+      }
+
+      const transferMap=
+        backgroundSockets.get(loginStateKey)||new Map();
+
+      const oldBackground=transferMap.get(backgroundTransferId);
+
+      if(oldBackground && oldBackground.ws!==ws){
+        backgroundSocketByWs.delete(oldBackground.ws);
+        users.delete(oldBackground.ws);
+        try{oldBackground.ws.close();}catch{}
+      }
+
+      transferMap.set(backgroundTransferId,{
+        ws,
+        transferId:backgroundTransferId,
+      });
+
+      backgroundSockets.set(loginStateKey,transferMap);
+      backgroundSocketByWs.set(
+        ws,
+        backgroundTransferId
+      );
+
+      // Foreground socket varsa presence foreground kalır.
+      appStates.set(
+        loginStateKey,
+        sockets.has(account.username)?'foreground':'background'
+      );
+      appStateUpdatedAt.set(loginStateKey,Date.now());
+    }else{
+      sockets.set(account.username,ws);
+      appStates.set(loginStateKey,'foreground');
+      appStateUpdatedAt.set(loginStateKey,Date.now());
+    }
 
     if(fcmToken){
       account.fcmToken=fcmToken;
@@ -1616,7 +1731,11 @@ wss.on('connection',(ws)=>{
 
     sendUserDirectory(ws);
 
-    deliverPendingFileTransfers(ws,account.username);
+    deliverPendingFileTransfers(
+      ws,
+      account.username,
+      backgroundTransfer ? backgroundTransferId : ''
+    );
 
     const pending=privateMessagesEnabled(account.username)
       ? pendingPrivateMessages(account.username)
@@ -1908,6 +2027,8 @@ wss.on('connection',(ws)=>{
     });
 
     for(const peer of users.keys()){
+      if(isBackgroundSocket(peer))continue;
+
       const peerNick=users.get(peer);
 
       send(peer,{
@@ -2088,7 +2209,7 @@ wss.on('connection',(ws)=>{
   }
   case 'joinRoom':{if(!me)break;purgeExpiredRoomMessages();const id=String(d.room);if(!rooms.some(r=>r.id===id))break;ws._rooms.add(id);send(ws,{type:'roomHistory',room:id,messages:roomMessages.get(id)||[]});updatePresence();break;}
   case 'leaveRoom':{ws._rooms.delete(String(d.room));updatePresence();break;}
-  case 'roomMessage':{if(!me)break;purgeExpiredRoomMessages();const id=String(d.room);if(!ws._rooms.has(id))break;const text=cleanText(d.text);if(!text)break;const ts=Date.now();const msg={id:makeMessageId(),type:'roomMessage',room:id,from:me,text,ts,expiresAt:ts+PRIVATE_MESSAGE_TTL_MS};const arr=roomMessages.get(id)||[];arr.push(msg);roomMessages.set(id,arr);save(`room-${id}.json`,arr);for(const [peer] of users){if((peer._rooms && peer._rooms.has(id)))send(peer,msg);}break;}
+  case 'roomMessage':{if(!me)break;purgeExpiredRoomMessages();const id=String(d.room);if(!ws._rooms.has(id))break;const text=cleanText(d.text);if(!text)break;const ts=Date.now();const msg={id:makeMessageId(),type:'roomMessage',room:id,from:me,text,ts,expiresAt:ts+PRIVATE_MESSAGE_TTL_MS};const arr=roomMessages.get(id)||[];arr.push(msg);roomMessages.set(id,arr);save(`room-${id}.json`,arr);for(const [peer] of users){if(isBackgroundSocket(peer))continue;if((peer._rooms && peer._rooms.has(id)))send(peer,msg);}break;}
   case 'privateHistory':{if(!me)break;const peer=safeNick(d.peer);const messages=purgeExpiredPrivateMessages(me,peer);send(ws,{type:'privateHistory',peer,messages});break;}
   case 'privateFileMessage':{
     if(!me)break;
@@ -2100,17 +2221,6 @@ wss.on('connection',(ws)=>{
     const clientMessageId=String(d.clientMessageId||'').trim();
 
     if(!to||!fileId||!fileName||!Number.isFinite(fileSize)||fileSize<=0)break;
-
-    if(!privateMessagesEnabled(to)){
-      send(ws,{
-        type:'privateMessageRejected',
-        to,
-        reason:'PRIVATE_MESSAGES_DISABLED',
-        message:'Bu kullanıcı özel mesajları kabul etmiyor.',
-      });
-
-      break;
-    }
 
     /*
      * privateFileMessage event'i transferi ALAN socket'ten gelir.
@@ -2180,7 +2290,7 @@ wss.on('connection',(ws)=>{
     }else if(messageNotificationsEnabled(to)){
       await sendFcmPush(to,{
         data:{
-          type:'privateFileMessage',
+          type:'privateFileStored',
           messageId:String(stored.id||''),
           clientMessageId:String(stored.clientMessageId||''),
           sender:String(stored.from||''),
@@ -2263,7 +2373,7 @@ wss.on('connection',(ws)=>{
     if(recipientForeground){
       send(recipient,stored);
     }else if(messageNotificationsEnabled(to)){
-      await sendFcmPush(to,{
+      const pushed=await sendFcmPush(to,{
         // DATA-ONLY:
         // Android arka planda kendi launcher notification'ını
         // oluşturmamalı. Native FCM service kendi PendingIntent'ini
@@ -2282,6 +2392,33 @@ wss.on('connection',(ws)=>{
         },
       });
 
+      // A successful FCM send means the push has reached Firebase's
+      // delivery pipeline even though the recipient application may be
+      // fully closed. Mark the message delivered here so the sender gets
+      // the second tick without waiting for the app to open.
+      if(pushed){
+        const delivered=markPrivateMessageDelivered(
+          me,
+          to,
+          stored.id,
+          stored.clientMessageId,
+        );
+
+        if(delivered){
+          send(
+            socketFor(me),
+            {
+              type:'messageDelivered',
+              messageId:delivered.id||null,
+              clientMessageId:delivered.clientMessageId||null,
+              from:to,
+              to:me,
+              deliveredTo:to,
+              ts:delivered.deliveredAt||Date.now(),
+            },
+          );
+        }
+      }
     }
 
     break;
@@ -2737,9 +2874,9 @@ wss.on('connection',(ws)=>{
       );
     }
 
-    const recipient=socketFor(to);
+    const recipient=fileSocketFor(to,transferId);
     const recipientConnected=!!recipient;
-    const recipientForeground=recipientConnected && isForegroundActive(to);
+    const recipientForeground=!!socketFor(to) && isForegroundActive(to);
 
     let deliveredLive=false;
 
