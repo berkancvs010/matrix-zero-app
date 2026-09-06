@@ -369,7 +369,10 @@ class FileTransfer {
       });
 
       if (!sent) {
-        throw StateError('Dosya kabulü sunucuya iletilemedi.');
+        // Keep the prepared incoming transfer alive. WsClient will reconnect
+        // and the ACCEPT is retried by the caller/normal transfer signaling
+        // path instead of destroying a valid pending receive.
+        _startConnectionTimeout(transferId);
       }
     } catch (e) {
       _accepted = false;
@@ -441,6 +444,12 @@ class FileTransfer {
       if (_transferId != null && _transferId != id) return;
 
       if (_transferId == id) {
+        // A reconnect can replay the same OFFER after the receiver prepared
+        // the file but its ACCEPT was lost. Re-send ACCEPT instead of
+        // discarding the idempotent offer.
+        if (_incomingTransfer && !_accepted) {
+          await acceptIncoming(id);
+        }
         return;
       }
 

@@ -153,6 +153,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Timer? _messageExpiryTimer;
   File? _lastOutgoingFile;
   String _lastOutgoingFileName = '';
+  // transferId -> local source/persistent path. This closes the race where
+  // sendFile() returns before the server's privateFileMessage reaches the UI.
+  final Map<String, String> _localTransferPaths = <String, String>{};
   bool _connected = true;
   bool _autoAcceptIncomingFiles = true;
   final Map<String, Future<Uint8List?>> _fileThumbnailCache = {};
@@ -327,7 +330,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       expiresAt: expiresAt,
       localPath: localPath != null && localPath.isNotEmpty
           ? localPath
-          : (existing?.localPath ?? ''),
+          : (existing?.localPath.isNotEmpty == true
+                ? existing!.localPath
+                : (_localTransferPaths[transferId] ?? '')),
     );
 
     setState(() {
@@ -387,6 +392,22 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             : current.localPath,
       );
     });
+
+    if (status == 'completed' &&
+        localPath != null &&
+        localPath.isNotEmpty &&
+        !localPath.startsWith('content://') &&
+        current.sender.toLowerCase() != widget.myNick.toLowerCase()) {
+      unawaited(
+        const MethodChannel('zerolog/system').invokeMethod<bool>(
+          'registerBackgroundReceivedFile',
+          <String, dynamic>{
+            'fileId': transferId,
+            'sourcePath': localPath,
+          },
+        ),
+      );
+    }
 
     unawaited(_saveHistoryCache());
   }
@@ -657,9 +678,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               // bırakma; seçilen yerel dosya hemen kullanılabilir.
               localPath: existing?.localPath.isNotEmpty == true
                   ? existing!.localPath
-                  : (sender.toLowerCase() == widget.myNick.toLowerCase()
-                        ? _lastOutgoingFile?.path
-                        : null),
+                  : (_localTransferPaths[transferId] ??
+                        (sender.toLowerCase() == widget.myNick.toLowerCase()
+                            ? _lastOutgoingFile?.path
+                            : null)),
             );
           },
       onIncomingOffer:
@@ -1585,6 +1607,36 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     _controller.clear();
   }
 
+  Future<String> _persistOutgoingFile(
+    String sourcePath,
+    String transferId,
+  ) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final targetDirectory = Directory(
+        '${directory.path}/ZeroLog/sent_files',
+      );
+
+      await targetDirectory.create(recursive: true);
+
+      final source = File(sourcePath);
+      if (!await source.exists()) return sourcePath;
+
+      final extension = sourcePath.contains('.')
+          ? '.${sourcePath.split('.').last.toLowerCase()}'
+          : '';
+      final target = File('${targetDirectory.path}/$transferId$extension');
+
+      if (!await target.exists() || await target.length() != await source.length()) {
+        await source.copy(target.path);
+      }
+      return target.path;
+    } catch (e) {
+      debugPrint('[FILE_TRANSFER] persistent file copy failed: $e');
+      return sourcePath;
+    }
+  }
+
   Future<void> _sendFile() async {
     try {
       final files = await FilePicker.pickFiles();
@@ -1593,16 +1645,21 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final path = picked.path;
       if (path == null || path.isEmpty) return;
 
-      _lastOutgoingFile = File(path);
+      final transferSeed =
+          '${DateTime.now().microsecondsSinceEpoch}-${widget.myNick}';
+      final persistentPath = await _persistOutgoingFile(path, transferSeed);
+      final persistentFile = File(persistentPath);
+
+      _lastOutgoingFile = persistentFile;
       _lastOutgoingFileName = picked.name;
 
       final transferId = await _fileTransfer.sendFile(
-        sourceFile: _lastOutgoingFile,
+        sourceFile: persistentFile,
         sourceFileName: _lastOutgoingFileName,
       );
 
       if (transferId == null || transferId.isEmpty) return;
-      _rememberLocalTransferPath(transferId, path);
+      _rememberLocalTransferPath(transferId, persistentPath);
 
       if (!mounted) return;
     } catch (e) {
@@ -1616,29 +1673,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Future<String> _persistOutgoingMedia(
     String sourcePath,
     String transferId,
-  ) async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final targetDirectory = Directory('${directory.path}/ZeroLog/sent_media');
-
-      if (!await targetDirectory.exists()) {
-        await targetDirectory.create(recursive: true);
-      }
-
-      final source = File(sourcePath);
-      if (!await source.exists()) return sourcePath;
-
-      final extension = sourcePath.contains('.')
-          ? '.${sourcePath.split('.').last.toLowerCase()}'
-          : '.jpg';
-      final target = File('${targetDirectory.path}/$transferId$extension');
-
-      await source.copy(target.path);
-      return target.path;
-    } catch (e) {
-      debugPrint('[FILE_TRANSFER] persistent media copy failed: $e');
-      return sourcePath;
-    }
+  ) {
+    // Media uses the same durable sent-file store as arbitrary files so the
+    // preview survives picker-cache cleanup and history reloads.
+    return _persistOutgoingFile(sourcePath, transferId);
   }
 
   Future<void> _sendPhoto(ImageSource source) async {
@@ -1680,11 +1718,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   void _rememberLocalTransferPath(String transferId, String path) {
-    if (transferId.isEmpty || path.isEmpty || !mounted) return;
+    if (transferId.isEmpty || path.isEmpty) return;
+
+    // Keep the path even if the server message has not arrived yet.
+    // sendFile() returns immediately after fileTransferStart, while the
+    // stored privateFileMessage may arrive a little later.
+    _localTransferPaths[transferId] = path;
+
+    if (!mounted) return;
+
     final index = _messages.indexWhere(
       (message) => message.isFile && message.fileId == transferId,
     );
     if (index < 0) return;
+
     setState(() {
       _messages[index] = _messages[index].copyWith(localPath: path);
     });
@@ -1702,13 +1749,22 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
 
     try {
+      final transferSeed =
+          '${DateTime.now().microsecondsSinceEpoch}-${widget.myNick}';
+      final persistentPath = await _persistOutgoingFile(file.path, transferSeed);
+      final persistentFile = File(persistentPath);
+
       final transferId = await _fileTransfer.sendFile(
-        sourceFile: file,
+        sourceFile: persistentFile,
         sourceFileName: _lastOutgoingFileName.isNotEmpty
             ? _lastOutgoingFileName
             : message.fileName,
       );
-      if (transferId == null || transferId.isEmpty || !mounted) return;
+      if (transferId == null || transferId.isEmpty) return;
+
+      _lastOutgoingFile = persistentFile;
+      _rememberLocalTransferPath(transferId, persistentPath);
+      if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

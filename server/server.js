@@ -329,7 +329,15 @@ async function sendReliableFileOffer(session){
   const recipient=fileSocketFor(session.to,session.transferId);
 
   if(recipient && isForegroundActive(session.to)){
-    return send(recipient,reliableFileOffer(session));
+    const delivered=send(recipient,reliableFileOffer(session));
+    if(delivered)return true;
+
+    // Foreground state can briefly outlive a dead socket. Do not drop the
+    // only OFFER in that race; fall through to FCM/pending delivery.
+    console.log(
+      `[FILE_TRANSFER] foreground offer delivery failed; falling back ` +
+      `to FCM transferId=${session.transferId}`
+    );
   }
 
   if(messageNotificationsEnabled(session.to)){
@@ -516,15 +524,51 @@ async function handleReliableFileEvent(ws,d,me){
       status:'stored',
     });
 
+    /*
+     * Reliable file reception is owned by the transfer service when
+     * auto-accept is enabled. Do not route binary chunks to an arbitrary
+     * foreground socket merely because the app process is alive: the user
+     * may be on the home screen and no PrivateChat/FileTransfer listener
+     * exists on that socket.
+     *
+     * The durable source of truth is the reliable transfer session. Notify
+     * through FCM first; the background service reconnects with the exact
+     * transferId and receives the offer/session. If FCM cannot be delivered,
+     * fall back to the foreground socket so an open chat can still handle
+     * the transfer immediately.
+     */
     const recipient=socketFor(to);
-    if(recipient && isForegroundActive(to)){
-      send(recipient,{
+    const account=accountFor(to);
+    const autoAccept=
+      !account || account.autoAcceptFileTransfers!==false;
+
+    let notified=false;
+
+    if(autoAccept){
+      notified=await sendReliableFileOffer(session);
+    }
+
+    if(!notified && recipient && isForegroundActive(to)){
+      const messageDelivered=send(recipient,{
         ...stored,
         transferStatus:'waiting',
         transferBytes:0,
       });
-      send(recipient,reliableFileOffer(session));
-    }else{
+      const offerDelivered=messageDelivered &&
+        send(recipient,reliableFileOffer(session));
+
+      if(!offerDelivered){
+        // The foreground socket can disappear between the state check and
+        // send(). The reliable session remains alive for reconnect/retry.
+        await sendReliableFileOffer(session);
+      }
+    }else if(!notified && !autoAccept){
+      /*
+       * With manual acceptance and no foreground socket there is no receiver
+       * to present the offer. Keep the durable session alive; the next login
+       * will replay it. If a notification token exists, sendReliableFileOffer
+       * also provides the user with a way back into the chat.
+       */
       await sendReliableFileOffer(session);
     }
 
@@ -560,21 +604,20 @@ async function handleReliableFileEvent(ws,d,me){
     session.state='accepted';
 
     const sender=fileSocketFor(session.from,transferId);
-    if(!sender){
-      send(ws,{
-        type:'fileTransferFailed',
-        transferId,
-        reason:'Gönderici bağlantısı bulunamadı.',
-      });
-      return true;
-    }
 
-    send(sender,{
-      type:'fileTransferAccept',
-      from:session.to,
-      to:session.from,
-      transferId,
-    });
+    // The receiver may accept while the sender's foreground socket is
+    // reconnecting. The session is already persisted in memory, so do not
+    // destroy a valid transfer merely because the sender is momentarily
+    // unavailable. deliverReliableFileTransfers() will replay ACCEPT when
+    // the sender reconnects.
+    if(sender){
+      send(sender,{
+        type:'fileTransferAccept',
+        from:session.to,
+        to:session.from,
+        transferId,
+      });
+    }
 
     return true;
   }
@@ -812,6 +855,32 @@ function deliverReliableFileTransfers(ws,username){
         send(ws,message);
       }
 
+      send(ws,reliableFileOffer(session));
+      continue;
+    }
+
+    if(
+      session.state==='accepted' &&
+      normalizeUsername(session.from)===key
+    ){
+      // The receiver may have accepted while the sender socket was
+      // temporarily disconnected. Replaying ACCEPT is safe because the
+      // client guards duplicate starts.
+      send(ws,{
+        type:'fileTransferAccept',
+        from:session.to,
+        to:session.from,
+        transferId:session.transferId,
+      });
+      continue;
+    }
+
+    if(
+      session.state==='accepted' &&
+      normalizeUsername(session.to)===key
+    ){
+      // Replaying the OFFER lets a receiver that lost its ACCEPT during a
+      // reconnect re-send ACCEPT without creating a second transfer.
       send(ws,reliableFileOffer(session));
     }
   }
@@ -1138,8 +1207,30 @@ function isBackgroundSocket(ws){
 }
 
 function fileSocketFor(username,transferId=''){
+  /*
+   * Bir hesap aynı anda foreground Flutter socket'i ve geçici
+   * background-transfer socket'i taşıyabilir. Aktif sohbet ekranı varken
+   * dosyanın OFFER/ACCEPT/CHUNK/ACK olaylarını background socket'e vermek
+   * foreground UI'ın transferi kaçırmasına ve önizlemenin güncellenmemesine
+   * neden olur.
+   *
+   * Foreground socket daima birincil kanaldır. Yalnızca uygulama foreground
+   * değilse transfer-id'ye bağlı background socket kullanılır.
+   */
+  /*
+   * Once a transfer-specific background socket exists, it is the authoritative
+   * receiver for this transfer. This prevents binary chunks from being sent
+   * to a foreground socket that has no FileTransfer listener (for example the
+   * user is on the home screen while Android's transfer service is receiving).
+   */
   const background=backgroundSocketFor(username,transferId);
   if(background)return background;
+
+  if(isForegroundActive(username)){
+    const foreground=socketFor(username);
+    if(foreground)return foreground;
+  }
+
   return socketFor(username);
 }
 const accountsFile=path.join(DATA,'users.json');
@@ -2599,8 +2690,6 @@ wss.on('connection',(ws)=>{
 
     for(const peer of users.keys()){
       if(isBackgroundSocket(peer))continue;
-
-      const peerNick=users.get(peer);
 
       send(peer,{
         type:'profileUpdated',
