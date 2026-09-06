@@ -130,8 +130,7 @@ class WsClient {
 
     final incoming = Map<String, dynamic>.from(profile);
 
-    final incomingType =
-        (incoming['type'] ?? 'avatar').toString();
+    final incomingType = (incoming['type'] ?? 'avatar').toString();
 
     if (existing != null) {
       final incomingRevision =
@@ -141,18 +140,15 @@ class WsClient {
 
       // Eski profileUpdated/getProfile cevabı daha yeni profilin
       // üzerine yazmasın.
-      if (incomingRevision > 0 &&
-          existingRevision > incomingRevision) {
+      if (incomingRevision > 0 && existingRevision > incomingRevision) {
         return;
       }
 
       // profileUpdated bilinçli olarak photoData taşımaz.
       // Ancak cache'te gerçek fotoğraf zaten varsa boş metadata
       // paketi bu fotoğrafı silemez.
-      final incomingPhoto =
-          (incoming['photoData'] ?? '').toString();
-      final existingPhoto =
-          (existing['photoData'] ?? '').toString();
+      final incomingPhoto = (incoming['photoData'] ?? '').toString();
+      final existingPhoto = (existing['photoData'] ?? '').toString();
 
       if (incomingPhoto.isEmpty && existingPhoto.isNotEmpty) {
         if (incomingType == 'photo' || incomingRevision == 0) {
@@ -163,12 +159,10 @@ class WsClient {
       // Aynı profil snapshot'ı tekrar geldiğinde event üretme. Bu hem
       // gereksiz rebuild'leri hem de MemoryImage'ın yeniden seçilmesini
       // azaltarak profil fotoğrafı "göz kırpması"nı engeller.
-      final mergedPhoto =
-          (incoming['photoData'] ?? '').toString();
+      final mergedPhoto = (incoming['photoData'] ?? '').toString();
       final sameSnapshot =
           existingRevision == incomingRevision &&
-          (existing['type'] ?? 'avatar').toString() ==
-              incomingType &&
+          (existing['type'] ?? 'avatar').toString() == incomingType &&
           (existing['avatarId'] ?? '').toString() ==
               (incoming['avatarId'] ?? '').toString() &&
           (existing['about'] ?? '').toString() ==
@@ -190,7 +184,6 @@ class WsClient {
       'username': name,
     });
   }
-
 
   void clearProfileCache() {
     _userProfiles.clear();
@@ -473,9 +466,7 @@ class WsClient {
         (raw) {
           try {
             if (raw is List<int>) {
-              final bytes = raw is Uint8List
-                  ? raw
-                  : Uint8List.fromList(raw);
+              final bytes = raw is Uint8List ? raw : Uint8List.fromList(raw);
 
               final fileChunk = _decodeFileTransferChunk(bytes);
               if (fileChunk != null) {
@@ -525,7 +516,10 @@ class WsClient {
                 // gerçek durumu tekrar gönderir.
                 try {
                   _channel?.sink.add(
-                    jsonEncode({'type': 'appState', 'state': _appForeground ? 'foreground' : 'background'}),
+                    jsonEncode({
+                      'type': 'appState',
+                      'state': _appForeground ? 'foreground' : 'background',
+                    }),
                   );
                 } catch (_) {}
 
@@ -564,10 +558,23 @@ class WsClient {
                 if (profiles is Map) {
                   for (final entry in profiles.entries) {
                     if (entry.value is Map) {
-                      cacheProfile(
-                        entry.key.toString(),
-                        Map<String, dynamic>.from(entry.value as Map),
+                      final profile = Map<String, dynamic>.from(
+                        entry.value as Map,
                       );
+                      final name = entry.key.toString();
+                      cacheProfile(name, profile);
+
+                      // Directory intentionally contains metadata only.
+                      // If this account has a photo, immediately fetch the
+                      // authoritative full profile so remote avatars do not
+                      // remain permanently as initials after login/reconnect.
+                      if (profile['photoAvailable'] == true &&
+                          (profile['photoData'] ?? '')
+                              .toString()
+                              .trim()
+                              .isEmpty) {
+                        requestProfile(name);
+                      }
                     }
                   }
                 }
@@ -596,10 +603,23 @@ class WsClient {
                 if (profiles is Map) {
                   for (final entry in profiles.entries) {
                     if (entry.value is Map) {
-                      cacheProfile(
-                        entry.key.toString(),
-                        Map<String, dynamic>.from(entry.value as Map),
+                      final profile = Map<String, dynamic>.from(
+                        entry.value as Map,
                       );
+                      final name = entry.key.toString();
+                      cacheProfile(name, profile);
+
+                      // Directory intentionally contains metadata only.
+                      // If this account has a photo, immediately fetch the
+                      // authoritative full profile so remote avatars do not
+                      // remain permanently as initials after login/reconnect.
+                      if (profile['photoAvailable'] == true &&
+                          (profile['photoData'] ?? '')
+                              .toString()
+                              .trim()
+                              .isEmpty) {
+                        requestProfile(name);
+                      }
                     }
                   }
                 }
@@ -619,9 +639,9 @@ class WsClient {
                     'profileRevision': data['profileRevision'] is num
                         ? (data['profileRevision'] as num).toInt()
                         : int.tryParse(
-                              (data['profileRevision'] ?? '').toString(),
-                            ) ??
-                            0,
+                                (data['profileRevision'] ?? '').toString(),
+                              ) ??
+                              0,
                   });
                 }
               }
@@ -639,9 +659,9 @@ class WsClient {
                     'profileRevision': data['profileRevision'] is num
                         ? (data['profileRevision'] as num).toInt()
                         : int.tryParse(
-                              (data['profileRevision'] ?? '').toString(),
-                            ) ??
-                            0,
+                                (data['profileRevision'] ?? '').toString(),
+                              ) ??
+                              0,
                   };
 
                   cacheProfile(name, profile);
@@ -714,7 +734,8 @@ class WsClient {
 
       await channel.ready.timeout(
         const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('WebSocket bağlantı zaman aşımı'),
+        onTimeout: () =>
+            throw TimeoutException('WebSocket bağlantı zaman aşımı'),
       );
 
       channel.sink.add(
@@ -899,9 +920,7 @@ class WsClient {
     );
 
     final seq = data.getUint32(7 + idLength);
-    final payload = Uint8List.fromList(
-      frame.sublist(headerLength),
-    );
+    final payload = Uint8List.fromList(frame.sublist(headerLength));
 
     if (payload.isEmpty || transferId.trim().isEmpty) {
       return null;
@@ -935,10 +954,11 @@ class WsClient {
     if (!connected || _channel == null) {
       if (_shouldQueueWhileDisconnected(payload)) {
         final type = (payload['type'] ?? '').toString();
-        final clientMessageId = (payload['clientMessageId'] ?? '').toString().trim();
+        final clientMessageId = (payload['clientMessageId'] ?? '')
+            .toString()
+            .trim();
 
-        if ((type == 'privateMessage' ||
-                type == 'privateFileMessage') &&
+        if ((type == 'privateMessage' || type == 'privateFileMessage') &&
             clientMessageId.isNotEmpty) {
           _outgoingQueue.removeWhere(
             (queued) =>
@@ -959,11 +979,11 @@ class WsClient {
     } catch (_) {
       if (_shouldQueueWhileDisconnected(payload)) {
         final type = (payload['type'] ?? '').toString();
-        final clientMessageId =
-            (payload['clientMessageId'] ?? '').toString().trim();
+        final clientMessageId = (payload['clientMessageId'] ?? '')
+            .toString()
+            .trim();
 
-        if ((type == 'privateMessage' ||
-                type == 'privateFileMessage') &&
+        if ((type == 'privateMessage' || type == 'privateFileMessage') &&
             clientMessageId.isNotEmpty) {
           _outgoingQueue.removeWhere(
             (queued) =>

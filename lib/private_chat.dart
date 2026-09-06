@@ -361,7 +361,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
   }
 
-  void _updateFileMessageStatus(String transferId, String status, {String? localPath}) {
+  void _updateFileMessageStatus(
+    String transferId,
+    String status, {
+    String? localPath,
+  }) {
     if (!mounted || transferId.isEmpty) return;
 
     final index = _messages.indexWhere(
@@ -424,11 +428,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final expiredFiles = _messages
-        .where((message) =>
-            message.isFile &&
-            message.expiresAt > 0 &&
-            message.expiresAt <= now &&
-            message.sender.toLowerCase() != widget.myNick.toLowerCase())
+        .where(
+          (message) =>
+              message.isFile &&
+              message.expiresAt > 0 &&
+              message.expiresAt <= now &&
+              message.sender.toLowerCase() != widget.myNick.toLowerCase(),
+        )
         .map((message) => message.fileId)
         .where((id) => id.isNotEmpty)
         .toSet();
@@ -440,10 +446,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _fileThumbnailCache.removeWhere(
           (key, _) => key == fileId || key.startsWith('$fileId|'),
         );
-        unawaited(const MethodChannel('zerolog/system').invokeMethod<bool>(
-          'deleteReceivedFile',
-          <String, dynamic>{'fileId': fileId},
-        ));
+        unawaited(
+          const MethodChannel('zerolog/system').invokeMethod<bool>(
+            'deleteReceivedFile',
+            <String, dynamic>{'fileId': fileId},
+          ),
+        );
       }
     }
 
@@ -650,8 +658,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               localPath: existing?.localPath.isNotEmpty == true
                   ? existing!.localPath
                   : (sender.toLowerCase() == widget.myNick.toLowerCase()
-                      ? _lastOutgoingFile?.path
-                      : null),
+                        ? _lastOutgoingFile?.path
+                        : null),
             );
           },
       onIncomingOffer:
@@ -685,40 +693,23 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               );
             }
           },
-      onIncomingStatus: ({
-        required String transferId,
-        required String status,
-        String? localUri,
-      }) {
-        if (!mounted) return;
+      onIncomingStatus:
+          ({
+            required String transferId,
+            required String status,
+            String? localUri,
+          }) {
+            if (!mounted) return;
 
-        _updateFileMessageStatus(transferId, status, localPath: localUri);
-
-      },
+            _updateFileMessageStatus(transferId, status, localPath: localUri);
+          },
     );
 
-    // TURN bilgileri hazır olmadan PeerConnection oluşturma.
-    unawaited(() async {
-      final client = WsClient.instance;
-
-      try {
-        if (!client.turnCredentialsReady.isCompleted) {
-          await client.turnCredentialsReady.future.timeout(
-            const Duration(seconds: 10),
-          );
-        }
-      } catch (_) {
-        // TURN alınamazsa STUN fallback kullanılacak.
-      }
-
-      if (!mounted) return;
-
-      _fileTransfer.turnUsername = client.turnUsername;
-      _fileTransfer.turnPassword = client.turnPassword;
-      _fileTransfer.turnUrls = List<String>.from(client.turnUrls);
-
-      await _fileTransfer.initialize();
-    }());
+    // Dosya aktarımı artık kimliği doğrulanmış WebSocket üzerinden yapılır.
+    // TURN/ICE beklemek, transfer event listener'ını geciktirip özellikle
+    // hızlı gönderimlerde fileTransferAccept/Offer event'inin kaçmasına
+    // neden oluyordu. Listener sohbet açılır açılmaz hazır olmalıdır.
+    unawaited(_fileTransfer.initialize());
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -841,10 +832,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           setState(() => _autoAcceptIncomingFiles = value);
         }
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(
-          'zerolog.notifications.auto_accept_files',
-          value,
-        );
+        await prefs.setBool('zerolog.notifications.auto_accept_files', value);
       }
       return;
     }
@@ -944,10 +932,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     ? 'delivered'
                     : 'stored')
               : ((map['read'] == true)
-                  ? 'read'
-                  : (map['delivered'] == true)
-                      ? 'delivered'
-                      : 'stored');
+                    ? 'read'
+                    : (map['delivered'] == true)
+                    ? 'delivered'
+                    : 'stored');
 
           final message = ChatMessage(
             id:
@@ -975,10 +963,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     final rawTransferBytes = map['transferBytes'];
                     final parsedTransferBytes = rawTransferBytes is num
                         ? rawTransferBytes.toInt()
-                        : int.tryParse(
-                              rawTransferBytes?.toString() ?? '',
-                            ) ??
-                            0;
+                        : int.tryParse(rawTransferBytes?.toString() ?? '') ?? 0;
                     return parsedTransferBytes > 0
                         ? parsedTransferBytes
                         : ((map['transferStatus'] ?? '').toString() ==
@@ -1006,13 +991,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             // kesinlikle geriye düşürülmez.
             final existingMessage = _messages[existingIndex];
 
-            final mergedStatus =
-                message.isFile
-                    ? message.status
-                    : (_messageStatusRank(existingMessage.status) >=
-                            _messageStatusRank(message.status)
-                        ? existingMessage.status
-                        : message.status);
+            final mergedStatus = message.isFile
+                ? message.status
+                : (_messageStatusRank(existingMessage.status) >=
+                          _messageStatusRank(message.status)
+                      ? existingMessage.status
+                      : message.status);
 
             historyMessages.add(
               message.copyWith(
@@ -1084,7 +1068,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         // okundu kabul edilir. Arka planda/reconnect sırasında gelen
         // history mesajları yeşil tik'e yükseltilmez.
         final canMarkHistoryRead =
-            WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+            WidgetsBinding.instance.lifecycleState ==
+                AppLifecycleState.resumed &&
             WsClient.instance.appIsForeground &&
             WsClient.instance.activePrivateChatPeer?.trim().toLowerCase() ==
                 widget.targetNick.trim().toLowerCase();
@@ -1096,8 +1081,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           final sender = (map['sender'] ?? map['from'] ?? '').toString();
 
           final messageId = (map['id'] ?? '').toString();
-          final clientMessageId =
-              (map['clientMessageId'] ?? '').toString();
+          final clientMessageId = (map['clientMessageId'] ?? '').toString();
 
           if (sender.isEmpty ||
               (messageId.isEmpty && clientMessageId.isEmpty)) {
@@ -1176,8 +1160,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           final nextStatus = map['read'] == true
               ? 'read'
               : map['delivered'] == true
-                  ? 'delivered'
-                  : 'stored';
+              ? 'delivered'
+              : 'stored';
 
           const rank = <String, int>{
             'sending': 0,
@@ -1240,9 +1224,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
               _messages[i] = message.copyWith(
                 id: messageId.isNotEmpty ? messageId : message.id,
-                status: currentRank >= storedRank
-                    ? message.status
-                    : 'stored',
+                status: currentRank >= storedRank ? message.status : 'stored',
               );
               break;
             }
@@ -1388,20 +1370,21 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       final existing = existingIndex >= 0 ? _messages[existingIndex] : null;
 
-      final incomingTransferStatus =
-          (data['transferStatus'] ?? '').toString().trim();
+      final incomingTransferStatus = (data['transferStatus'] ?? '')
+          .toString()
+          .trim();
 
-      final transferStatus = existing?.status == 'completed' &&
-              incomingTransferStatus == 'stored'
+      final transferStatus =
+          existing?.status == 'completed' && incomingTransferStatus == 'stored'
           ? 'completed'
           : incomingTransferStatus.isNotEmpty
-              ? incomingTransferStatus
-              : (existing == null ||
-                      existing.status == 'stored' ||
-                      existing.status == 'read' ||
-                      existing.status == 'delivered')
-                  ? 'stored'
-                  : existing.status;
+          ? incomingTransferStatus
+          : (existing == null ||
+                existing.status == 'stored' ||
+                existing.status == 'read' ||
+                existing.status == 'delivered')
+          ? 'stored'
+          : existing.status;
 
       final transferBytes = existing?.transferBytes ?? 0;
 
@@ -1624,9 +1607,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Dosya gönderilemedi: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Dosya gönderilemedi: $e')));
     }
   }
 
@@ -1636,9 +1619,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   ) async {
     try {
       final directory = await getApplicationDocumentsDirectory();
-      final targetDirectory = Directory(
-        '${directory.path}/ZeroLog/sent_media',
-      );
+      final targetDirectory = Directory('${directory.path}/ZeroLog/sent_media');
 
       if (!await targetDirectory.exists()) {
         await targetDirectory.create(recursive: true);
@@ -1690,12 +1671,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       _rememberLocalTransferPath(transferId, persistentPath);
 
       if (!mounted) return;
-
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fotoğraf gönderilemedi: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Fotoğraf gönderilemedi: $e')));
     }
   }
 
@@ -1793,12 +1773,23 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      Container(width: 6, height: 6, decoration: BoxDecoration(color: online ? theme.primary : theme.text.withValues(alpha: 0.25), shape: BoxShape.circle)),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: online
+                              ? theme.primary
+                              : theme.text.withValues(alpha: 0.25),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         online ? 'Çevrimiçi' : 'Çevrimdışı',
                         style: TextStyle(
-                          color: online ? theme.primary : theme.text.withValues(alpha: 0.42),
+                          color: online
+                              ? theme.primary
+                              : theme.text.withValues(alpha: 0.42),
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1845,11 +1836,19 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.cloud_off_rounded, size: 15, color: theme.text.withValues(alpha: 0.60)),
+                      Icon(
+                        Icons.cloud_off_rounded,
+                        size: 15,
+                        color: theme.text.withValues(alpha: 0.60),
+                      ),
                       const SizedBox(width: 7),
                       Text(
                         'Çevrimdışı • Mesajlar yeniden bağlanınca senkronize edilecek',
-                        style: TextStyle(color: theme.text.withValues(alpha: 0.62), fontSize: 10.5, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: theme.text.withValues(alpha: 0.62),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -1994,7 +1993,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     if (name.isEmpty) return;
 
     var profile = WsClient.instance.profileFor(name);
-    var needsPhoto = profile != null &&
+    var needsPhoto =
+        profile != null &&
         (profile['type'] ?? 'avatar').toString() == 'photo' &&
         (profile['photoData'] ?? '').toString().trim().isEmpty;
 
@@ -2007,7 +2007,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         if (!mounted) return;
 
         profile = WsClient.instance.profileFor(name);
-        needsPhoto = profile != null &&
+        needsPhoto =
+            profile != null &&
             (profile['type'] ?? 'avatar').toString() == 'photo' &&
             (profile['photoData'] ?? '').toString().trim().isEmpty;
 
@@ -2267,12 +2268,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       // Received files are indexed natively by fileId. This survives
       // history reloads even when the Flutter cache has no localPath.
       bytes = await const MethodChannel('zerolog/system')
-          .invokeMethod<Uint8List>(
-        'readReceivedImageBytes',
-        <String, dynamic>{'fileId': message.fileId},
-      );
+          .invokeMethod<Uint8List>('readReceivedImageBytes', <String, dynamic>{
+            'fileId': message.fileId,
+          });
 
-      if ((bytes == null || bytes.isEmpty) && message.localPath.isNotEmpty &&
+      if ((bytes == null || bytes.isEmpty) &&
+          message.localPath.isNotEmpty &&
           !message.localPath.startsWith('content://')) {
         final file = File(message.localPath);
         if (file.existsSync()) bytes = await file.readAsBytes();
@@ -2282,7 +2283,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       if (bytes == null || bytes.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Fotoğraf açılamadı. Dosya cihazda bulunamıyor.')),
+          const SnackBar(
+            content: Text('Fotoğraf açılamadı. Dosya cihazda bulunamıyor.'),
+          ),
         );
         return;
       }
@@ -2305,9 +2308,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fotoğraf açılamadı: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Fotoğraf açılamadı: $e')));
     }
   }
 
@@ -2335,16 +2338,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
   }
 
-  Future<Uint8List?> _loadReceivedThumbnail(
-    String fileId,
-    String localPath,
-  ) {
+  Future<Uint8List?> _loadReceivedThumbnail(String fileId, String localPath) {
     final cacheKey = '$fileId|$localPath';
 
     return _fileThumbnailCache.putIfAbsent(cacheKey, () async {
       try {
-        if (localPath.isNotEmpty &&
-            !localPath.startsWith('content://')) {
+        if (localPath.isNotEmpty && !localPath.startsWith('content://')) {
           final localFile = File(localPath);
           if (await localFile.exists()) {
             final bytes = await localFile.readAsBytes();
@@ -2352,26 +2351,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           }
         }
 
-        return await const MethodChannel('zerolog/system')
-            .invokeMethod<Uint8List>(
-          'readReceivedImageBytes',
-          <String, dynamic>{'fileId': fileId},
-        );
+        return await const MethodChannel(
+          'zerolog/system',
+        ).invokeMethod<Uint8List>('readReceivedImageBytes', <String, dynamic>{
+          'fileId': fileId,
+        });
       } catch (_) {
         return null;
       }
     });
   }
 
-  Widget _receivedImagePreview(
-    ChatMessage message,
-    ZeroLogThemeData theme,
-  ) {
+  Widget _receivedImagePreview(ChatMessage message, ZeroLogThemeData theme) {
     return FutureBuilder<Uint8List?>(
-      future: _loadReceivedThumbnail(
-          message.fileId,
-          message.localPath,
-        ),
+      future: _loadReceivedThumbnail(message.fileId, message.localPath),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes == null || bytes.isEmpty) {
@@ -2387,7 +2380,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         }
         return ClipRRect(
           borderRadius: BorderRadius.circular(11),
-          child: Image.memory(bytes, fit: BoxFit.cover, width: double.infinity, height: 190),
+          child: Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: 190,
+          ),
         );
       },
     );
@@ -2409,7 +2407,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         (message.status == 'completed' ||
             message.status == 'stored' ||
             isReceivedUri);
-    final hasLocalImage = isImage &&
+    final hasLocalImage =
+        isImage &&
         (isReceivedUri ||
             canUseNativeImagePreview ||
             (message.localPath.isNotEmpty &&
@@ -2417,9 +2416,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 File(message.localPath).existsSync()));
     final displayedTransferBytes =
         (message.status == 'completed' || message.status == 'stored') &&
-                message.fileSize > 0
-            ? message.fileSize
-            : message.transferBytes;
+            message.fileSize > 0
+        ? message.fileSize
+        : message.transferBytes;
 
     final progress = message.fileSize > 0
         ? (displayedTransferBytes / message.fileSize).clamp(0.0, 1.0)
@@ -2444,10 +2443,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     return InkWell(
       onTap: canOpen
           ? () => unawaited(
-                _isImageFile(message)
-                    ? _openImageMessage(message)
-                    : _openReceivedFile(message),
-              )
+              _isImageFile(message)
+                  ? _openImageMessage(message)
+                  : _openReceivedFile(message),
+            )
           : null,
       borderRadius: BorderRadius.circular(15),
       child: Container(
@@ -2469,7 +2468,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   borderRadius: BorderRadius.circular(11),
                   child: AspectRatio(
                     aspectRatio: 1.25,
-                    child: Image.file(File(message.localPath), fit: BoxFit.cover),
+                    child: Image.file(
+                      File(message.localPath),
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
               const SizedBox(height: 9),
@@ -2485,7 +2487,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                       borderRadius: BorderRadius.circular(11),
                     ),
                     child: Icon(
-                      isImage ? Icons.image_rounded : Icons.insert_drive_file_rounded,
+                      isImage
+                          ? Icons.image_rounded
+                          : Icons.insert_drive_file_rounded,
                       color: theme.primary,
                       size: 23,
                     ),
@@ -2496,7 +2500,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        message.fileName.isEmpty ? message.text : message.fileName,
+                        message.fileName.isEmpty
+                            ? message.text
+                            : message.fileName,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -2525,7 +2531,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   ),
               ],
             ),
-            if (message.status == 'transferring' || message.status == 'connecting') ...[
+            if (message.status == 'transferring' ||
+                message.status == 'connecting') ...[
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(99),
@@ -2554,7 +2561,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   ),
                 ),
                 if (message.fileSize > 0 &&
-                    (message.status == 'transferring' || message.status == 'completed'))
+                    (message.status == 'transferring' ||
+                        message.status == 'completed'))
                   Text(
                     '%${(progress * 100).round()}',
                     style: TextStyle(
@@ -2594,17 +2602,35 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     if (sheetContext.mounted) Navigator.pop(sheetContext);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Mesaj panoya kopyalandı.')),
+                        const SnackBar(
+                          content: Text('Mesaj panoya kopyalandı.'),
+                        ),
                       );
                     }
                   },
                 ),
                 ListTile(
-                  leading: Icon(Icons.delete_outline_rounded, color: theme.text.withValues(alpha: 0.65)),
-                  title: Text('Bu cihazdan kaldır', style: TextStyle(color: theme.text)),
-                  subtitle: Text('Karşı taraftaki kayıt silinmez.', style: TextStyle(color: theme.text.withValues(alpha: 0.42), fontSize: 11)),
+                  leading: Icon(
+                    Icons.delete_outline_rounded,
+                    color: theme.text.withValues(alpha: 0.65),
+                  ),
+                  title: Text(
+                    'Bu cihazdan kaldır',
+                    style: TextStyle(color: theme.text),
+                  ),
+                  subtitle: Text(
+                    'Karşı taraftaki kayıt silinmez.',
+                    style: TextStyle(
+                      color: theme.text.withValues(alpha: 0.42),
+                      fontSize: 11,
+                    ),
+                  ),
                   onTap: () {
-                    setState(() => _messages.removeWhere((item) => item.id == message.id));
+                    setState(
+                      () => _messages.removeWhere(
+                        (item) => item.id == message.id,
+                      ),
+                    );
                     unawaited(_saveHistoryCache());
                     if (sheetContext.mounted) Navigator.pop(sheetContext);
                   },
@@ -2627,100 +2653,104 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       child: GestureDetector(
         onLongPress: () => unawaited(_showMessageOptions(message)),
         child: Container(
-        constraints: const BoxConstraints(maxWidth: 330),
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 9),
-        decoration: BoxDecoration(
-          color: mine ? theme.bubbleMine : theme.bubbleOther,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(mine ? 18 : 5),
-            bottomRight: Radius.circular(mine ? 5 : 18),
+          constraints: const BoxConstraints(maxWidth: 330),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 9),
+          decoration: BoxDecoration(
+            color: mine ? theme.bubbleMine : theme.bubbleOther,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: Radius.circular(mine ? 18 : 5),
+              bottomRight: Radius.circular(mine ? 5 : 18),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: mine
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            children: [
+              if (!mine) ...[
+                Text(
+                  message.sender,
+                  style: TextStyle(
+                    color: theme.primary,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+              ],
+              if (message.isFile)
+                _fileMessageContent(message, mine: mine, theme: theme)
+              else
+                Text(
+                  message.text,
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 14,
+                    height: 1.35,
+                  ),
+                ),
+              const SizedBox(height: 4),
+              Builder(
+                builder: (context) {
+                  final messageTime = _formatMessageTime(message.timestamp);
+
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (messageTime.isNotEmpty)
+                        Text(
+                          messageTime,
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.42),
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      if (mine &&
+                          message.status.isNotEmpty &&
+                          !message.isFile) ...[
+                        const SizedBox(width: 5),
+                        Text(
+                          _messageStatusLabel(message.status),
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.42),
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: _messageStatusLabel(message.status),
+                          child: Icon(
+                            message.status == 'sending'
+                                ? Icons.schedule_rounded
+                                : (message.status == 'read' ||
+                                      message.status == 'delivered')
+                                ? Icons.done_all_rounded
+                                : Icons.done_rounded,
+                            size: 14,
+                            color: message.status == 'sending'
+                                ? Colors.grey
+                                : message.status == 'stored'
+                                ? Colors.grey
+                                : message.status == 'delivered'
+                                ? Colors.amber
+                                : message.status == 'read'
+                                ? Colors.greenAccent
+                                : theme.text.withValues(alpha: 0.48),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
         ),
-        child: Column(
-          crossAxisAlignment: mine
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            if (!mine) ...[
-              Text(
-                message.sender,
-                style: TextStyle(
-                  color: theme.primary,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 3),
-            ],
-            if (message.isFile)
-              _fileMessageContent(message, mine: mine, theme: theme)
-            else
-              Text(
-                message.text,
-                style: TextStyle(color: theme.text, fontSize: 14, height: 1.35),
-              ),
-            const SizedBox(height: 4),
-            Builder(
-              builder: (context) {
-                final messageTime = _formatMessageTime(message.timestamp);
-
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (messageTime.isNotEmpty)
-                      Text(
-                        messageTime,
-                        style: TextStyle(
-                          color: theme.text.withValues(alpha: 0.42),
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    if (mine &&
-                        message.status.isNotEmpty &&
-                        !message.isFile) ...[
-                      const SizedBox(width: 5),
-                      Text(
-                        _messageStatusLabel(message.status),
-                        style: TextStyle(
-                          color: theme.text.withValues(alpha: 0.42),
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Tooltip(
-                        message: _messageStatusLabel(message.status),
-                        child: Icon(
-                          message.status == 'sending'
-                              ? Icons.schedule_rounded
-                              : (message.status == 'read' ||
-                                      message.status == 'delivered')
-                                  ? Icons.done_all_rounded
-                                  : Icons.done_rounded,
-                          size: 14,
-                          color: message.status == 'sending'
-                              ? Colors.grey
-                              : message.status == 'stored'
-                              ? Colors.grey
-                              : message.status == 'delivered'
-                              ? Colors.amber
-                              : message.status == 'read'
-                              ? Colors.greenAccent
-                              : theme.text.withValues(alpha: 0.48),
-                        ),
-                      ),
-                    ],
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
       ),
     );
   }

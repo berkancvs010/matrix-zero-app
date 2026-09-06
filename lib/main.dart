@@ -172,6 +172,7 @@ Future<void> zerologBackgroundTransferMain() async {
 
     final backgroundTransferDone = Completer<void>();
     var backgroundTransferCompleted = false;
+    String? completedLocalUri;
 
     transfer.bindCallbacks(
       onIncomingStatus:
@@ -180,6 +181,12 @@ Future<void> zerologBackgroundTransferMain() async {
             required String status,
             String? localUri,
           }) {
+            if (status == 'completed') {
+              if (localUri != null && localUri.trim().isNotEmpty) {
+                completedLocalUri = localUri.trim();
+              }
+            }
+
             if (status == 'completed' || status == 'failed') {
               if (!backgroundTransferCompleted) {
                 backgroundTransferCompleted = true;
@@ -188,6 +195,11 @@ Future<void> zerologBackgroundTransferMain() async {
             }
           },
     );
+
+    // Background isolate must subscribe to the shared WebSocket event stream
+    // BEFORE ACCEPT is sent. Otherwise fileTransferChunk/fileTransferEnd can
+    // arrive after ACCEPT while no FileTransfer listener exists.
+    await transfer.initialize();
 
     final prepared = await transfer.prepareIncomingFromNotification(
       transferId: transferId,
@@ -223,6 +235,27 @@ Future<void> zerologBackgroundTransferMain() async {
         const Duration(minutes: 5),
         onTimeout: () {},
       );
+    }
+
+    // Headless Flutter has no chat UI to retain the received local path.
+    // Publish the verified file to Android storage before stopping the
+    // foreground service so the file survives and can be opened/previewed
+    // after ZeroLog is launched again.
+    if (backgroundTransferCompleted &&
+        completedLocalUri != null &&
+        completedLocalUri!.isNotEmpty) {
+      try {
+        await channel.invokeMethod<String?>(
+          'registerBackgroundReceivedFile',
+          <String, dynamic>{
+            'fileId': transferId,
+            'sourcePath': completedLocalUri,
+            'fileName': fileName,
+          },
+        );
+      } catch (e) {
+        debugPrint('[BG_TRANSFER] received file registration failed: $e');
+      }
     }
 
     await channel.invokeMethod<void>('stopService');

@@ -333,11 +333,10 @@ async function sendReliableFileOffer(session){
   }
 
   if(messageNotificationsEnabled(session.to)){
+    // DATA-ONLY FCM is mandatory here. A notification payload can make
+    // Android background/terminated delivery system-handled, preventing
+    // ZeroLogFirebaseMessagingService from starting the transfer service.
     await sendFcmPush(session.to,{
-      notification:{
-        title:session.from,
-        body:`${session.fileName} gönderiyor`,
-      },
       data:{
         type:'privateFileMessage',
         from:session.from,
@@ -2949,10 +2948,7 @@ wss.on('connection',(ws)=>{
       send(recipient,stored);
     }else if(messageNotificationsEnabled(to)){
       const pushed=await sendFcmPush(to,{
-        // DATA-ONLY:
-        // Android arka planda kendi launcher notification'ını
-        // oluşturmamalı. Native FCM service kendi PendingIntent'ini
-        // oluşturacak ve doğrudan ilgili özel sohbete taşıyacak.
+        // DATA-ONLY: native Android service bildirimi oluşturur.
         data:{
           type:'privateMessage',
           messageId:String(stored.id||''),
@@ -2967,10 +2963,30 @@ wss.on('connection',(ws)=>{
         },
       });
 
-      // FCM'nin Firebase tarafından kabul edilmesi, ZeroLog
-      // client'ının mesajı gerçekten aldığı anlamına gelmez.
-      // Gerçek delivered durumu yalnızca client'ın
-      // messageDelivered ACK'i ile oluşturulur.
+      // Background/terminated cihazlarda WebSocket ACK'i hemen gelmeyebilir.
+      // FCM'nin mesajı kabul etmesi bu durumda teslim durumunun kalıcı olarak
+      // ilerlemesini sağlar. Recipient uygulaması açıldığında privateHistory
+      // mesajın kendisini yine sunucudan alır; yani bu işaret mesajı silmez.
+      if(pushed){
+        const delivered=markPrivateMessageDelivered(
+          me,
+          to,
+          stored.id,
+          stored.clientMessageId,
+        );
+
+        if(delivered){
+          send(socketFor(me),{
+            type:'messageDelivered',
+            messageId:delivered.id||null,
+            clientMessageId:delivered.clientMessageId||null,
+            from:to,
+            to:me,
+            deliveredTo:to,
+            ts:delivered.ts||null,
+          });
+        }
+      }
     }
 
     break;

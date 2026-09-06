@@ -44,9 +44,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         WsClient.instance.requestProfile(name);
 
-        await Future<void>.delayed(
-          Duration(milliseconds: 250 + attempt * 350),
-        );
+        await Future<void>.delayed(Duration(milliseconds: 250 + attempt * 350));
 
         final profile = WsClient.instance.profileFor(name);
         final type = (profile?['type'] ?? 'avatar').toString();
@@ -83,7 +81,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (bytes.isEmpty) return null;
 
       const maxBase64Chars = 680000;
-      final isGif = bytes.length >= 6 &&
+      final isGif =
+          bytes.length >= 6 &&
           bytes[0] == 0x47 &&
           bytes[1] == 0x49 &&
           bytes[2] == 0x46 &&
@@ -152,9 +151,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Future<void> _pickProfilePhoto() async {
     final picker = ImagePicker();
 
-    final image = await picker.pickImage(
-      source: ImageSource.gallery,
-    );
+    final image = await picker.pickImage(source: ImageSource.gallery);
 
     if (image == null) return;
 
@@ -163,7 +160,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (photoData == null || photoData.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profil görseli hazırlanamadı veya dosya çok büyük.')),
+          const SnackBar(
+            content: Text('Profil görseli hazırlanamadı veya dosya çok büyük.'),
+          ),
         );
       }
       return;
@@ -202,7 +201,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profil fotoğrafı gönderilemedi: bağlantı hazır değil.')),
+        const SnackBar(
+          content: Text(
+            'Profil fotoğrafı gönderilemedi: bağlantı hazır değil.',
+          ),
+        ),
       );
     }
   }
@@ -222,7 +225,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (photoData == null || photoData.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profil görseli hazırlanamadı veya dosya çok büyük.')),
+          const SnackBar(
+            content: Text('Profil görseli hazırlanamadı veya dosya çok büyük.'),
+          ),
         );
       }
       return;
@@ -261,11 +266,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profil fotoğrafı gönderilemedi: bağlantı hazır değil.')),
+        const SnackBar(
+          content: Text(
+            'Profil fotoğrafı gönderilemedi: bağlantı hazır değil.',
+          ),
+        ),
       );
     }
   }
-
 
   Future<void> _editProfileAbout() async {
     final controller = TextEditingController(text: _profileAbout);
@@ -395,7 +403,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget _profileAvatar({double radius = 25}) {
     final theme = ThemeController.instance.data;
 
-
     final ownPhotoImage = _cachedOwnProfileImage(_profilePhotoData);
 
     if (ownPhotoImage != null) {
@@ -411,7 +418,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ),
       );
     }
-
 
     final path = _profilePhotoPath;
 
@@ -462,7 +468,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
-                  leading: Icon(Icons.photo_camera_rounded, color: theme.primary),
+                  leading: Icon(
+                    Icons.photo_camera_rounded,
+                    color: theme.primary,
+                  ),
                   title: const Text('Kamerayla çek'),
                   subtitle: const Text('Yeni profil fotoğrafı oluştur'),
                   onTap: () async {
@@ -471,7 +480,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   },
                 ),
                 ListTile(
-                  leading: Icon(Icons.photo_library_rounded, color: theme.primary),
+                  leading: Icon(
+                    Icons.photo_library_rounded,
+                    color: theme.primary,
+                  ),
                   title: const Text('Galeriden seç'),
                   subtitle: const Text('Galeriden fotoğraf seç'),
                   onTap: () async {
@@ -504,199 +516,210 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             builder: (pageContext, setPageState) => ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
               children: [
-              Material(
-                color: theme.surface,
-                borderRadius: BorderRadius.circular(28),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
-                  child: Column(
-                    children: [
-                      Stack(
-                        alignment: Alignment.bottomRight,
-                        children: [
-                          _profileAvatar(radius: 58),
-                          Material(
-                            color: theme.primary,
-                            shape: const CircleBorder(),
-                            child: InkWell(
-                              customBorder: const CircleBorder(),
-                              onTap: () async {
-                                await _openProfilePhotoActions();
-                                if (pageContext.mounted) {
-                                  setPageState(() {});
-                                }
-                              },
-                              child: const Padding(
-                                padding: EdgeInsets.all(10),
-                                child: Icon(
-                                  Icons.edit_rounded,
-                                  color: Colors.white,
-                                  size: 18,
+                Material(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(28),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+                    child: Column(
+                      children: [
+                        Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            _profileAvatar(radius: 58),
+                            Material(
+                              color: theme.primary,
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: () async {
+                                  await _openProfilePhotoActions();
+                                  if (pageContext.mounted) {
+                                    setPageState(() {});
+                                  }
+                                },
+                                child: const Padding(
+                                  padding: EdgeInsets.all(10),
+                                  child: Icon(
+                                    Icons.edit_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ),
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          widget.nickname,
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        widget.nickname,
-                        style: TextStyle(
-                          color: theme.text,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
                         ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        _profilePhotoSaving
-                           ? 'Profil fotoğrafı sunucuya kaydediliyor…'
-                           : 'Profilin diğer ZeroLog kullanıcılarına böyle görünür.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: theme.text.withValues(alpha: 0.48),
-                          fontSize: 11.5,
-                          height: 1.4,
+                        const SizedBox(height: 5),
+                        Text(
+                          _profilePhotoSaving
+                              ? 'Profil fotoğrafı sunucuya kaydediliyor…'
+                              : 'Profilin diğer ZeroLog kullanıcılarına böyle görünür.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.48),
+                            fontSize: 11.5,
+                            height: 1.4,
+                          ),
                         ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'PROFİL GÖRÜNÜMÜ',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.42),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Material(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: Icon(
+                          Icons.photo_camera_rounded,
+                          color: theme.primary,
+                        ),
+                        title: const Text('Kamerayla çek'),
+                        subtitle: const Text('Yeni profil fotoğrafı oluştur'),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () async {
+                          await _takeProfilePhoto();
+                          if (pageContext.mounted) {
+                            setPageState(() {});
+                          }
+                        },
+                      ),
+                      Divider(
+                        height: 1,
+                        color: theme.text.withValues(alpha: 0.06),
+                      ),
+                      ListTile(
+                        leading: Icon(
+                          Icons.photo_library_rounded,
+                          color: theme.primary,
+                        ),
+                        title: const Text('Galeriden seç'),
+                        subtitle: const Text(
+                          'Cihazındaki bir fotoğrafı kullan',
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () async {
+                          await _pickProfilePhoto();
+                          if (pageContext.mounted) {
+                            setPageState(() {});
+                          }
+                        },
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'PROFİL GÖRÜNÜMÜ',
-                style: TextStyle(
-                  color: theme.text.withValues(alpha: 0.42),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Material(
-                color: theme.surface,
-                borderRadius: BorderRadius.circular(20),
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: Icon(Icons.photo_camera_rounded, color: theme.primary),
-                      title: const Text('Kamerayla çek'),
-                      subtitle: const Text('Yeni profil fotoğrafı oluştur'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () async {
-                        await _takeProfilePhoto();
-                        if (pageContext.mounted) {
-                          setPageState(() {});
-                        }
-                      },
-                    ),
-                    Divider(height: 1, color: theme.text.withValues(alpha: 0.06)),
-                    ListTile(
-                      leading: Icon(Icons.photo_library_rounded, color: theme.primary),
-                      title: const Text('Galeriden seç'),
-                      subtitle: const Text('Cihazındaki bir fotoğrafı kullan'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () async {
-                        await _pickProfilePhoto();
-                        if (pageContext.mounted) {
-                          setPageState(() {});
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'HAKKINDA',
-                style: TextStyle(
-                  color: theme.text.withValues(alpha: 0.42),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Material(
-                color: theme.surface,
-                borderRadius: BorderRadius.circular(20),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.fromLTRB(18, 8, 12, 8),
-                  leading: Icon(Icons.notes_rounded, color: theme.primary),
-                  title: Text(
-                    _profileAbout.trim().isEmpty
-                        ? 'Hakkında bilgisi ekle'
-                        : _profileAbout.trim(),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: theme.text,
-                      fontWeight: FontWeight.w700,
-                    ),
+                const SizedBox(height: 14),
+                Text(
+                  'HAKKINDA',
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.42),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
                   ),
-                  subtitle: const Text('Karşı tarafta profilinde gösterilir'),
-                  trailing: IconButton(
-                    tooltip: 'Düzenle',
-                    onPressed: () async {
+                ),
+                const SizedBox(height: 8),
+                Material(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(18, 8, 12, 8),
+                    leading: Icon(Icons.notes_rounded, color: theme.primary),
+                    title: Text(
+                      _profileAbout.trim().isEmpty
+                          ? 'Hakkında bilgisi ekle'
+                          : _profileAbout.trim(),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: theme.text,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: const Text('Karşı tarafta profilinde gösterilir'),
+                    trailing: IconButton(
+                      tooltip: 'Düzenle',
+                      onPressed: () async {
+                        await _editProfileAbout();
+                        if (pageContext.mounted) {
+                          setPageState(() {});
+                        }
+                      },
+                      icon: const Icon(Icons.edit_rounded),
+                    ),
+                    onTap: () async {
                       await _editProfileAbout();
                       if (pageContext.mounted) {
                         setPageState(() {});
                       }
                     },
-                    icon: const Icon(Icons.edit_rounded),
                   ),
-                  onTap: () async {
-                    await _editProfileAbout();
-                    if (pageContext.mounted) {
-                      setPageState(() {});
-                    }
-                  },
                 ),
-              ),
-              const SizedBox(height: 14),
-              if (_profileController.photoData.isNotEmpty ||
-                  _profileController.photoPath != null)
-                Material(
-                  color: theme.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.delete_outline_rounded,
-                      color: theme.text.withValues(alpha: 0.62),
+                const SizedBox(height: 14),
+                if (_profileController.photoData.isNotEmpty ||
+                    _profileController.photoPath != null)
+                  Material(
+                    color: theme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.delete_outline_rounded,
+                        color: theme.text.withValues(alpha: 0.62),
+                      ),
+                      title: const Text('Profil görselini kaldır'),
+                      subtitle: const Text('Varsayılan profil görünümüne dön'),
+                      onTap: () async {
+                        await _profileController.clearPhoto();
+                        if (!mounted) return;
+
+                        setState(() {
+                          _profileController.photoPath = null;
+                          _profileController.photoData = '';
+                        });
+
+                        WsClient.instance.send({
+                          'type': 'setProfile',
+                          'profileType': 'avatar',
+                          'avatarId': null,
+                          'photoData': '',
+                          'about': _profileAbout,
+                        });
+                      },
                     ),
-                    title: const Text('Profil görselini kaldır'),
-                    subtitle: const Text('Varsayılan profil görünümüne dön'),
-                    onTap: () async {
-                      await _profileController.clearPhoto();
-                      if (!mounted) return;
-
-                      setState(() {
-                        _profileController.photoPath = null;
-                        _profileController.photoData = '';
-                      });
-
-                      WsClient.instance.send({
-                        'type': 'setProfile',
-                        'profileType': 'avatar',
-                        'avatarId': null,
-                        'photoData': '',
-                        'about': _profileAbout,
-                      });
-                    },
+                  ),
+                const SizedBox(height: 18),
+                Text(
+                  'Profil fotoğrafı ve hakkında bilgisi tek bir profil kaynağından yönetilir. '
+                  'Değişiklikler sunucuya kaydedildikten sonra diğer cihazlara aktarılır.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.36),
+                    fontSize: 10.5,
+                    height: 1.45,
                   ),
                 ),
-              const SizedBox(height: 18),
-              Text(
-                'Profil fotoğrafı ve hakkında bilgisi tek bir profil kaynağından yönetilir. '
-                'Değişiklikler sunucuya kaydedildikten sonra diğer cihazlara aktarılır.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: theme.text.withValues(alpha: 0.36),
-                  fontSize: 10.5,
-                  height: 1.45,
-                ),
-              ),
               ],
             ),
           ),
@@ -827,9 +850,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _autoAcceptBackgroundFileOffer(
-    Map<String, dynamic> data,
-  ) async {
+  Future<void> _autoAcceptBackgroundFileOffer(Map<String, dynamic> data) async {
     if (!_autoAcceptFileTransfers || !WsClient.instance.connected) return;
 
     final transferId = (data['transferId'] ?? '').toString().trim();
@@ -864,9 +885,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // MainScreen bu olayı yalnızca uygulama foreground'dayken görür.
       // Bu durumda native background service başlatmak yerine mevcut
       // foreground WebSocket üzerinden normal incoming state oluştur.
-      await transfer.handleExternalEvent(
-        Map<String, dynamic>.from(data),
-      );
+      await transfer.handleExternalEvent(Map<String, dynamic>.from(data));
 
       if (transfer.currentTransferId != transferId) return;
 
@@ -911,8 +930,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             'type': 'messageDelivered',
             'from': from,
             'messageId': messageId,
-            'clientMessageId':
-                (data['clientMessageId'] ?? '').toString(),
+            'clientMessageId': (data['clientMessageId'] ?? '').toString(),
           });
         }
       }
@@ -955,8 +973,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 'type': 'messageDelivered',
                 'from': sender,
                 'messageId': map['id']?.toString() ?? '',
-                'clientMessageId':
-                    map['clientMessageId']?.toString() ?? '',
+                'clientMessageId': map['clientMessageId']?.toString() ?? '',
               });
             }
           }
@@ -1157,7 +1174,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         if (mounted) {
           setState(() {});
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profil fotoğrafı sunucuya kaydedilemedi.')),
+            const SnackBar(
+              content: Text('Profil fotoğrafı sunucuya kaydedilemedi.'),
+            ),
           );
         }
       }
@@ -1180,10 +1199,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         if (!mounted) return;
 
-        final incomingRevision =
-            data['profileRevision'] is num
-                ? (data['profileRevision'] as num).toInt()
-                : int.tryParse((data['profileRevision'] ?? '').toString()) ?? 0;
+        final incomingRevision = data['profileRevision'] is num
+            ? (data['profileRevision'] as num).toInt()
+            : int.tryParse((data['profileRevision'] ?? '').toString()) ?? 0;
 
         final isOwnProfile =
             username.toLowerCase() == widget.nickname.toLowerCase();
@@ -1260,8 +1278,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final isOwnProfile =
           username.toLowerCase() == widget.nickname.toLowerCase();
 
-      if (profile['photoAvailable'] == true &&
-          (profile['photoData'] ?? '').toString().isEmpty) {
+      final photoNeedsFetch =
+          profile['photoAvailable'] == true &&
+          (profile['photoData'] ?? '').toString().isEmpty;
+
+      if (photoNeedsFetch) {
         if (isOwnProfile) {
           WsClient.instance.requestProfile(username);
         } else if (WsClient.instance.connected) {
@@ -1280,7 +1301,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       if (!mounted) return;
       setState(() {
-        if (!isOwnProfile) {
+        // Keep the request guard active while the metadata-only snapshot is
+        // waiting for its full photo response.
+        if (!isOwnProfile && !photoNeedsFetch) {
           _profileFetchRequested.remove(username.toLowerCase());
         }
       });
@@ -1305,10 +1328,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         if (!mounted) return;
 
-        final incomingRevision =
-            data['profileRevision'] is num
-                ? (data['profileRevision'] as num).toInt()
-                : int.tryParse((data['profileRevision'] ?? '').toString()) ?? 0;
+        final incomingRevision = data['profileRevision'] is num
+            ? (data['profileRevision'] as num).toInt()
+            : int.tryParse((data['profileRevision'] ?? '').toString()) ?? 0;
 
         final isOwnProfile =
             username.toLowerCase() == widget.nickname.toLowerCase();
@@ -1319,28 +1341,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           return;
         }
 
-        // profileUpdated yayınında fotoğrafın kendisi bilinçli olarak
-        // gönderilmez. Pending fotoğrafı bu metadata paketi yüzünden
-        // reddetme; aşağıdaki getProfile isteği gerçek photoData'yı getirir.
-
         WsClient.instance.cacheProfile(username, profile);
 
-        if (isOwnProfile &&
-            incomingRevision > 0) {
+        if (isOwnProfile && incomingRevision > 0) {
           _profileRevision = incomingRevision;
         }
 
         final photoData = (profile['photoData'] ?? '').toString();
+        final photoNeedsFetch =
+            profile['photoAvailable'] == true && photoData.isEmpty;
 
-        // profileUpdated artık fotoğrafı da taşıyabilir. Fotoğraf mevcutsa
-        // ayrı getProfile round-trip'i gerekmez; yalnızca metadata geldiyse
-        // eski sunucularla uyumluluk için full profile isteği yap.
-        if (profile['photoAvailable'] == true && photoData.isEmpty) {
+        // Metadata-only updates need a full profile request; do not clear the
+        // guard before that request has had a chance to return.
+        if (photoNeedsFetch) {
           _requestRemoteProfilePhoto(username);
         }
 
         setState(() {
-          _profileFetchRequested.remove(username.toLowerCase());
+          if (!photoNeedsFetch) {
+            _profileFetchRequested.remove(username.toLowerCase());
+          }
         });
 
         if (username.toLowerCase() == widget.nickname.toLowerCase()) {
@@ -1767,7 +1787,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (type == 'privateFileMessage') {
       final fileId = (data['fileId'] ?? '').toString().trim();
-        final fileName = (data['fileName'] ?? 'Dosya').toString().trim();
+      final fileName = (data['fileName'] ?? 'Dosya').toString().trim();
       final rawFileSize = data['fileSize'];
 
       final fileSize = rawFileSize is num
@@ -1927,13 +1947,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (!isMyProfile && remotePhotoData.isNotEmpty) {
       remotePhotoImage = _cachedProfileImage(
-      name,
-      remotePhotoData,
-      revision: int.tryParse(
-            (remoteProfile?['profileRevision'] ?? '').toString(),
-          ) ??
-          0,
-    );
+        name,
+        remotePhotoData,
+        revision:
+            int.tryParse(
+              (remoteProfile?['profileRevision'] ?? '').toString(),
+            ) ??
+            0,
+      );
     }
 
     final remoteType = (remoteProfile?['type'] ?? 'avatar').toString();
@@ -2066,11 +2087,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       color: theme.primary.withValues(alpha: 0.16),
                       borderRadius: BorderRadius.circular(15),
                     ),
-                    child: Icon(Icons.shield_rounded, color: theme.primary, size: 23),
+                    child: Icon(
+                      Icons.shield_rounded,
+                      color: theme.primary,
+                      size: 23,
+                    ),
                   ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.surface.withValues(alpha: 0.72),
                       borderRadius: BorderRadius.circular(20),
@@ -2078,18 +2106,47 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(width: 7, height: 7, decoration: BoxDecoration(color: theme.primary, shape: BoxShape.circle)),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: theme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                         const SizedBox(width: 6),
-                        Text('$onlineCount çevrimiçi', style: TextStyle(color: theme.text.withValues(alpha: 0.72), fontSize: 11, fontWeight: FontWeight.w700)),
+                        Text(
+                          '$onlineCount çevrimiçi',
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.72),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-              Text('Özel iletişim, sade deneyim.', style: TextStyle(color: theme.text, fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+              Text(
+                'Özel iletişim, sade deneyim.',
+                style: TextStyle(
+                  color: theme.text,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                ),
+              ),
               const SizedBox(height: 5),
-              Text('ZeroLog ile konuşmalarınızı tek bir akışta yönetin.', style: TextStyle(color: theme.text.withValues(alpha: 0.56), fontSize: 12.5, height: 1.35)),
+              Text(
+                'ZeroLog ile konuşmalarınızı tek bir akışta yönetin.',
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: 0.56),
+                  fontSize: 12.5,
+                  height: 1.35,
+                ),
+              ),
               const SizedBox(height: 15),
               Material(
                 color: theme.surface.withValues(alpha: 0.88),
@@ -2098,13 +2155,33 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(17),
                   onTap: () => setState(() => _selectedIndex = 1),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 11,
+                    ),
                     child: Row(
                       children: [
-                        Icon(Icons.search_rounded, color: theme.primary, size: 21),
+                        Icon(
+                          Icons.search_rounded,
+                          color: theme.primary,
+                          size: 21,
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: Text('Yeni sohbet veya kişi ara', style: TextStyle(color: theme.text.withValues(alpha: 0.55), fontSize: 13, fontWeight: FontWeight.w600))),
-                        Icon(Icons.arrow_forward_rounded, color: theme.text.withValues(alpha: 0.35), size: 18),
+                        Expanded(
+                          child: Text(
+                            'Yeni sohbet veya kişi ara',
+                            style: TextStyle(
+                              color: theme.text.withValues(alpha: 0.55),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: theme.text.withValues(alpha: 0.35),
+                          size: 18,
+                        ),
                       ],
                     ),
                   ),
@@ -2116,28 +2193,78 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         const SizedBox(height: 24),
         Row(
           children: [
-            Expanded(child: Text('Sohbetler', style: TextStyle(color: theme.text, fontSize: 18, fontWeight: FontWeight.w800))),
-            if (visibleUsers.isNotEmpty) Text('${visibleUsers.length}', style: TextStyle(color: theme.text.withValues(alpha: 0.36), fontSize: 12, fontWeight: FontWeight.w700)),
+            Expanded(
+              child: Text(
+                'Sohbetler',
+                style: TextStyle(
+                  color: theme.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            if (visibleUsers.isNotEmpty)
+              Text(
+                '${visibleUsers.length}',
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: 0.36),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
           ],
         ),
         const SizedBox(height: 10),
         if (visibleUsers.isEmpty)
           Container(
             padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
-            decoration: BoxDecoration(color: theme.surface, borderRadius: BorderRadius.circular(24), border: Border.all(color: theme.text.withValues(alpha: 0.05))),
+            decoration: BoxDecoration(
+              color: theme.surface,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: theme.text.withValues(alpha: 0.05)),
+            ),
             child: Column(
               children: [
-                Container(width: 64, height: 64, decoration: BoxDecoration(color: theme.primary.withValues(alpha: 0.10), shape: BoxShape.circle), child: Icon(Icons.forum_rounded, color: theme.primary, size: 29)),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: theme.primary.withValues(alpha: 0.10),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.forum_rounded,
+                    color: theme.primary,
+                    size: 29,
+                  ),
+                ),
                 const SizedBox(height: 14),
-                Text('Henüz sohbet yok', style: TextStyle(color: theme.text, fontSize: 16, fontWeight: FontWeight.w800)),
+                Text(
+                  'Henüz sohbet yok',
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text('Kişiler sekmesinden bir kullanıcı bulup ilk sohbetinizi başlatın.', textAlign: TextAlign.center, style: TextStyle(color: theme.text.withValues(alpha: 0.48), fontSize: 12.5, height: 1.4)),
+                Text(
+                  'Kişiler sekmesinden bir kullanıcı bulup ilk sohbetinizi başlatın.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: theme.text.withValues(alpha: 0.48),
+                    fontSize: 12.5,
+                    height: 1.4,
+                  ),
+                ),
               ],
             ),
           )
         else
           ...visibleUsers.map((user) {
-            final online = _onlineUsers.any((u) => u.toLowerCase() == user.toLowerCase());
+            final online = _onlineUsers.any(
+              (u) => u.toLowerCase() == user.toLowerCase(),
+            );
             return Padding(
               padding: const EdgeInsets.only(bottom: 7),
               child: Material(
@@ -2153,19 +2280,57 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         _avatar(user, online: online),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(user, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: theme.text, fontSize: 14.5, fontWeight: FontWeight.w700)),
-                            const SizedBox(height: 5),
-                            Row(children: [
-                              Container(width: 6, height: 6, decoration: BoxDecoration(color: online ? theme.primary : theme.text.withValues(alpha: 0.24), shape: BoxShape.circle)),
-                              const SizedBox(width: 6),
-                              Text(online ? 'Çevrimiçi' : 'Çevrimdışı', style: TextStyle(color: theme.text.withValues(alpha: 0.42), fontSize: 11.5, fontWeight: FontWeight.w600)),
-                            ]),
-                          ]),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                user,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: theme.text,
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: online
+                                          ? theme.primary
+                                          : theme.text.withValues(alpha: 0.24),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    online ? 'Çevrimiçi' : 'Çevrimdışı',
+                                    style: TextStyle(
+                                      color: theme.text.withValues(alpha: 0.42),
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                         _unreadBadge(user),
                         const SizedBox(width: 4),
-                        IconButton(tooltip: 'Ara', onPressed: () => _call(user), icon: Icon(Icons.call_rounded, color: theme.primary, size: 20)),
+                        IconButton(
+                          tooltip: 'Ara',
+                          onPressed: () => _call(user),
+                          icon: Icon(
+                            Icons.call_rounded,
+                            color: theme.primary,
+                            size: 20,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2176,31 +2341,85 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         const SizedBox(height: 18),
         Row(
           children: [
-            Expanded(child: Text('Topluluk odaları', style: TextStyle(color: theme.text, fontSize: 18, fontWeight: FontWeight.w800))),
-            Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5), decoration: BoxDecoration(color: theme.primary.withValues(alpha: 0.09), borderRadius: BorderRadius.circular(15)), child: Text('${rooms.length}', style: TextStyle(color: theme.primary, fontSize: 11, fontWeight: FontWeight.w800))),
+            Expanded(
+              child: Text(
+                'Topluluk odaları',
+                style: TextStyle(
+                  color: theme.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: theme.primary.withValues(alpha: 0.09),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Text(
+                '${rooms.length}',
+                style: TextStyle(
+                  color: theme.primary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 10),
-        ...rooms.map((room) => Padding(
-          padding: const EdgeInsets.only(bottom: 7),
-          child: Material(
-            color: theme.surface,
-            borderRadius: BorderRadius.circular(20),
-            child: InkWell(
+        ...rooms.map(
+          (room) => Padding(
+            padding: const EdgeInsets.only(bottom: 7),
+            child: Material(
+              color: theme.surface,
               borderRadius: BorderRadius.circular(20),
-              onTap: () => _openRoom(room),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-                child: Row(children: [
-                  Container(width: 44, height: 44, decoration: BoxDecoration(color: theme.secondary.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(14)), child: Icon(Icons.tag_rounded, color: theme.secondary, size: 21)),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(room, style: TextStyle(color: theme.text, fontSize: 14, fontWeight: FontWeight.w700))),
-                  Icon(Icons.chevron_right_rounded, color: theme.text.withValues(alpha: 0.28)),
-                ]),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => _openRoom(room),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 11,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: theme.secondary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          Icons.tag_rounded,
+                          color: theme.secondary,
+                          size: 21,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          room,
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: theme.text.withValues(alpha: 0.28),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
-        )),
+        ),
       ],
     );
   }
@@ -2538,10 +2757,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final profileType = (profile?['type'] ?? 'avatar').toString();
 
     final photoData = (profile?['photoData'] ?? '').toString().trim();
-    final photoRevision = int.tryParse(
-          (profile?['profileRevision'] ?? '').toString(),
-        ) ??
-        0;
+    final photoRevision =
+        int.tryParse((profile?['profileRevision'] ?? '').toString()) ?? 0;
 
     ImageProvider? photoImage;
 
@@ -4190,20 +4407,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   _settingsSectionCard(
                     icon: Icons.download_done_rounded,
                     title: 'Gelen dosya ve medyayı otomatik kabul et',
-                    subtitle:
-                        autoAcceptFiles
-                            ? 'Gelen dosyalar onay beklemeden otomatik alınır.'
-                            : 'Gelen dosyada kabul et veya reddet bildirimi gösterilir.',
+                    subtitle: autoAcceptFiles
+                        ? 'Gelen dosyalar onay beklemeden otomatik alınır.'
+                        : 'Gelen dosyada kabul et veya reddet bildirimi gösterilir.',
                     value: autoAcceptFiles,
                     onChanged: (value) {
                       setPageState(() => autoAcceptFiles = value);
                       _autoAcceptFileTransfers = value;
 
                       final prefs = SharedPreferences.getInstance();
-                      unawaited(prefs.then((valuePrefs) => valuePrefs.setBool(
+                      unawaited(
+                        prefs.then(
+                          (valuePrefs) => valuePrefs.setBool(
                             'zerolog.notifications.auto_accept_files',
                             value,
-                          )));
+                          ),
+                        ),
+                      );
 
                       WsClient.instance.setNotificationSettings(
                         autoAcceptFileTransfers: value,
@@ -4381,10 +4601,30 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final theme = ThemeController.instance.data;
     final titles = ['Sohbetler', 'Kişiler', 'Çağrılar', 'Ayarlar'];
-    final subtitles = ['Özel ve güvenli iletişim', 'ZeroLog kullanıcılarını keşfet', 'Sesli görüşmelerin', 'Hesap ve uygulama tercihleri'];
-    final selectedIcons = [Icons.chat_bubble_rounded, Icons.people_alt_rounded, Icons.call_rounded, Icons.settings_rounded];
-    final unselectedIcons = [Icons.chat_bubble_outline_rounded, Icons.people_outline_rounded, Icons.call_outlined, Icons.settings_outlined];
-    final pages = [_buildChatsPage(), _buildContactsPage(), _buildCallsPage(), _buildSettingsPage()];
+    final subtitles = [
+      'Özel ve güvenli iletişim',
+      'ZeroLog kullanıcılarını keşfet',
+      'Sesli görüşmelerin',
+      'Hesap ve uygulama tercihleri',
+    ];
+    final selectedIcons = [
+      Icons.chat_bubble_rounded,
+      Icons.people_alt_rounded,
+      Icons.call_rounded,
+      Icons.settings_rounded,
+    ];
+    final unselectedIcons = [
+      Icons.chat_bubble_outline_rounded,
+      Icons.people_outline_rounded,
+      Icons.call_outlined,
+      Icons.settings_outlined,
+    ];
+    final pages = [
+      _buildChatsPage(),
+      _buildContactsPage(),
+      _buildCallsPage(),
+      _buildSettingsPage(),
+    ];
 
     return Scaffold(
       backgroundColor: theme.background,
@@ -4397,14 +4637,42 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               child: Row(
                 children: [
                   Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Text('Zero', style: TextStyle(color: theme.text, fontSize: 23, fontWeight: FontWeight.w900, letterSpacing: -0.8)),
-                        Text('Log', style: TextStyle(color: theme.primary, fontSize: 23, fontWeight: FontWeight.w900, letterSpacing: -0.8)),
-                      ]),
-                      const SizedBox(height: 2),
-                      Text(subtitles[_selectedIndex], style: TextStyle(color: theme.text.withValues(alpha: 0.42), fontSize: 10.5, fontWeight: FontWeight.w600)),
-                    ]),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Zero',
+                              style: TextStyle(
+                                color: theme.text,
+                                fontSize: 23,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.8,
+                              ),
+                            ),
+                            Text(
+                              'Log',
+                              style: TextStyle(
+                                color: theme.primary,
+                                fontSize: 23,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.8,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitles[_selectedIndex],
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.42),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   Material(
                     color: theme.surface,
@@ -4412,13 +4680,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     clipBehavior: Clip.antiAlias,
                     child: InkWell(
                       onTap: _openProfileEditor,
-                      child: Padding(padding: const EdgeInsets.all(2), child: _profileAvatar(radius: 20)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(2),
+                        child: _profileAvatar(radius: 20),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            Expanded(child: IndexedStack(index: _selectedIndex, children: pages)),
+            Expanded(
+              child: IndexedStack(index: _selectedIndex, children: pages),
+            ),
           ],
         ),
       ),

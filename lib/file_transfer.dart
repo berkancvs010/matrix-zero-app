@@ -354,6 +354,11 @@ class FileTransfer {
 
       _accepted = true;
 
+      // ACCEPT completed the connection phase. Do not let the original
+      // 90-second connection timer abort a long but active transfer.
+      _connectionTimeoutTimer?.cancel();
+      _connectionTimeoutTimer = null;
+
       onIncomingStatus?.call(transferId: transferId, status: 'accepting');
 
       final sent = ws.send({
@@ -553,6 +558,11 @@ class FileTransfer {
     }
 
     _sending = true;
+    // The 90-second connection timer only covers the pre-ACCEPT phase.
+    // Once the receiver has accepted and byte transfer has started, the
+    // inactivity timer below is the authoritative timeout.
+    _connectionTimeoutTimer?.cancel();
+    _connectionTimeoutTimer = null;
     _startTransferTimeout(id);
 
     try {
