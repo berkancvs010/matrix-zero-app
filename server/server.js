@@ -2218,13 +2218,47 @@ wss.on('connection',(ws)=>{
       return;
     }
 
+    const loginStateKey=normalizeUsername(account.username);
     const old=sockets.get(account.username);
     const backgroundTransfer=d.backgroundTransfer===true;
     const backgroundTransferId=String(d.backgroundTransferId||'').trim();
 
     if(old && old!==ws && !backgroundTransfer){
-      send(ws,{type:'authError',code:'ACCOUNT_IN_USE',message:'Bu hesap başka bir cihazda aktif.'});
-      return;
+      /*
+       * A network/proxy outage can leave the primary WebSocket object open
+       * on Node even though the client is already gone. In that state the
+       * old socket must not permanently block the next login attempt.
+       *
+       * isAlive=false is set by the 10s heartbeat when no pong is received.
+       * For foreground sessions also honor the application heartbeat TTL.
+       * Background/paused sessions are not evicted solely by app-state TTL.
+       */
+      const foregroundState=appStates.get(loginStateKey)==='foreground';
+      const lastStateAt=Number(appStateUpdatedAt.get(loginStateKey)||0);
+      const foregroundStale=
+        foregroundState &&
+        (!lastStateAt ||
+         Date.now()-lastStateAt>APP_FOREGROUND_HEARTBEAT_TTL_MS);
+
+      const stalePrimary=
+        old.readyState!==1 ||
+        old.isAlive===false ||
+        foregroundStale;
+
+      if(stalePrimary){
+        console.warn(
+          `[AUTH] removing stale primary socket username=${account.username} ` +
+          `readyState=${old.readyState} isAlive=${old.isAlive} ` +
+          `foregroundStale=${foregroundStale}`
+        );
+
+        disconnect(old);
+
+        try{old.terminate();}catch{}
+      }else{
+        send(ws,{type:'authError',code:'ACCOUNT_IN_USE',message:'Bu hesap başka bir cihazda aktif.'});
+        return;
+      }
     }
 
     if(account.presenceVisible===undefined){
@@ -2293,8 +2327,6 @@ wss.on('connection',(ws)=>{
     saveAccounts();
 
     users.set(ws,account.username);
-
-    const loginStateKey=normalizeUsername(account.username);
 
     if(backgroundTransfer){
       // Headless file-transfer socket hiçbir zaman normal uygulamanın
