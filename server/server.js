@@ -2147,13 +2147,13 @@ wss.on('connection',(ws)=>{
   ws._rooms=new Set();
   ws.isAlive=true;
   ws.on('pong',()=>{ws.isAlive=true;});
-  ws.on('message',async (buf)=>{
- const me=users.get(ws);
+  ws.on('message',async (buf,isBinary)=>{
+    const me=users.get(ws);
 
- if(Buffer.isBuffer(buf)){
-   handleReliableFileBinary(ws,buf,me);
-   return;
- }
+    if(isBinary){
+      handleReliableFileBinary(ws,buf,me);
+      return;
+    }
 
  let d;
  try{d=JSON.parse(buf.toString());}catch{return;}
