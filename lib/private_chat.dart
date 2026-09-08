@@ -1115,6 +1115,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             'from': sender,
             'messageId': messageId,
             'clientMessageId': clientMessageId,
+            'deliveryToken': (map['deliveryToken'] ?? '').toString(),
           });
 
           if (canMarkHistoryRead) {
@@ -1334,6 +1335,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               'from': sender,
               'messageId': messageId,
               'clientMessageId': clientMessageId,
+              'deliveryToken': (map['deliveryToken'] ?? '').toString(),
             });
 
             if (WidgetsBinding.instance.lifecycleState ==
@@ -1426,6 +1428,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           'from': sender,
           'messageId': messageId,
           'clientMessageId': clientMessageId,
+          'deliveryToken': (data['deliveryToken'] ?? '').toString(),
         });
 
         if (WsClient.instance.appIsForeground) {
@@ -1495,6 +1498,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           'from': sender,
           'messageId': incomingMessageId,
           'clientMessageId': clientMessageId,
+          'deliveryToken': (data['deliveryToken'] ?? '').toString(),
         });
 
         if (WsClient.instance.appIsForeground) {

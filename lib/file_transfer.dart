@@ -345,7 +345,32 @@ class FileTransfer {
   }
 
   Future<void> acceptIncoming(String transferId) async {
-    if (_disposed || _transferId != transferId || _accepted) return;
+    if (_disposed || _transferId != transferId) return;
+
+    // ACCEPT itself is not durable on the WebSocket. If it was previously
+    // accepted but the socket changed, resend the idempotent ACCEPT so the
+    // server can bind the new receiver socket to this transfer.
+    if (_accepted) {
+      if (!ws.connected) {
+        _startConnectionTimeout(transferId);
+        return;
+      }
+
+      final sent = ws.send({
+        'type': 'fileTransferAccept',
+        'from': me,
+        'to': peer,
+        'transferId': transferId,
+      });
+
+      if (sent) {
+        _connectionTimeoutTimer?.cancel();
+        _connectionTimeoutTimer = null;
+      } else {
+        _startConnectionTimeout(transferId);
+      }
+      return;
+    }
 
     try {
       if (_incomingTempFile == null || _incomingFile == null) {
@@ -445,9 +470,9 @@ class FileTransfer {
 
       if (_transferId == id) {
         // A reconnect can replay the same OFFER after the receiver prepared
-        // the file but its ACCEPT was lost. Re-send ACCEPT instead of
-        // discarding the idempotent offer.
-        if (_incomingTransfer && !_accepted) {
+        // the file. ACCEPT is idempotent and must be retried even when a
+        // previous ACCEPT was sent before the socket changed.
+        if (_incomingTransfer) {
           await acceptIncoming(id);
         }
         return;

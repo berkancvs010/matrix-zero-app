@@ -512,6 +512,7 @@ async function handleReliableFileEvent(ws,d,me){
       accepted:false,
       receivedBytes:0,
       pendingChunks:[],
+      receiverWs:null,
       updatedAt:Date.now(),
     };
 
@@ -603,6 +604,10 @@ async function handleReliableFileEvent(ws,d,me){
 
     session.accepted=true;
     session.state='accepted';
+
+    // Pin the receiver socket that actually accepted this transfer.
+    // A later background/foreground socket must not steal the binary stream.
+    session.receiverWs=ws;
 
     const sender=fileSocketFor(session.from,transferId);
 
@@ -1325,20 +1330,28 @@ function isBackgroundSocket(ws){
 
 function fileSocketFor(username,transferId=''){
   /*
-   * Bir hesap aynı anda foreground Flutter socket'i ve geçici
-   * background-transfer socket'i taşıyabilir. Aktif sohbet ekranı varken
-   * dosyanın OFFER/ACCEPT/CHUNK/ACK olaylarını background socket'e vermek
-   * foreground UI'ın transferi kaçırmasına ve önizlemenin güncellenmemesine
-   * neden olur.
-   *
-   * Foreground socket daima birincil kanaldır. Yalnızca uygulama foreground
-   * değilse transfer-id'ye bağlı background socket kullanılır.
+   * Once a receiver has accepted a reliable transfer, pin that exact socket
+   * for the lifetime of the active session. This prevents a late
+   * foreground/background socket from stealing the binary stream midway.
    */
+  const id=String(transferId||'').trim();
+
+  if(id){
+    const session=reliableFileTransfers.get(id);
+
+    if(
+      session &&
+      session.toKey===normalizeUsername(username) &&
+      session.receiverWs &&
+      session.receiverWs.readyState===1
+    ){
+      return session.receiverWs;
+    }
+  }
+
   /*
-   * Once a transfer-specific background socket exists, it is the authoritative
-   * receiver for this transfer. This prevents binary chunks from being sent
-   * to a foreground socket that has no FileTransfer listener (for example the
-   * user is on the home screen while Android's transfer service is receiving).
+   * Before ACCEPT, prefer an active transfer-specific background socket.
+   * If none exists, use the normal foreground socket.
    */
   const background=backgroundSocketFor(username,transferId);
   if(background)return background;
@@ -1957,7 +1970,13 @@ function findPrivateMessageByClientId(a,b,clientMessageId){
   ) || null;
 }
 
-function markPrivateMessageDelivered(a,b,messageId,clientMessageId){
+function markPrivateMessageDelivered(
+  a,
+  b,
+  messageId,
+  clientMessageId,
+  deliveryToken=''
+){
   const arr=getPrivate(a,b);
 
   const index=arr.findIndex(item=>{
@@ -1968,7 +1987,20 @@ function markPrivateMessageDelivered(a,b,messageId,clientMessageId){
 
   if(index<0)return null;
 
-  if(arr[index].read===true){
+  const target=arr[index];
+
+  // Text-message delivery can only be acknowledged by the exact delivery
+  // token issued with that message. This blocks stale/unsolicited ACKs from
+  // changing a new message to delivered.
+  if(
+    target.type==='privateMessage' &&
+    String(target.deliveryToken||'') &&
+    String(target.deliveryToken||'')!==String(deliveryToken||'')
+  ){
+    return null;
+  }
+
+  if(target.read===true){
     return arr[index];
   }
 
@@ -2147,6 +2179,13 @@ function disconnect(ws){
   if(!nick)return;
 
   const nickKey=normalizeUsername(nick);
+
+  for(const session of reliableFileTransfers.values()){
+    if(session && session.receiverWs===ws){
+      session.receiverWs=null;
+      session.updatedAt=Date.now();
+    }
+  }
 
   users.delete(ws);
 
@@ -3165,6 +3204,7 @@ wss.on('connection',(ws)=>{
       ts:Date.now(),
       expiresAt:Date.now()+PRIVATE_MESSAGE_TTL_MS,
       delivered:false,
+      deliveryToken:crypto.randomBytes(24).toString('hex'),
     };
 
     const stored=addPrivate(me,to,msg);
@@ -3194,6 +3234,7 @@ wss.on('connection',(ws)=>{
           sender:String(stored.from||''),
           recipient:String(stored.to||''),
           text:String(stored.text||''),
+          deliveryToken:String(stored.deliveryToken||''),
         },
         android:{
           priority:'high',
@@ -3214,6 +3255,7 @@ wss.on('connection',(ws)=>{
     const from=safeNick(d.from);
     const messageId=String(d.messageId||'').trim();
     const clientMessageId=String(d.clientMessageId||'').trim();
+    const deliveryToken=String(d.deliveryToken||'').trim();
 
     if(!from || (!messageId && !clientMessageId))break;
 
@@ -3221,7 +3263,8 @@ wss.on('connection',(ws)=>{
       from,
       me,
       messageId,
-      clientMessageId
+      clientMessageId,
+      deliveryToken
     );
 
     if(!delivered)break;

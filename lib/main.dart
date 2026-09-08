@@ -151,16 +151,8 @@ Future<void> zerologBackgroundTransferMain() async {
       return;
     }
 
-    try {
-      if (!ws.turnCredentialsReady.isCompleted) {
-        await ws.turnCredentialsReady.future.timeout(
-          const Duration(seconds: 10),
-        );
-      }
-    } catch (_) {
-      // TURN alınamazsa STUN fallback kullanılacak.
-    }
-
+    // Reliable file transfer uses the authenticated WebSocket/ZLF2 relay;
+    // TURN credentials are not required for the transfer data path.
     final transfer = FileTransfer.shared(
       ws: ws,
       me: username,
