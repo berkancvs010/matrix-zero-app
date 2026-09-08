@@ -153,8 +153,11 @@ class FileTransfer {
   Timer? _connectionTimeoutTimer;
   Timer? _transferTimeoutTimer;
 
-  // At most 32 chunks can be outstanding. This keeps memory bounded even
-  // when the receiver is slower than the sender.
+  // At most 32 chunks can be outstanding. Keep their encoded frames so a
+  // short WebSocket transition can be recovered without restarting the file.
+  static const int _sendWindowSize = 32;
+  static const int _chunkSize = 32 * 1024;
+  final Map<int, Uint8List> _outstandingFrames = <int, Uint8List>{};
   Completer<void>? _windowWaiter;
 
   Future<void> _receiveQueue = Future<void>.value();
@@ -529,6 +532,9 @@ class FileTransfer {
 
         if (receivedSeq > _lastAckSeq) {
           _lastAckSeq = receivedSeq;
+          _outstandingFrames.removeWhere(
+            (seq, _) => seq <= _lastAckSeq,
+          );
           final waiter = _windowWaiter;
           _windowWaiter = null;
           if (waiter != null && !waiter.isCompleted) {
@@ -602,18 +608,25 @@ class FileTransfer {
     try {
       final raf = await file.open();
       try {
-        const chunkSize = 32 * 1024;
-        const windowSize = 32;
 
         while (true) {
           if (_disposed ||
               _terminalEventHandled ||
-              _transferId != id ||
-              !ws.connected) {
-            throw StateError('Dosya bağlantısı kesildi.');
+              _transferId != id) {
+            throw StateError('Dosya transferi sonlandı.');
           }
 
-          final bytes = await raf.read(chunkSize);
+          if (!ws.connected) {
+            final restored = await _waitForConnection(
+              const Duration(seconds: 90),
+            );
+            if (!restored) {
+              throw StateError('Dosya bağlantısı yeniden kurulamadı.');
+            }
+            await _resendOutstandingFrames(id);
+          }
+
+          final bytes = await raf.read(_chunkSize);
           if (bytes.isEmpty) break;
 
           final seq = _nextSendSeq++;
@@ -625,9 +638,16 @@ class FileTransfer {
           );
 
           if (!ws.sendBinary(frame)) {
-            throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
+            final restored = await _waitForConnection(
+              const Duration(seconds: 90),
+            );
+            if (!restored ||
+                !await _resendFrameUntilAccepted(id, seq, frame)) {
+              throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
+            }
           }
 
+          _outstandingFrames[seq] = frame;
           _sentBytes += bytes.length;
 
           onProgress?.call(
@@ -639,7 +659,7 @@ class FileTransfer {
 
           _touchTransferTimeout(id);
 
-          if (seq - _lastAckSeq >= windowSize) {
+          if (seq - _lastAckSeq >= _sendWindowSize) {
             await _waitForAck(id, seq);
           }
         }
@@ -676,30 +696,116 @@ class FileTransfer {
   }
 
   Future<void> _waitForAck(String transferId, int targetSeq) async {
-    if (_lastAckSeq >= targetSeq) return;
+    final deadline = DateTime.now().add(const Duration(minutes: 3));
 
-    final waiter = Completer<void>();
-    _windowWaiter = waiter;
+    while (_lastAckSeq < targetSeq) {
+      if (_disposed || _transferId != transferId) {
+        throw StateError('Dosya transferi sonlandı.');
+      }
 
-    final timeout = Timer(const Duration(seconds: 30), () {
-      if (!waiter.isCompleted) {
-        waiter.completeError(
-          TimeoutException('Dosya alıcısından parça onayı alınamadı.'),
+      final waiter = Completer<void>();
+      _windowWaiter = waiter;
+
+      final timeout = Timer(const Duration(seconds: 30), () {
+        if (!waiter.isCompleted) {
+          waiter.complete();
+        }
+      });
+
+      try {
+        await waiter.future;
+      } finally {
+        timeout.cancel();
+        if (identical(_windowWaiter, waiter)) {
+          _windowWaiter = null;
+        }
+      }
+
+      if (_lastAckSeq >= targetSeq) break;
+
+      if (DateTime.now().isAfter(deadline)) {
+        throw TimeoutException(
+          'Dosya alıcısından parça onayı alınamadı.',
         );
       }
-    });
 
-    try {
-      await waiter.future;
-    } finally {
-      timeout.cancel();
-      if (identical(_windowWaiter, waiter)) {
-        _windowWaiter = null;
+      // A lost ACK must not permanently kill an otherwise valid transfer.
+      // Re-send the bounded outstanding window; the receiver treats
+      // duplicates idempotently and re-ACKs its latest committed sequence.
+      if (!ws.connected) {
+        final restored = await _waitForConnection(
+          const Duration(seconds: 90),
+        );
+        if (!restored) {
+          throw TimeoutException('Dosya bağlantısı yeniden kurulamadı.');
+        }
       }
+
+      await _resendOutstandingFrames(transferId);
+    }
+  }
+
+  Future<bool> _waitForConnection(Duration timeout) async {
+    final end = DateTime.now().add(timeout);
+
+    while (!_disposed && DateTime.now().isBefore(end)) {
+      if (ws.connected) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
 
-    if (_disposed || _transferId != transferId) {
-      throw StateError('Dosya transferi sonlandı.');
+    return !_disposed && ws.connected;
+  }
+
+  Future<bool> _resendFrameUntilAccepted(
+    String transferId,
+    int seq,
+    Uint8List frame,
+  ) async {
+    final end = DateTime.now().add(const Duration(seconds: 90));
+
+    while (!_disposed &&
+        _transferId == transferId &&
+        DateTime.now().isBefore(end)) {
+      if (!ws.connected) {
+        if (!await _waitForConnection(const Duration(seconds: 10))) {
+          continue;
+        }
+      }
+
+      if (ws.sendBinary(frame)) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+
+    return false;
+  }
+
+  Future<void> _resendOutstandingFrames(String transferId) async {
+    if (_disposed || _transferId != transferId || _outstandingFrames.isEmpty) {
+      return;
+    }
+
+    final frames = _outstandingFrames.entries
+        .where((entry) => entry.key > _lastAckSeq)
+        .toList(growable: false);
+
+    for (final entry in frames) {
+      if (_disposed || _transferId != transferId) return;
+
+      if (!ws.connected) {
+        if (!await _waitForConnection(const Duration(seconds: 90))) {
+          throw StateError('Dosya bağlantısı yeniden kurulamadı.');
+        }
+      }
+
+      if (!ws.sendBinary(entry.value)) {
+        if (!await _resendFrameUntilAccepted(
+          transferId,
+          entry.key,
+          entry.value,
+        )) {
+          throw StateError('Bekleyen dosya parçası yeniden gönderilemedi.');
+        }
+      }
     }
   }
 
@@ -918,14 +1024,35 @@ class FileTransfer {
 
     final temp = File('${dir.path}/${_sanitizeId(transferId)}.part');
 
+    // Keep an interrupted receive so a new background isolate/process can
+    // resume the same transfer. Only complete fixed-size chunks are trusted;
+    // a partial last chunk is truncated and will be retransmitted.
+    var existingLength = 0;
     if (await temp.exists()) {
-      await temp.delete();
+      existingLength = await temp.length();
+      if (existingLength > _fileSize && _fileSize > 0) {
+        await temp.delete();
+        existingLength = 0;
+      } else if (existingLength % _chunkSize != 0) {
+        final completeLength =
+            (existingLength ~/ _chunkSize) * _chunkSize;
+        final truncateFile = await temp.open(mode: FileMode.append);
+        await truncateFile.truncate(completeLength);
+        await truncateFile.close();
+        existingLength = completeLength;
+      }
     }
 
-    final raf = await temp.open(mode: FileMode.write);
+    final raf = await temp.open(
+      mode: existingLength > 0 ? FileMode.append : FileMode.write,
+    );
 
     _incomingTempFile = temp;
     _incomingFile = raf;
+
+    _receivedBytes = existingLength;
+    _lastReceivedSeq =
+        existingLength > 0 ? (existingLength ~/ _chunkSize) - 1 : -1;
   }
 
   Future<void> _failTransfer(
@@ -1067,6 +1194,7 @@ class FileTransfer {
     _terminalEventHandled = false;
     _nextSendSeq = 0;
     _lastAckSeq = -1;
+    _outstandingFrames.clear();
     _lastReceivedSeq = -1;
     _receiveQueue = Future<void>.value();
   }

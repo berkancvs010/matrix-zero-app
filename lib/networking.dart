@@ -518,7 +518,9 @@ class WsClient {
                   _channel?.sink.add(
                     jsonEncode({
                       'type': 'appState',
-                      'state': _appForeground ? 'foreground' : 'background',
+                      'state': _backgroundTransfer
+    ? 'background'
+    : (_appForeground ? 'foreground' : 'background'),
                     }),
                   );
                 } catch (_) {}
@@ -795,7 +797,9 @@ class WsClient {
         _channel!.sink.add(
           jsonEncode({
             'type': 'appHeartbeat',
-            'state': _appForeground ? 'foreground' : 'background',
+            'state': _backgroundTransfer
+    ? 'background'
+    : (_appForeground ? 'foreground' : 'background'),
           }),
         );
       } catch (_) {

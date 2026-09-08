@@ -2210,7 +2210,11 @@ function disconnect(ws){
     const primary=socketFor(nick);
 
     if(primary){
-      appStates.set(nickKey,'foreground');
+      const currentState=appStates.get(nickKey);
+      appStates.set(
+        nickKey,
+        currentState==='background' ? 'background' : 'foreground'
+      );
       appStateUpdatedAt.set(nickKey,Date.now());
     }else if(backgroundSockets.has(nickKey)){
       appStates.set(nickKey,'background');
@@ -2522,11 +2526,19 @@ wss.on('connection',(ws)=>{
         backgroundTransferId
       );
 
-      // Foreground socket varsa presence foreground kalır.
-      appStates.set(
-        loginStateKey,
-        sockets.has(account.username)?'foreground':'background'
-      );
+      // Background transfer sockets are transport-only. Never let them
+      // change the primary app's presence state. Preserve the primary
+      // lifecycle state when a foreground socket exists; otherwise this
+      // account has no primary presence connection.
+      if(sockets.has(account.username)){
+        const currentState=appStates.get(loginStateKey);
+        appStates.set(
+          loginStateKey,
+          currentState==='background' ? 'background' : 'foreground'
+        );
+      }else{
+        appStates.set(loginStateKey,'background');
+      }
       appStateUpdatedAt.set(loginStateKey,Date.now());
     }else{
       sockets.set(account.username,ws);
@@ -2605,7 +2617,10 @@ wss.on('connection',(ws)=>{
       });
     }
 
-    broadcastUserOnline(account.username);
+    // A headless transfer socket must never publish presence.
+    if(!backgroundTransfer){
+      broadcastUserOnline(account.username);
+    }
     send(ws,{type:'rooms',rooms});
     send(ws,{
       type:'userList',
@@ -2666,6 +2681,13 @@ wss.on('connection',(ws)=>{
   case 'appState':
   case 'appHeartbeat':{
     if(!me)break;
+
+    // Headless transfer sockets never own account presence. Their
+    // appState/appHeartbeat messages must not promote a background user
+    // back to foreground.
+    if(isBackgroundSocket(ws)){
+      break;
+    }
 
     const state=String(d.state||'').trim().toLowerCase();
 
