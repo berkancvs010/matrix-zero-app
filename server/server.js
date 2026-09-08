@@ -511,6 +511,7 @@ async function handleReliableFileEvent(ws,d,me){
       state:'waiting',
       accepted:false,
       receivedBytes:0,
+      pendingChunks:[],
       updatedAt:Date.now(),
     };
 
@@ -618,6 +619,10 @@ async function handleReliableFileEvent(ws,d,me){
         transferId,
       });
     }
+
+    // Receiver is now authoritative for this transfer. Any chunks that
+    // arrived while its socket was temporarily unavailable can be replayed.
+    flushReliableFileChunks(session);
 
     return true;
   }
@@ -754,6 +759,39 @@ async function handleReliableFileEvent(ws,d,me){
   return true;
 }
 
+function flushReliableFileChunks(session){
+  if(!session || !session.accepted || session.state!=='accepted'){
+    return;
+  }
+
+  if(!Array.isArray(session.pendingChunks) || session.pendingChunks.length===0){
+    return;
+  }
+
+  const recipient=fileSocketFor(session.to,session.transferId);
+  if(!recipient){
+    return;
+  }
+
+  const pending=session.pendingChunks;
+
+  for(let index=0;index<pending.length;index++){
+    const buffer=pending[index];
+
+    if(!sendBinary(recipient,buffer)){
+      // Keep the failed chunk and every chunk after it. They must remain
+      // ordered because the sender's outstanding window is sequential.
+      session.pendingChunks=pending.slice(index);
+      session.updatedAt=Date.now();
+      return;
+    }
+
+    session.updatedAt=Date.now();
+  }
+
+  session.pendingChunks=[];
+}
+
 function handleReliableFileBinary(ws,buffer,me){
   if(!me || !Buffer.isBuffer(buffer))return false;
 
@@ -798,11 +836,105 @@ function handleReliableFileBinary(ws,buffer,me){
   }
 
   const recipient=fileSocketFor(session.to,transferId);
+
+  /*
+   * Receiver socket geçici olarak yok olabilir:
+   * foreground -> background transfer servisi geçişi,
+   * Android process/socket yeniden kurulması veya kısa bağlantı
+   * değişimleri transferin kendisini başarısız saymamalıdır.
+   *
+   * Session TTL içinde korunur. Receiver yeniden bağlandığında
+   * deliverReliableFileTransfers() mevcut ACCEPT/OFFER durumunu
+   * tekrar senkronize eder.
+   */
   if(!recipient){
+    if(!Array.isArray(session.pendingChunks)){
+      session.pendingChunks=[];
+    }
+
+    // Sender has a maximum 32-chunk outstanding window. Keep only that
+    // bounded window while the receiver socket is transitioning.
+    if(session.pendingChunks.length>=32){
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Alıcı bağlantısı çok uzun süre kurulamadı.',
+      });
+
+      session.state='failed';
+      updateReliableFileMessage(
+        session.from,
+        session.to,
+        transferId,
+        'failed',
+      );
+      reliableFileTransfers.delete(transferId);
+      return true;
+    }
+
+    session.pendingChunks.push(Buffer.from(buffer));
+    session.updatedAt=Date.now();
+    return true;
+  }
+
+  /*
+   * If earlier chunks are queued, they must reach the receiver before
+   * this newly arriving chunk. Otherwise the receiver can legitimately
+   * reject the newer sequence as out-of-order.
+   */
+  if(Array.isArray(session.pendingChunks) && session.pendingChunks.length){
+    flushReliableFileChunks(session);
+
+    if(Array.isArray(session.pendingChunks) && session.pendingChunks.length){
+      /*
+       * The receiver disappeared again while flushing. Queue the current
+       * chunk behind the older pending chunks so ordering is preserved.
+       */
+      if(session.pendingChunks.length<32){
+        session.pendingChunks.push(Buffer.from(buffer));
+        session.updatedAt=Date.now();
+        return true;
+      }
+
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Alıcı bağlantısı çok uzun süre kurulamadı.',
+      });
+
+      session.state='failed';
+      updateReliableFileMessage(
+        session.from,
+        session.to,
+        transferId,
+        'failed',
+      );
+      reliableFileTransfers.delete(transferId);
+      return true;
+    }
+  }
+
+  session.updatedAt=Date.now();
+
+  if(!sendBinary(recipient,buffer)){
+    /*
+     * sendBinary failure can be a transient socket transition. Preserve
+     * this chunk instead of destroying the transfer session.
+     */
+    if(!Array.isArray(session.pendingChunks)){
+      session.pendingChunks=[];
+    }
+
+    if(session.pendingChunks.length<32){
+      session.pendingChunks.push(Buffer.from(buffer));
+      session.updatedAt=Date.now();
+      return true;
+    }
+
     send(ws,{
       type:'fileTransferFailed',
       transferId,
-      reason:'Alıcı bağlantısı kesildi.',
+      reason:'Alıcı bağlantısı çok uzun süre kurulamadı.',
     });
 
     session.state='failed';
@@ -816,24 +948,7 @@ function handleReliableFileBinary(ws,buffer,me){
     return true;
   }
 
-  session.updatedAt=Date.now();
-
-  if(!sendBinary(recipient,buffer)){
-    send(ws,{
-      type:'fileTransferFailed',
-      transferId,
-      reason:'Dosya parçası alıcıya iletilemedi.',
-    });
-
-    session.state='failed';
-    updateReliableFileMessage(
-      session.from,
-      session.to,
-      transferId,
-      'failed',
-    );
-    reliableFileTransfers.delete(transferId);
-  }
+  flushReliableFileChunks(session);
 
   return true;
 }
@@ -880,8 +995,10 @@ function deliverReliableFileTransfers(ws,username){
       normalizeUsername(session.to)===key
     ){
       // Replaying the OFFER lets a receiver that lost its ACCEPT during a
-      // reconnect re-send ACCEPT without creating a second transfer.
+      // reconnect re-synchronize the transfer. If this session already has
+      // queued binary chunks, flush them after the OFFER on the same socket.
       send(ws,reliableFileOffer(session));
+      flushReliableFileChunks(session);
     }
   }
 }
@@ -3084,30 +3201,9 @@ wss.on('connection',(ws)=>{
         },
       });
 
-      // Background/terminated cihazlarda WebSocket ACK'i hemen gelmeyebilir.
-      // FCM'nin mesajı kabul etmesi bu durumda teslim durumunun kalıcı olarak
-      // ilerlemesini sağlar. Recipient uygulaması açıldığında privateHistory
-      // mesajın kendisini yine sunucudan alır; yani bu işaret mesajı silmez.
-      if(pushed){
-        const delivered=markPrivateMessageDelivered(
-          me,
-          to,
-          stored.id,
-          stored.clientMessageId,
-        );
-
-        if(delivered){
-          send(socketFor(me),{
-            type:'messageDelivered',
-            messageId:delivered.id||null,
-            clientMessageId:delivered.clientMessageId||null,
-            from:to,
-            to:me,
-            deliveredTo:to,
-            ts:delivered.ts||null,
-          });
-        }
-      }
+      // FCM push kabulü teslim anlamına gelmez.
+      // Gerçek delivered durumu yalnızca alıcı istemcinin
+      // messageDelivered ACK'i ile oluşturulmalıdır.
     }
 
     break;

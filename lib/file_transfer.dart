@@ -697,7 +697,18 @@ class FileTransfer {
     }
 
     if (seq <= _lastReceivedSeq) {
-      // Duplicate delivery is harmless because the receiver is ordered.
+      // Duplicate delivery is harmless because the payload was already
+      // committed. Re-ACK the latest received sequence so the sender can
+      // recover if the original ACK was lost during a socket transition.
+      if (seq == _lastReceivedSeq && id.isNotEmpty) {
+        ws.send({
+          'type': 'fileTransferChunkAck',
+          'from': me,
+          'to': peer,
+          'transferId': id,
+          'receivedSeq': _lastReceivedSeq,
+        });
+      }
       return;
     }
 
