@@ -328,44 +328,57 @@ function reliableFileOffer(session){
 async function sendReliableFileOffer(session){
   const recipient=fileSocketFor(session.to,session.transferId);
 
-  if(recipient && isForegroundActive(session.to)){
-    const delivered=send(recipient,reliableFileOffer(session));
-    if(delivered)return true;
+  /*
+   * Transfer routing is independent from presence. A background transfer
+   * socket is a valid transfer endpoint but must never publish online state.
+   */
+  if(recipient){
+    const backgroundEndpoint=isBackgroundSocket(recipient);
+    const foregroundEndpoint=isForegroundActive(session.to);
 
-    // Foreground state can briefly outlive a dead socket. Do not drop the
-    // only OFFER in that race; fall through to FCM/pending delivery.
-    console.log(
-      `[FILE_TRANSFER] foreground offer delivery failed; falling back ` +
-      `to FCM transferId=${session.transferId}`
-    );
+    if(backgroundEndpoint || foregroundEndpoint){
+      const delivered=send(recipient,reliableFileOffer(session));
+      if(delivered){
+        console.log(
+          `[FILE_TRANSFER] OFFER live transfer=${session.transferId} ` +
+          `to=${session.to} endpoint=${backgroundEndpoint?'background':'foreground'}`
+        );
+        return true;
+      }
+    }
   }
 
-  if(messageNotificationsEnabled(session.to)){
-    // DATA-ONLY FCM is mandatory here. A notification payload can make
-    // Android background/terminated delivery system-handled, preventing
-    // ZeroLogFirebaseMessagingService from starting the transfer service.
-    await sendFcmPush(session.to,{
-      data:{
-        type:'privateFileMessage',
-        from:session.from,
-        sender:session.from,
-        to:session.to,
-        recipient:session.to,
-        fileId:session.transferId,
-        transferId:session.transferId,
-        fileName:session.fileName,
-        fileSize:String(session.fileSize),
-        clientMessageId:session.clientMessageId,
-        messageId:session.messageId,
-      },
-      android:{
-        priority:'high',
-        ttl:3600000,
-      },
-    });
-  }
+  /*
+   * DATA-ONLY FCM is the wake-up path for a terminated/background receiver.
+   * It must not depend on ordinary message notification preferences.
+   *
+   * "from" is reserved by Firebase and causes messaging/invalid-argument.
+   */
+  const pushed=await sendFcmPush(session.to,{
+    data:{
+      type:'privateFileMessage',
+      sender:session.from,
+      recipient:session.to,
+      fileId:session.transferId,
+      transferId:session.transferId,
+      fileName:session.fileName,
+      fileSize:String(session.fileSize),
+      clientMessageId:session.clientMessageId,
+      deliveryToken:session.deliveryToken||'',
+      messageId:session.messageId,
+    },
+    android:{
+      priority:'high',
+      ttl:3600000,
+    },
+  });
 
-  return false;
+  console.log(
+    `[FILE_TRANSFER] OFFER ${pushed?'FCM_SENT':'FCM_FAILED'} ` +
+    `transfer=${session.transferId} to=${session.to}`
+  );
+
+  return pushed;
 }
 
 function updateReliableFileMessage(from,to,transferId,status,extra={}){
@@ -403,6 +416,7 @@ async function handleReliableFileEvent(ws,d,me){
     'fileTransferReject',
     'fileTransferChunkAck',
     'fileTransferEnd',
+    'fileTransferComplete',
     'fileTransferFailed',
   ].includes(type)){
     return false;
@@ -490,6 +504,7 @@ async function handleReliableFileEvent(ws,d,me){
       ts:Date.now(),
       expiresAt:Date.now()+PRIVATE_MESSAGE_TTL_MS,
       delivered:false,
+      deliveryToken:crypto.randomBytes(24).toString('hex'),
       read:false,
       transferStatus:'waiting',
       transferBytes:0,
@@ -508,10 +523,12 @@ async function handleReliableFileEvent(ws,d,me){
       sha256,
       clientMessageId,
       messageId:stored.id,
+      deliveryToken:stored.deliveryToken||'',
       state:'waiting',
       accepted:false,
       receivedBytes:0,
       pendingChunks:[],
+      pendingEnd:null,
       receiverWs:null,
       updatedAt:Date.now(),
     };
@@ -527,52 +544,87 @@ async function handleReliableFileEvent(ws,d,me){
     });
 
     /*
-     * Reliable file reception is owned by the transfer service when
-     * auto-accept is enabled. Do not route binary chunks to an arbitrary
-     * foreground socket merely because the app process is alive: the user
-     * may be on the home screen and no PrivateChat/FileTransfer listener
-     * exists on that socket.
+     * The private-file message and the transfer OFFER are two different
+     * concerns:
      *
-     * The durable source of truth is the reliable transfer session. Notify
-     * through FCM first; the background service reconnects with the exact
-     * transferId and receives the offer/session. If FCM cannot be delivered,
-     * fall back to the foreground socket so an open chat can still handle
-     * the transfer immediately.
+     *   1) the chat message must reach an already-connected chat client;
+     *   2) the transfer service must receive a wake-up/OFFER when the app is
+     *      backgrounded or terminated.
+     *
+     * Never make the chat message depend on FCM success. In particular, the
+     * previous implementation could send the OFFER successfully over the
+     * foreground socket while never sending the actual privateFileMessage,
+     * leaving the transfer invisible in the chat history.
+     *
+     * The reliable session remains the server-side source of truth. FCM is
+     * an additional wake-up path, not the transfer itself.
      */
     const recipient=socketFor(to);
-    const account=accountFor(to);
-    const autoAccept=
-      !account || account.autoAcceptFileTransfers!==false;
+    const foregroundRecipient=
+      recipient &&
+      isForegroundActive(to) &&
+      !isBackgroundSocket(recipient)
+        ? recipient
+        : null;
 
-    let notified=false;
+    let liveMessageDelivered=false;
 
-    if(autoAccept){
-      notified=await sendReliableFileOffer(session);
-    }
-
-    if(!notified && recipient && isForegroundActive(to)){
-      const messageDelivered=send(recipient,{
+    if(foregroundRecipient){
+      liveMessageDelivered=send(foregroundRecipient,{
         ...stored,
         transferStatus:'waiting',
         transferBytes:0,
       });
-      const offerDelivered=messageDelivered &&
-        send(recipient,reliableFileOffer(session));
+
+      if(!liveMessageDelivered){
+        console.warn(
+          `[FILE_TRANSFER] MESSAGE live delivery failed ` +
+          `transfer=${session.transferId} to=${session.to}`
+        );
+      }
+    }
+
+    const account=accountFor(to);
+    const autoAccept=
+      !account || account.autoAcceptFileTransfers!==false;
+
+    /*
+     * If the receiver has an active foreground chat, deliver the OFFER
+     * directly so the transfer can start without waiting for FCM.
+     *
+     * If the receiver is not foreground, sendReliableFileOffer() uses the
+     * transfer-specific background socket when present and otherwise sends
+     * the DATA-only FCM wake-up.
+     */
+    let offerDelivered=false;
+
+    if(foregroundRecipient){
+      offerDelivered=send(
+        foregroundRecipient,
+        reliableFileOffer(session)
+      );
 
       if(!offerDelivered){
-        // The foreground socket can disappear between the state check and
-        // send(). The reliable session remains alive for reconnect/retry.
         await sendReliableFileOffer(session);
       }
-    }else if(!notified && !autoAccept){
-      /*
-       * With manual acceptance and no foreground socket there is no receiver
-       * to present the offer. Keep the durable session alive; the next login
-       * will replay it. If a notification token exists, sendReliableFileOffer
-       * also provides the user with a way back into the chat.
-       */
-      await sendReliableFileOffer(session);
+    }else if(autoAccept){
+      offerDelivered=await sendReliableFileOffer(session);
+    }else{
+      // Manual acceptance still needs a durable way to notify the user.
+      offerDelivered=await sendReliableFileOffer(session);
     }
+
+    /*
+     * A live foreground message is intentionally independent from
+     * offerDelivered. If the OFFER fails during a socket transition, the
+     * session remains durable and deliverReliableFileTransfers() will replay
+     * it after reconnect.
+     */
+    console.log(
+      `[FILE_TRANSFER] START transfer=${session.transferId} ` +
+      `messageLive=${liveMessageDelivered} offer=${offerDelivered} ` +
+      `autoAccept=${autoAccept}`
+    );
 
     return true;
   }
@@ -604,6 +656,39 @@ async function handleReliableFileEvent(ws,d,me){
 
     session.accepted=true;
     session.state='accepted';
+
+    /*
+     * ACCEPT is the reliable receiver-side delivery point for the file
+     * message. At this moment the receiving transfer endpoint has actually
+     * received the metadata and taken ownership of the transfer. Mark the
+     * chat message delivered now; completion remains a separate
+     * transferStatus='completed' state.
+     */
+    const deliveredFileMessage=markPrivateMessageDelivered(
+      session.from,
+      session.to,
+      session.messageId,
+      session.clientMessageId,
+      ''
+    );
+
+    if(deliveredFileMessage){
+      send(
+        socketFor(session.from),
+        {
+          type:'messageDelivered',
+          messageId:deliveredFileMessage.id||session.messageId||null,
+          clientMessageId:
+            deliveredFileMessage.clientMessageId||
+            session.clientMessageId||
+            null,
+          from:session.to,
+          to:session.from,
+          deliveredTo:session.to,
+          ts:deliveredFileMessage.deliveredAt||Date.now(),
+        }
+      );
+    }
 
     // Pin the receiver socket that actually accepted this transfer.
     // A later background/foreground socket must not steal the binary stream.
@@ -672,7 +757,22 @@ async function handleReliableFileEvent(ws,d,me){
   }
 
   if(type==='fileTransferEnd'){
-    if(!isReceiver || !session.accepted)return true;
+    if(!isSender || !session.accepted)return true;
+
+    // Idempotent retry after the receiver already completed the file.
+    if(session.state==='completed'){
+      send(ws,{
+        type:'fileTransferComplete',
+        from:session.to,
+        to:session.from,
+        transferId,
+        fileSize:session.fileSize,
+        sha256:session.sha256,
+      });
+      return true;
+    }
+
+    if(session.state!=='accepted')return true;
 
     const fileSize=Number(d.fileSize||0);
     const sha256=String(d.sha256||'').trim().toLowerCase();
@@ -690,20 +790,123 @@ async function handleReliableFileEvent(ws,d,me){
         'failed',
       );
 
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Dosya bitiş/doğrulama bilgisi eşleşmedi.',
+      });
+
+      const receiver=fileSocketFor(session.to,transferId);
+      if(receiver){
+        send(receiver,{
+          type:'fileTransferFailed',
+          transferId,
+          reason:'Gönderici dosya doğrulaması başarısız.',
+        });
+      }
+
+      reliableFileTransfers.delete(transferId);
+      return true;
+    }
+
+    /*
+     * The sender's END is only a declaration. The receiver must receive the
+     * END, flush/hash the actual .part file and explicitly confirm with
+     * fileTransferComplete. This is the authoritative completion point.
+     */
+    session.pendingEnd={
+      fileSize:session.fileSize,
+      sha256:session.sha256,
+    };
+    session.updatedAt=Date.now();
+
+    const receiver=fileSocketFor(session.to,transferId);
+
+    if(receiver){
+      const delivered=send(receiver,{
+        type:'fileTransferEnd',
+        from:session.from,
+        to:session.to,
+        transferId,
+        fileSize:session.fileSize,
+        sha256:session.sha256,
+      });
+
+      if(delivered){
+        // Keep pendingEnd until the receiver sends the authoritative
+        // fileTransferComplete. A successfully delivered END is not proof
+        // that the receiver finalized/hash-verified the file.
+        session.updatedAt=Date.now();
+      }
+    }
+
+    console.log(
+      `[FILE_TRANSFER] END_DECLARED transfer=${transferId} ` +
+      `receiver=${receiver?'live':'pending'}`
+    );
+
+    return true;
+  }
+
+  if(type==='fileTransferComplete'){
+    if(!isReceiver || !session.accepted)return true;
+
+    // COMPLETE is idempotent. The receiver may retry after a lost ACK or
+    // reconnect; never turn an already completed transfer into FAILED just
+    // because pendingEnd was cleared by the first successful completion.
+    if(session.state==='completed'){
+      send(fileSocketFor(session.from,transferId),{
+        type:'fileTransferComplete',
+        from:session.to,
+        to:session.from,
+        transferId,
+        fileSize:session.fileSize,
+        sha256:session.sha256,
+      });
+      send(ws,{
+        type:'fileTransferCompleteAck',
+        from:session.to,
+        to:session.to,
+        transferId,
+      });
+      return true;
+    }
+
+    const fileSize=Number(d.fileSize||0);
+    const sha256=String(d.sha256||'').trim().toLowerCase();
+
+    if(
+      !session.pendingEnd ||
+      fileSize!==session.fileSize ||
+      !/^[a-f0-9]{64}$/.test(sha256) ||
+      sha256!==session.sha256
+    ){
+      session.state='failed';
+      updateReliableFileMessage(
+        session.from,
+        session.to,
+        session.transferId,
+        'failed',
+      );
+
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Alıcı dosya doğrulamasını tamamlayamadı.',
+      });
+
       send(fileSocketFor(session.from,transferId),{
         type:'fileTransferFailed',
         transferId,
-        reason:'Dosya doğrulama bilgisi eşleşmedi.',
+        reason:'Alıcı dosya doğrulamasını tamamlayamadı.',
       });
 
       reliableFileTransfers.delete(transferId);
       return true;
     }
 
-    // The server relays bytes but does not count them as received. The
-    // receiver has already verified the exact size and SHA-256 before this
-    // event is sent.
     session.state='completed';
+    session.pendingEnd=null;
 
     const completed=updateReliableFileMessage(
       session.from,
@@ -729,7 +932,25 @@ async function handleReliableFileEvent(ws,d,me){
       send(ws,completed);
     }
 
-    reliableFileTransfers.delete(transferId);
+    // Explicit ACK to the receiver: the receiver may safely retry COMPLETE
+    // across a transient socket transition until the server confirms that
+    // the terminal state has been committed.
+    send(ws,{
+      type:'fileTransferCompleteAck',
+      from:session.to,
+      to:session.to,
+      transferId,
+    });
+
+    session.updatedAt=Date.now();
+
+    console.log(
+      `[FILE_TRANSFER] COMPLETE transfer=${transferId} ` +
+      `from=${session.from} to=${session.to}`
+    );
+
+    // Keep the terminal session briefly so a lost sender COMPLETE ACK can
+    // be recovered by an idempotent END retry after reconnect.
     return true;
   }
 
@@ -962,9 +1183,31 @@ function deliverReliableFileTransfers(ws,username){
   const key=normalizeUsername(username);
 
   for(const session of reliableFileTransfers.values()){
-    if(!session || session.toKey!==key)continue;
+    if(!session)continue;
 
-    if(session.state==='waiting'){
+    const isSender=normalizeUsername(session.from)===key;
+    const isReceiver=normalizeUsername(session.to)===key;
+
+    if(!isSender && !isReceiver)continue;
+
+    if(session.state==='completed'){
+      // Sender may have been offline when the receiver completed the file.
+      // Replay the terminal COMPLETE so its local progress cannot remain
+      // stuck at "transferring".
+      if(isSender){
+        send(ws,{
+          type:'fileTransferComplete',
+          from:session.to,
+          to:session.from,
+          transferId:session.transferId,
+          fileSize:session.fileSize,
+          sha256:session.sha256,
+        });
+      }
+      continue;
+    }
+
+    if(session.state==='waiting' && isReceiver){
       const message=findPrivateMessageByClientId(
         session.from,
         session.to,
@@ -979,13 +1222,9 @@ function deliverReliableFileTransfers(ws,username){
       continue;
     }
 
-    if(
-      session.state==='accepted' &&
-      normalizeUsername(session.from)===key
-    ){
+    if(session.state==='accepted' && isSender){
       // The receiver may have accepted while the sender socket was
-      // temporarily disconnected. Replaying ACCEPT is safe because the
-      // client guards duplicate starts.
+      // temporarily disconnected. Replaying ACCEPT is idempotent.
       send(ws,{
         type:'fileTransferAccept',
         from:session.to,
@@ -995,15 +1234,27 @@ function deliverReliableFileTransfers(ws,username){
       continue;
     }
 
-    if(
-      session.state==='accepted' &&
-      normalizeUsername(session.to)===key
-    ){
-      // Replaying the OFFER lets a receiver that lost its ACCEPT during a
-      // reconnect re-synchronize the transfer. If this session already has
-      // queued binary chunks, flush them after the OFFER on the same socket.
+    if(session.state==='accepted' && isReceiver){
+      // Replaying OFFER lets a receiver that lost its ACCEPT during a
+      // reconnect re-synchronize the transfer. Queued chunks and a pending
+      // END are replayed in order.
       send(ws,reliableFileOffer(session));
       flushReliableFileChunks(session);
+
+      if(session.pendingEnd){
+        const endDelivered=send(ws,{
+          type:'fileTransferEnd',
+          from:session.from,
+          to:session.to,
+          transferId:session.transferId,
+          fileSize:session.pendingEnd.fileSize,
+          sha256:session.pendingEnd.sha256,
+        });
+
+        if(endDelivered){
+          session.updatedAt=Date.now();
+        }
+      }
     }
   }
 }
@@ -1459,13 +1710,8 @@ async function sendFileTransferPush(username,event){
   if(!transferId || !from)return false;
 
   return sendFcmPush(target,{
-    notification:{
-      title:from,
-      body:`${fileName} gönderiyor`,
-    },
     data:{
       type:'privateFileMessage',
-      from,
       sender:from,
       to:target,
       recipient:target,
@@ -1989,6 +2235,16 @@ function markPrivateMessageDelivered(
 
   const target=arr[index];
 
+  // Only the actual recipient may acknowledge delivery. The authenticated
+  // WebSocket identity is authoritative; the client-supplied "from" is only
+  // used to select the sender's conversation.
+  if(
+    normalizeUsername(target.to)!==normalizeUsername(b) ||
+    normalizeUsername(target.from)!==normalizeUsername(a)
+  ){
+    return null;
+  }
+
   // Text-message delivery can only be acknowledged by the exact delivery
   // token issued with that message. This blocks stale/unsolicited ACKs from
   // changing a new message to delivered.
@@ -2033,6 +2289,16 @@ function markPrivateMessageRead(
   });
 
   if(index<0)return null;
+
+  const target=arr[index];
+
+  // Only the message recipient can generate a read receipt for the sender.
+  if(
+    normalizeUsername(target.to)!==normalizeUsername(reader) ||
+    normalizeUsername(target.from)!==normalizeUsername(sender)
+  ){
+    return null;
+  }
 
   arr[index]={
     ...arr[index],
@@ -3231,6 +3497,11 @@ wss.on('connection',(ws)=>{
 
     const stored=addPrivate(me,to,msg);
 
+    console.log(
+      `[MESSAGE] STORED id=${stored.id||''} from=${me} to=${to} ` +
+      `clientMessageId=${stored.clientMessageId||''}`
+    );
+
     send(ws,{
       type:'messageAck',
       messageId:stored.id||null,
@@ -3289,7 +3560,18 @@ wss.on('connection',(ws)=>{
       deliveryToken
     );
 
-    if(!delivered)break;
+    if(!delivered){
+      console.warn(
+        `[MESSAGE] DELIVERED rejected from=${me} sender=${from} ` +
+        `messageId=${messageId} clientMessageId=${clientMessageId}`
+      );
+      break;
+    }
+
+    console.log(
+      `[MESSAGE] DELIVERED id=${delivered.id||messageId} ` +
+      `sender=${from} recipient=${me}`
+    );
 
     send(
       socketFor(from),
@@ -3323,7 +3605,17 @@ wss.on('connection',(ws)=>{
       clientMessageId
     );
 
-    if(!read)break;
+    if(!read){
+      console.warn(
+        `[MESSAGE] READ rejected reader=${me} sender=${from} ` +
+        `messageId=${messageId} clientMessageId=${clientMessageId}`
+      );
+      break;
+    }
+
+    console.log(
+      `[MESSAGE] READ id=${read.id||messageId} sender=${from} reader=${me}`
+    );
 
     const senderSocket=socketFor(from);
 

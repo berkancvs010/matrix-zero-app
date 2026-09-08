@@ -701,6 +701,42 @@ class WsClient {
                 }
               }
 
+              /*
+               * Delivery receipt belongs to the authenticated transport,
+               * not to the chat widget. This makes "delivered" work even
+               * when the conversation is not currently open. Read receipts
+               * remain chat/lifecycle driven.
+               */
+              final incomingType = (data['type'] ?? '').toString();
+              if (incomingType == 'privateMessage' ||
+                  incomingType == 'privateFileMessage') {
+                final sender = (data['sender'] ?? data['from'] ?? '')
+                    .toString().trim();
+                final recipient = (data['recipient'] ?? data['to'] ?? '')
+                    .toString().trim();
+                final messageId = (data['id'] ?? data['messageId'] ?? '')
+                    .toString().trim();
+                final clientMessageId =
+                    (data['clientMessageId'] ?? '').toString().trim();
+                final deliveryToken =
+                    (data['deliveryToken'] ?? '').toString().trim();
+
+                if (sender.isNotEmpty &&
+                    sender.toLowerCase() != (nickname ?? '').toLowerCase() &&
+                    (recipient.isEmpty ||
+                        recipient.toLowerCase() ==
+                            (nickname ?? '').toLowerCase()) &&
+                    (messageId.isNotEmpty || clientMessageId.isNotEmpty)) {
+                  send({
+                    'type': 'messageDelivered',
+                    'from': sender,
+                    'messageId': messageId,
+                    'clientMessageId': clientMessageId,
+                    'deliveryToken': deliveryToken,
+                  });
+                }
+              }
+
               if (data['type'] == 'authError') {
                 connected = false;
 

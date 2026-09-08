@@ -1,4 +1,12 @@
-## 1.0.8+12 — DeepFix
+## 1.1.1+16 — Final reliability pass (2026-09-08)
+- Dosya/fotoğraf aktarımı kimliği doğrulanmış WebSocket + ZLF2 binary chunk protokolüne taşındı; WebRTC DataChannel dosya aktarımı kullanılmıyor.
+- Gönderici END bildirimi alıcıya aktarılıyor; alıcı gerçek `.part` dosyasını boyut + SHA-256 ile doğrulayıp `fileTransferComplete` ile sunucuya onaylıyor.
+- END/COMPLETE kaybı için idempotent retry ve reconnect desteği eklendi; sunucu terminal transfer durumunu kısa süre koruyor.
+- Uygulama kapalı/arka plandayken DATA-only FCM ile transfer servisi uyandırılıyor; FCM reserved `from` anahtarı kullanılmıyor.
+- Background transfer socket'i presence/online durumunu değiştirmiyor.
+- Dosya mesajı ile gerçek binary transfer durumu birbirinden ayrıldı; sohbet geçmişi tamamlanmış transferi doğru şekilde gösterebiliyor.
+- Kamera/galeri fotoğrafları transfer başlamadan önce kalıcı kopyaya alınıyor; geçici picker dosyası kaybolsa bile aktarım etkilenmiyor.
+- Mesaj okundu tiki ZeroLog için çift yeşil olarak gösteriliyor.
 - Dosya/fotoğraf WebRTC signaling akışı yeniden güvenilir hale getirildi; bağlı arka plan istemcilerine signaling doğrudan yönlendirilir.
 - Otomatik dosya kabul tercihi canlı sohbet ekranına anında uygulanır; uygulama çalışırken sohbet açık olmasa da gelen teklif otomatik kabul edilebilir.
 - Mesaj okundu durumu yalnızca uygulama gerçekten foreground/resumed durumundayken gönderilir; arka planda gelen mesajlar okunmuş sayılmaz.

@@ -143,6 +143,7 @@ class FileTransfer {
   bool _accepted = false;
   bool _sending = false;
   bool _terminalEventHandled = false;
+  bool _completionAcknowledged = false;
 
   int _nextSendSeq = 0;
   int _lastAckSeq = -1;
@@ -549,6 +550,12 @@ class FileTransfer {
         }
         break;
 
+      case 'fileTransferCompleteAck':
+        if (_incomingTransfer && event['transferId']?.toString() == _transferId) {
+          _completionAcknowledged = true;
+        }
+        break;
+
       case 'fileTransferReject':
         if (!_incomingTransfer) {
           await _failTransfer(id, 'Karşı taraf dosyayı reddetti.', reset: true);
@@ -667,22 +674,11 @@ class FileTransfer {
         await raf.close();
       }
 
-      final sentEnd = ws.send({
-        'type': 'fileTransferEnd',
-        'from': me,
-        'to': peer,
-        'transferId': id,
-        'fileSize': _sentBytes,
-        'sha256': _sourceSha256,
-      });
-
-      if (!sentEnd) {
-        throw StateError('Dosya bitiş bildirimi gönderilemedi.');
-      }
+      await _sendEndAndWaitForCompletion(id);
 
       onProgress?.call(
         transferId: id,
-        sentBytes: _sentBytes,
+        sentBytes: _fileSize,
         totalBytes: _fileSize,
         status: 'transferring',
       );
@@ -693,6 +689,51 @@ class FileTransfer {
         reset: true,
       );
     }
+  }
+
+  Future<void> _sendEndAndWaitForCompletion(String transferId) async {
+    final deadline = DateTime.now().add(const Duration(minutes: 5));
+
+    // Do not let the byte-transfer inactivity timer abort a healthy receiver
+    // while it hashes/finalizes the completed file.
+    _transferTimeoutTimer?.cancel();
+    _transferTimeoutTimer = null;
+
+    while (!_disposed &&
+        _transferId == transferId &&
+        !_terminalEventHandled &&
+        DateTime.now().isBefore(deadline)) {
+      if (!ws.connected) {
+        if (!await _waitForConnection(const Duration(seconds: 30))) {
+          continue;
+        }
+      }
+
+      final sent = ws.send({
+        'type': 'fileTransferEnd',
+        'from': me,
+        'to': peer,
+        'transferId': transferId,
+        'fileSize': _sentBytes,
+        'sha256': _sourceSha256,
+      });
+
+      if (sent) {
+        final waitUntil = DateTime.now().add(const Duration(seconds: 8));
+        while (!_disposed &&
+            _transferId == transferId &&
+            !_terminalEventHandled &&
+            DateTime.now().isBefore(waitUntil)) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+
+        if (_terminalEventHandled) return;
+      } else {
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+    }
+
+    throw TimeoutException('Alıcı dosyayı doğrulayıp tamamlayamadı.');
   }
 
   Future<void> _waitForAck(String transferId, int targetSeq) async {
@@ -954,17 +995,13 @@ class FileTransfer {
 
       _terminalEventHandled = true;
 
-      // Dosya doğrulandı ve kalıcı konuma başarıyla taşındı.
-      // COMPLETE bildirimi yalnızca karşı tarafa durum bilgisidir.
-      // Gönderilememesi yerel olarak tamamlanmış dosyayı FAILED yapmamalıdır.
-      ws.send({
-        'type': 'fileTransferComplete',
-        'from': me,
-        'to': peer,
-        'transferId': id,
-        'fileSize': _receivedBytes,
-        'sha256': actualSha,
-      });
+      // The file is already verified and persisted locally. Tell the server
+      // authoritatively, retrying across a short socket transition.
+      await _sendCompletionWithRetry(
+        transferId: id,
+        fileSize: _receivedBytes,
+        sha256: actualSha,
+      );
 
       onIncomingStatus?.call(
         transferId: id,
@@ -981,6 +1018,51 @@ class FileTransfer {
         incoming: true,
       );
     }
+  }
+
+  Future<void> _sendCompletionWithRetry({
+    required String transferId,
+    required int fileSize,
+    required String sha256,
+  }) async {
+    final deadline = DateTime.now().add(const Duration(minutes: 2));
+    _completionAcknowledged = false;
+
+    while (!_disposed &&
+        _transferId == transferId &&
+        DateTime.now().isBefore(deadline)) {
+      if (_completionAcknowledged) return;
+
+      if (!ws.connected) {
+        if (!await _waitForConnection(const Duration(seconds: 30))) {
+          continue;
+        }
+      }
+
+      final sent = ws.send({
+        'type': 'fileTransferComplete',
+        'from': me,
+        'to': peer,
+        'transferId': transferId,
+        'fileSize': fileSize,
+        'sha256': sha256,
+      });
+
+      if (sent) {
+        final waitUntil = DateTime.now().add(const Duration(seconds: 3));
+        while (!_disposed &&
+            _transferId == transferId &&
+            !_completionAcknowledged &&
+            DateTime.now().isBefore(waitUntil)) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+        if (_completionAcknowledged) return;
+      } else {
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+    }
+
+    throw TimeoutException('Dosya tamamlandı ancak sunucu onayı alınamadı.');
   }
 
   Future<void> _handleRemoteCompletion(Map<String, dynamic> event) async {
@@ -1192,6 +1274,7 @@ class FileTransfer {
     _accepted = false;
     _sending = false;
     _terminalEventHandled = false;
+    _completionAcknowledged = false;
     _nextSendSeq = 0;
     _lastAckSeq = -1;
     _outstandingFrames.clear();

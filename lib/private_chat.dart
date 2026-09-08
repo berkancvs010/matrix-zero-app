@@ -1696,20 +1696,30 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       if (picked == null) return;
 
-      _lastOutgoingFile = File(picked.path);
       _lastOutgoingFileName = picked.name;
 
+      // Camera/gallery providers may expose temporary/cache files. Persist
+      // the source BEFORE starting the asynchronous transfer so the source
+      // cannot disappear while hashing/sending is in progress.
+      final transferSeed =
+          '${DateTime.now().microsecondsSinceEpoch}-${widget.myNick}';
+      final persistentPath = await _persistOutgoingMedia(
+        picked.path,
+        transferSeed,
+      );
+      final persistentFile = File(persistentPath);
+      if (!await persistentFile.exists()) {
+        throw StateError('Fotoğraf kalıcı olarak kaydedilemedi.');
+      }
+
+      _lastOutgoingFile = persistentFile;
+
       final transferId = await _fileTransfer.sendFile(
-        sourceFile: _lastOutgoingFile,
+        sourceFile: persistentFile,
         sourceFileName: _lastOutgoingFileName,
       );
 
       if (transferId == null || transferId.isEmpty) return;
-
-      final persistentPath = await _persistOutgoingMedia(
-        picked.path,
-        transferId,
-      );
       _rememberLocalTransferPath(transferId, persistentPath);
 
       if (!mounted) return;
@@ -2304,7 +2314,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       case 'accepting':
         return 'Kabul ediliyor…';
       case 'completed':
-        return 'Gönderildi';
+        return 'Tamamlandı';
       case 'failed':
         return 'Transfer başarısız';
       case 'rejected':
@@ -2475,8 +2485,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 !message.localPath.startsWith('content://') &&
                 File(message.localPath).existsSync()));
     final displayedTransferBytes =
-        (message.status == 'completed' || message.status == 'stored') &&
-            message.fileSize > 0
+        message.status == 'completed' && message.fileSize > 0
         ? message.fileSize
         : message.transferBytes;
 
@@ -2494,7 +2503,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         message.isFile &&
         message.fileId.isNotEmpty &&
         (message.status == 'completed' ||
-            message.status == 'stored' ||
             isReceivedUri ||
             canOpenLocalImage);
 
@@ -2797,9 +2805,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                                 : message.status == 'stored'
                                 ? Colors.grey
                                 : message.status == 'delivered'
-                                ? Colors.amber
-                                : message.status == 'read'
-                                ? Colors.greenAccent
+                                ? Colors.grey
+                                 : message.status == 'read'
+                                 ? Colors.green
                                 : theme.text.withValues(alpha: 0.48),
                           ),
                         ),
