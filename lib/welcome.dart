@@ -71,12 +71,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         return false;
       }
 
+      // Geçici ağ/proxy/sunucu kesintisinde kullanıcıyı tekrar login ekranına
+      // düşürme. Kayıtlı kimlik bilgileri korunur; WsClient arka planda yeniden
+      // bağlanmayı sürdürür. Yalnızca sunucu kimlik bilgilerini kesin olarak
+      // reddederse gerçek login ekranına dön.
       final ok = await WsClient.instance.connect(
         saved['username']!,
         saved['password']!,
       );
 
-      return ok;
+      if (ok) return true;
+
+      return WsClient.instance.lastConnectErrorCode != 'INVALID_CREDENTIALS';
     } catch (_) {
       return false;
     }

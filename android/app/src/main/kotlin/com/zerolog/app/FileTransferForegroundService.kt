@@ -14,11 +14,14 @@ import android.webkit.MimeTypeMap
 import java.io.File
 import androidx.core.content.FileProvider
 import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
 import androidx.core.app.NotificationCompat
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugins.GeneratedPluginRegistrant
 
 class FileTransferForegroundService : Service() {
 
@@ -44,6 +47,11 @@ class FileTransferForegroundService : Service() {
 
         private const val PREFS =
             "zerolog_background_transfer"
+
+        private const val PENDING_QUEUE_KEY =
+            "pending_transfers_json"
+
+        private val PREFS_LOCK = Any()
     }
 
     private var flutterEngine: FlutterEngine? = null
@@ -81,8 +89,19 @@ class FileTransferForegroundService : Service() {
             )
         }
 
+        if (intent == null) {
+            if (readPendingTransfers().isNotEmpty()) {
+                startFlutterEngine()
+                return START_STICKY
+            }
+
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val sender =
-            intent?.getStringExtra(EXTRA_SENDER)
+            intent.getStringExtra(EXTRA_SENDER)
                 ?.trim()
                 .orEmpty()
 
@@ -116,18 +135,124 @@ class FileTransferForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit()
-            .putString(EXTRA_SENDER, sender)
-            .putString(EXTRA_RECIPIENT, recipient)
-            .putString(EXTRA_FILE_ID, fileId)
-            .putString(EXTRA_FILE_NAME, fileName)
-            .putString(EXTRA_FILE_SIZE, fileSize)
-            .apply()
+        enqueuePendingTransfer(
+            sender = sender,
+            recipient = recipient,
+            fileId = fileId,
+            fileName = fileName,
+            fileSize = fileSize
+        )
 
         startFlutterEngine()
 
         return START_STICKY
+    }
+
+    private fun enqueuePendingTransfer(
+        sender: String,
+        recipient: String,
+        fileId: String,
+        fileName: String,
+        fileSize: String
+    ) {
+        synchronized(PREFS_LOCK) {
+            val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+            val current = JSONArray(prefs.getString(PENDING_QUEUE_KEY, "[]") ?: "[]")
+            val next = JSONArray()
+
+            for (index in 0 until current.length()) {
+                val item = current.optJSONObject(index) ?: continue
+                if (item.optString(EXTRA_FILE_ID) == fileId) {
+                    continue
+                }
+                next.put(item)
+            }
+
+            next.put(
+                JSONObject().apply {
+                    put(EXTRA_SENDER, sender)
+                    put(EXTRA_RECIPIENT, recipient)
+                    put(EXTRA_FILE_ID, fileId)
+                    put(EXTRA_FILE_NAME, fileName)
+                    put(EXTRA_FILE_SIZE, fileSize)
+                }
+            )
+
+            prefs.edit()
+                .putString(PENDING_QUEUE_KEY, next.toString())
+                .apply()
+        }
+    }
+
+    private fun readPendingTransfers(): List<Map<String, String>> {
+        synchronized(PREFS_LOCK) {
+            val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+            val raw = prefs.getString(PENDING_QUEUE_KEY, "[]") ?: "[]"
+            val array = try {
+                JSONArray(raw)
+            } catch (_: Exception) {
+                JSONArray()
+            }
+
+            val result = mutableListOf<Map<String, String>>()
+
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val sender = item.optString(EXTRA_SENDER).trim()
+                val recipient = item.optString(EXTRA_RECIPIENT).trim()
+                val fileId = item.optString(EXTRA_FILE_ID).trim()
+                val fileName = item.optString(EXTRA_FILE_NAME).trim()
+                val fileSize = item.optString(EXTRA_FILE_SIZE).trim()
+
+                if (sender.isNotEmpty() &&
+                    recipient.isNotEmpty() &&
+                    fileId.isNotEmpty() &&
+                    (fileSize.toLongOrNull() ?: 0L) > 0L
+                ) {
+                    result.add(
+                        mapOf(
+                            EXTRA_SENDER to sender,
+                            EXTRA_RECIPIENT to recipient,
+                            EXTRA_FILE_ID to fileId,
+                            EXTRA_FILE_NAME to fileName,
+                            EXTRA_FILE_SIZE to fileSize
+                        )
+                    )
+                }
+            }
+
+            return result
+        }
+    }
+
+    private fun removePendingTransfer(fileId: String): Boolean {
+        synchronized(PREFS_LOCK) {
+            val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+            val raw = prefs.getString(PENDING_QUEUE_KEY, "[]") ?: "[]"
+            val array = try {
+                JSONArray(raw)
+            } catch (_: Exception) {
+                JSONArray()
+            }
+
+            val next = JSONArray()
+            var removed = false
+
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                if (item.optString(EXTRA_FILE_ID).trim() == fileId) {
+                    removed = true
+                } else {
+                    next.put(item)
+                }
+            }
+
+            prefs.edit()
+                .putString(PENDING_QUEUE_KEY, next.toString())
+                .apply()
+
+            return removed
+        }
     }
 
     private fun startFlutterEngine() {
@@ -147,6 +272,12 @@ class FileTransferForegroundService : Service() {
             val engine =
                 FlutterEngine(applicationContext)
 
+            // Headless FlutterEngine does not inherit the Activity plugin
+            // registration. Register all app plugins before running Dart so
+            // SharedPreferences, secure storage and path_provider work while
+            // the UI process is backgrounded/terminated.
+            GeneratedPluginRegistrant.registerWith(engine)
+
             methodChannel = MethodChannel(
                 engine.dartExecutor.binaryMessenger,
                 METHOD_CHANNEL
@@ -157,59 +288,26 @@ class FileTransferForegroundService : Service() {
                 result ->
                 when (call.method) {
 
+                    "getPendingTransfers" -> {
+                        result.success(readPendingTransfers())
+                    }
+
                     "getPendingTransfer" -> {
-                        val prefs =
-                            getSharedPreferences(
-                                PREFS,
-                                MODE_PRIVATE
-                            )
+                        // Backward-compatible single-item API.
+                        val pending = readPendingTransfers()
+                        result.success(pending.firstOrNull())
+                    }
 
-                        val sender =
-                            prefs.getString(
-                                EXTRA_SENDER,
-                                ""
-                            ).orEmpty()
-
-                        val recipient =
-                            prefs.getString(
-                                EXTRA_RECIPIENT,
-                                ""
-                            ).orEmpty()
-
+                    "removePendingTransfer" -> {
                         val fileId =
-                            prefs.getString(
-                                EXTRA_FILE_ID,
-                                ""
-                            ).orEmpty()
+                            call.argument<String>("fileId")
+                                ?.trim()
+                                .orEmpty()
 
-                        val fileName =
-                            prefs.getString(
-                                EXTRA_FILE_NAME,
-                                ""
-                            ).orEmpty()
-
-                        val fileSize =
-                            prefs.getString(
-                                EXTRA_FILE_SIZE,
-                                ""
-                            ).orEmpty()
-
-                        if (sender.isEmpty() ||
-                            recipient.isEmpty() ||
-                            fileId.isEmpty()
-                        ) {
-                            result.success(null)
-                        } else {
-                            result.success(
-                                mapOf(
-                                    "sender" to sender,
-                                    "recipient" to recipient,
-                                    "fileId" to fileId,
-                                    "fileName" to fileName,
-                                    "fileSize" to fileSize
-                                )
-                            )
-                        }
+                        result.success(
+                            if (fileId.isEmpty()) false
+                            else removePendingTransfer(fileId)
+                        )
                     }
 
                     "stopService" -> {
@@ -273,7 +371,8 @@ class FileTransferForegroundService : Service() {
                 "Headless FlutterEngine start failed",
                 e
             )
-            stopTransferService()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
     }
 
@@ -531,6 +630,18 @@ class FileTransferForegroundService : Service() {
     private fun stopTransferService() {
         Log.d(TAG, "Stopping file transfer service")
 
+        val currentFileId = getSharedPreferences(PREFS, MODE_PRIVATE)
+            .getString(EXTRA_FILE_ID, "")
+            ?.trim()
+            .orEmpty()
+
+        if (currentFileId.isNotEmpty()) {
+            ZeroLogFirebaseMessagingService.cancelFileNotification(
+                this,
+                currentFileId
+            )
+        }
+
         try {
             methodChannel?.setMethodCallHandler(null)
         } catch (_: Exception) {
@@ -545,13 +656,15 @@ class FileTransferForegroundService : Service() {
 
         flutterEngine = null
 
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit()
-            .clear()
-            .apply()
-
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // The Dart worker removes each completed transfer explicitly.
+        // Never clear the durable queue here: a service restart must be able
+        // to recover a transfer that was interrupted between callbacks.
+        if (readPendingTransfers().isEmpty()) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        } else {
+            Log.w(TAG, "Transfer service stop requested while queue is not empty")
+        }
     }
 
     override fun onDestroy() {

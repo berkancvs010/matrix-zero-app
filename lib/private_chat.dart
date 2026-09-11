@@ -293,6 +293,22 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     return 'zerolog.private_history.$me.$peer';
   }
 
+  String _mergeFileTransferStatus(String current, String incoming) {
+    final currentStatus = current.trim();
+    final incomingStatus = incoming.trim();
+
+    if (currentStatus == 'completed') return 'completed';
+    if (incomingStatus == 'completed') return 'completed';
+
+    const terminal = {'failed', 'rejected'};
+    if (terminal.contains(currentStatus) &&
+        !terminal.contains(incomingStatus)) {
+      return currentStatus;
+    }
+
+    return incomingStatus;
+  }
+
   void _upsertFileMessage({
     required String transferId,
     required String sender,
@@ -315,12 +331,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         ? existing.expiresAt
         : now + const Duration(hours: 24).inMilliseconds;
 
+    final effectiveStatus = existing == null
+        ? status
+        : _mergeFileTransferStatus(existing.status, status);
+
     final message = ChatMessage(
       id: transferId,
       sender: sender,
       text: fileName.isEmpty ? 'Dosya' : fileName,
       clientMessageId: transferId,
-      status: status,
+      status: effectiveStatus,
       timestamp: existing?.timestamp ?? now,
       isFile: true,
       fileId: transferId,

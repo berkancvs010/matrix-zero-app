@@ -41,38 +41,9 @@ Future<void> zerologBackgroundTransferMain() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('zerolog/background_transfer');
-  StreamSubscription<Map<String, dynamic>>? backgroundEventsSub;
 
   try {
-    final raw = await channel.invokeMethod<dynamic>('getPendingTransfer');
-
-    if (raw is! Map) {
-      await channel.invokeMethod<dynamic>('stopService');
-      return;
-    }
-
-    final data = Map<String, dynamic>.from(raw);
-
-    final sender = (data['sender'] ?? '').toString().trim();
-
-    final recipient = (data['recipient'] ?? '').toString().trim();
-
-    final transferId = (data['fileId'] ?? '').toString().trim();
-
-    final fileName = (data['fileName'] ?? 'received_file').toString().trim();
-
-    final fileSize = int.tryParse((data['fileSize'] ?? '').toString()) ?? 0;
-
-    if (sender.isEmpty ||
-        recipient.isEmpty ||
-        transferId.isEmpty ||
-        fileSize <= 0) {
-      await channel.invokeMethod<dynamic>('stopService');
-      return;
-    }
-
     final prefs = await SharedPreferences.getInstance();
-
     final autoAccept =
         prefs.getBool('zerolog.notifications.auto_accept_files') ?? true;
 
@@ -82,93 +53,118 @@ Future<void> zerologBackgroundTransferMain() async {
     }
 
     final session = await SecureSession.read();
-
     if (session == null) {
       await channel.invokeMethod<dynamic>('stopService');
       return;
     }
 
     final username = session['username']!.trim();
-
-    if (username.isEmpty || username.toLowerCase() != recipient.toLowerCase()) {
+    if (username.isEmpty) {
       await channel.invokeMethod<dynamic>('stopService');
       return;
     }
 
     FileTransfer.backgroundTransferMode = true;
 
-    final ws = WsClient.instance;
+    // Android can deliver more than one FCM wake-up while the same
+    // foreground service is alive. The native service keeps a durable queue;
+    // process it sequentially so every transfer gets its own authenticated
+    // transfer socket. This preserves the existing single-transfer FileTransfer
+    // state machine instead of introducing risky multi-transfer state into it.
+    while (true) {
+      final rawQueue =
+          await channel.invokeMethod<dynamic>('getPendingTransfers');
 
-    // WsClient.events is a broadcast stream and does not replay events.
-    // The server can deliver pending file-transfer signaling immediately
-    // after authentication, so capture file events BEFORE connect().
-    final pendingFileEvents = <Map<String, dynamic>>[];
-    var transferReady = false;
-
-    backgroundEventsSub = ws.events.listen((event) {
-      final type = event['type']?.toString();
-
-      final isFileSignal =
-          type == 'fileTransferOffer' ||
-          type == 'fileTransferAnswer' ||
-          type == 'fileTransferIce' ||
-          type == 'fileTransferAccept' ||
-          type == 'fileTransferReject' ||
-          type == 'fileTransferComplete' ||
-          type == 'fileTransferFailed';
-
-      if (!isFileSignal) return;
-
-      if (!transferReady) {
-        pendingFileEvents.add(Map<String, dynamic>.from(event));
-        return;
+      if (rawQueue is! List || rawQueue.isEmpty) {
+        break;
       }
 
-      final currentTransfer = FileTransfer.shared(
-        ws: ws,
-        me: username,
-        peer: sender,
-        turnUsername: ws.turnUsername,
-        turnPassword: ws.turnPassword,
-        turnUrls: ws.turnUrls,
-      );
+      final raw = rawQueue.first;
+      if (raw is! Map) {
+        break;
+      }
 
-      unawaited(
-        currentTransfer.handleExternalEvent(Map<String, dynamic>.from(event)),
-      );
-    });
+      final data = Map<String, dynamic>.from(raw);
+      final sender = (data['sender'] ?? '').toString().trim();
+      final recipient = (data['recipient'] ?? '').toString().trim();
+      final transferId = (data['fileId'] ?? '').toString().trim();
+      final fileName =
+          (data['fileName'] ?? 'received_file').toString().trim();
+      final fileSize =
+          int.tryParse((data['fileSize'] ?? '').toString()) ?? 0;
 
-    final connected = await ws.connect(
-      session['username']!,
-      session['password']!,
-      backgroundTransfer: true,
-      backgroundTransferId: transferId,
-    );
+      if (sender.isEmpty ||
+          recipient.isEmpty ||
+          transferId.isEmpty ||
+          fileSize <= 0 ||
+          username.toLowerCase() != recipient.toLowerCase()) {
+        await channel.invokeMethod<dynamic>(
+          'removePendingTransfer',
+          <String, dynamic>{'fileId': transferId},
+        );
+        continue;
+      }
 
-    if (!connected) {
-      await backgroundEventsSub.cancel();
-      await channel.invokeMethod<dynamic>('stopService');
-      return;
-    }
+      final ws = WsClient.instance;
+      StreamSubscription<Map<String, dynamic>>? captureSub;
+      var transferReady = false;
+      final pendingFileEvents = <Map<String, dynamic>>[];
 
-    // Reliable file transfer uses the authenticated WebSocket/ZLF2 relay;
-    // TURN credentials are not required for the transfer data path.
-    final transfer = FileTransfer.shared(
-      ws: ws,
-      me: username,
-      peer: sender,
-      turnUsername: ws.turnUsername,
-      turnPassword: ws.turnPassword,
-      turnUrls: ws.turnUrls,
-    );
+      var retryLater = false;
 
-    final backgroundTransferDone = Completer<void>();
-    var backgroundTransferCompleted = false;
-    String? completedLocalUri;
+      try {
+        // The broadcast stream does not replay. Capture signaling before
+        // connect because the server may replay OFFER immediately after auth.
+        captureSub = ws.events.listen((event) {
+          final type = event['type']?.toString();
+          const fileSignals = <String>{
+            'fileTransferOffer',
+            'fileTransferAnswer',
+            'fileTransferIce',
+            'fileTransferAccept',
+            'fileTransferReject',
+            'fileTransferComplete',
+            'fileTransferFailed',
+          };
 
-    transfer.bindCallbacks(
-      onIncomingStatus:
-          ({
+          if (!fileSignals.contains(type)) return;
+
+          if (!transferReady) {
+            pendingFileEvents.add(Map<String, dynamic>.from(event));
+          }
+        });
+
+        final connected = await ws.connect(
+          session['username']!,
+          session['password']!,
+          backgroundTransfer: true,
+          backgroundTransferId: transferId,
+          skipFcmToken: true,
+        );
+
+        if (!connected) {
+          await captureSub.cancel();
+          captureSub = null;
+          // Keep the queue item. The service is START_STICKY and another
+          // delivery/restart can recover it without losing the transfer.
+          break;
+        }
+
+        final transfer = FileTransfer.shared(
+          ws: ws,
+          me: username,
+          peer: sender,
+          turnUsername: ws.turnUsername,
+          turnPassword: ws.turnPassword,
+          turnUrls: ws.turnUrls,
+        );
+
+        final done = Completer<void>();
+        var terminal = false;
+        String? completedLocalUri;
+
+        transfer.bindCallbacks(
+          onIncomingStatus: ({
             required String transferId,
             required String status,
             String? localUri,
@@ -179,74 +175,106 @@ Future<void> zerologBackgroundTransferMain() async {
               }
             }
 
-            if (status == 'completed' || status == 'failed') {
-              if (!backgroundTransferCompleted) {
-                backgroundTransferCompleted = true;
-                backgroundTransferDone.complete();
-              }
+            if ((status == 'completed' || status == 'failed') &&
+                !terminal) {
+              terminal = true;
+              if (!done.isCompleted) done.complete();
             }
           },
-    );
-
-    // Background isolate must subscribe to the shared WebSocket event stream
-    // BEFORE ACCEPT is sent. Otherwise fileTransferChunk/fileTransferEnd can
-    // arrive after ACCEPT while no FileTransfer listener exists.
-    await transfer.initialize();
-
-    final prepared = await transfer.prepareIncomingFromNotification(
-      transferId: transferId,
-      fileName: fileName,
-      fileSize: fileSize,
-      sender: sender,
-    );
-
-    if (!prepared) {
-      await backgroundEventsSub.cancel();
-      await channel.invokeMethod<dynamic>('stopService');
-      return;
-    }
-
-    await transfer.acceptIncoming(transferId);
-
-    // ACCEPT has been sent. FileTransfer now owns subsequent transfer events.
-
-    await backgroundEventsSub.cancel();
-    backgroundEventsSub = null;
-    transferReady = true;
-
-    final capturedEvents = List<Map<String, dynamic>>.from(pendingFileEvents);
-
-    pendingFileEvents.clear();
-
-    for (final event in capturedEvents) {
-      await transfer.handleExternalEvent(event);
-    }
-
-    if (!backgroundTransferCompleted) {
-      await backgroundTransferDone.future.timeout(
-        const Duration(minutes: 5),
-        onTimeout: () {},
-      );
-    }
-
-    // Headless Flutter has no chat UI to retain the received local path.
-    // Publish the verified file to Android storage before stopping the
-    // foreground service so the file survives and can be opened/previewed
-    // after ZeroLog is launched again.
-    if (backgroundTransferCompleted &&
-        completedLocalUri != null &&
-        completedLocalUri!.isNotEmpty) {
-      try {
-        await channel.invokeMethod<String?>(
-          'registerBackgroundReceivedFile',
-          <String, dynamic>{
-            'fileId': transferId,
-            'sourcePath': completedLocalUri,
-            'fileName': fileName,
-          },
         );
-      } catch (e) {
-        debugPrint('[BG_TRANSFER] received file registration failed: $e');
+
+        await transfer.initialize();
+
+        final prepared = await transfer.prepareIncomingFromNotification(
+          transferId: transferId,
+          fileName: fileName,
+          fileSize: fileSize,
+          sender: sender,
+        );
+
+        if (!prepared) {
+          await channel.invokeMethod<dynamic>(
+            'removePendingTransfer',
+            <String, dynamic>{'fileId': transferId},
+          );
+          continue;
+        }
+
+        await transfer.acceptIncoming(transferId);
+
+        // FileTransfer now owns chunks/end/complete. Keep the capture
+        // subscription alive only until ACCEPT is sent so no early signaling
+        // is lost; captured events are replayed immediately afterwards.
+        await captureSub.cancel();
+        captureSub = null;
+        transferReady = true;
+
+        final capturedEvents =
+            List<Map<String, dynamic>>.from(pendingFileEvents);
+        pendingFileEvents.clear();
+
+        for (final event in capturedEvents) {
+          await transfer.handleExternalEvent(event);
+        }
+
+        if (!terminal) {
+          await done.future.timeout(
+            const Duration(minutes: 5),
+            onTimeout: () {},
+          );
+        }
+
+        // A completed/failed transfer has reached a terminal local state.
+        // Remove only this item; other queued transfers remain durable.
+        await channel.invokeMethod<dynamic>(
+          'removePendingTransfer',
+          <String, dynamic>{'fileId': transferId},
+        );
+
+        // Keep the verified local file registration path exactly as before.
+        if (completedLocalUri != null &&
+            completedLocalUri!.trim().isNotEmpty) {
+          try {
+            await channel.invokeMethod<dynamic>(
+              'registerBackgroundReceivedFile',
+              <String, dynamic>{
+                'fileId': transferId,
+                'sourcePath': completedLocalUri,
+                'fileName': fileName,
+              },
+            );
+          } catch (e) {
+            debugPrint(
+              '[BG_TRANSFER] received file registration failed: $e',
+            );
+          }
+        }
+      } catch (e, stack) {
+        retryLater = true;
+        debugPrint('[BG_TRANSFER] transfer=$transferId error: $e');
+        debugPrint('$stack');
+
+        // Do not discard a queued transfer on a transport/process exception.
+        // The server-side reliable session remains the source of truth.
+      } finally {
+        if (captureSub != null) {
+          try {
+            await captureSub.cancel();
+          } catch (_) {}
+        }
+
+        try {
+          await ws.disconnect();
+        } catch (_) {}
+
+        transferReady = false;
+        pendingFileEvents.clear();
+      }
+
+      if (retryLater) {
+        // Preserve the queue item for a later FCM/service restart instead of
+        // spinning indefinitely on a broken transport.
+        break;
       }
     }
 

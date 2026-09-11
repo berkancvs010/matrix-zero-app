@@ -49,6 +49,10 @@ const backgroundSocketByWs=new Map(); // ws -> transferId
 const reliableFileTransfers=new Map(); // transferId -> session
 const RELIABLE_FILE_TRANSFER_TTL_MS=30*60*1000;
 const RELIABLE_FILE_MAX_CHUNK_BYTES=64*1024;
+// Receiver wake-up/socket handoff can take longer than one sender window.
+// Keep a bounded in-memory relay buffer larger than the client send window.
+// File contents are never persisted to disk.
+const RELIABLE_FILE_MAX_PENDING_CHUNKS=128;
 
 // WebSocket bağlantısı açık kalsa bile uygulamanın gerçek UI durumunu
 // takip eder. foreground dışındaki kullanıcılar çağrı açısından offline
@@ -974,6 +978,22 @@ async function handleReliableFileEvent(ws,d,me){
   if(type==='fileTransferFailed'){
     if(!isSender && !isReceiver)return true;
 
+    // A late failure from an old socket/event must never overwrite an
+    // already verified terminal completion.
+    if(session.state==='completed'){
+      if(isSender){
+        send(ws,{
+          type:'fileTransferComplete',
+          from:session.to,
+          to:session.from,
+          transferId,
+          fileSize:session.fileSize,
+          sha256:session.sha256,
+        });
+      }
+      return true;
+    }
+
     session.state='failed';
 
     updateReliableFileMessage(
@@ -1095,9 +1115,10 @@ function handleReliableFileBinary(ws,buffer,me){
       session.pendingChunks=[];
     }
 
-    // Sender has a maximum 32-chunk outstanding window. Keep only that
-    // bounded window while the receiver socket is transitioning.
-    if(session.pendingChunks.length>=32){
+    // Keep a bounded relay window while the receiver socket is transitioning.
+    // It must be larger than the client's 64-chunk send window, otherwise a
+    // normal background wake-up can be misclassified as a transfer failure.
+    if(session.pendingChunks.length>=RELIABLE_FILE_MAX_PENDING_CHUNKS){
       send(ws,{
         type:'fileTransferFailed',
         transferId,
@@ -1133,7 +1154,7 @@ function handleReliableFileBinary(ws,buffer,me){
        * The receiver disappeared again while flushing. Queue the current
        * chunk behind the older pending chunks so ordering is preserved.
        */
-      if(session.pendingChunks.length<32){
+      if(session.pendingChunks.length<RELIABLE_FILE_MAX_PENDING_CHUNKS){
         session.pendingChunks.push(Buffer.from(buffer));
         session.updatedAt=Date.now();
         return true;
@@ -1168,7 +1189,7 @@ function handleReliableFileBinary(ws,buffer,me){
       session.pendingChunks=[];
     }
 
-    if(session.pendingChunks.length<32){
+    if(session.pendingChunks.length<RELIABLE_FILE_MAX_PENDING_CHUNKS){
       session.pendingChunks.push(Buffer.from(buffer));
       session.updatedAt=Date.now();
       return true;
@@ -2764,6 +2785,16 @@ wss.on('connection',(ws)=>{
     const key=normalizeUsername(nick);
     const password=String(d.password != null ? d.password : '');
     const fcmToken=cleanFcmToken(d.fcmToken);
+
+    if(String(process.env.ZEROLOG_MAINTENANCE||'').trim()==='1'){
+      send(ws,{
+        type:'authError',
+        code:'SERVER_MAINTENANCE',
+        message:'Sunucuda bakım çalışması yapılıyor. Lütfen daha sonra tekrar deneyin.',
+      });
+      return;
+    }
+
     const account=accounts[key];
 
     if(!account || !verifyPassword(password,account.passwordHash)){
@@ -2777,6 +2808,24 @@ wss.on('connection',(ws)=>{
     const backgroundTransferId=String(d.backgroundTransferId||'').trim();
 
     if(old && old!==ws && !backgroundTransfer){
+      const sameAppInstallation =
+        !!fcmToken &&
+        !!account.fcmToken &&
+        String(account.fcmToken) === String(fcmToken);
+
+      if(sameAppInstallation){
+        console.log(
+          `[AUTH] replacing previous socket for same FCM installation ` +
+          `username=${account.username}`
+        );
+        disconnect(old);
+        try{old.terminate();}catch{}
+      }
+
+      if(!sockets.has(account.username)){
+        // Previous socket belonged to the same app installation and was
+        // replaced above. Continue with this login.
+      }else{
       /*
        * A network/proxy outage can leave the primary WebSocket object open
        * on Node even though the client is already gone. In that state the
@@ -2811,6 +2860,7 @@ wss.on('connection',(ws)=>{
       }else{
         send(ws,{type:'authError',code:'ACCOUNT_IN_USE',message:'Bu hesap başka bir cihazda aktif.'});
         return;
+      }
       }
     }
 
@@ -4079,9 +4129,9 @@ wss.on('connection',(ws)=>{
        * Bunun dışındaki gecikmiş signaling event'leri terminal
        * transferi yeniden canlandıramaz.
        */
-      const allowCompletionFailure =
-        lifecycle.state === 'completed' &&
-        d.type === 'fileTransferFailed';
+      // COMPLETED is authoritative. A late FAILED from an older socket/event
+      // must never roll a verified transfer back to failed.
+      const allowCompletionFailure = false;
 
       if(!allowCompletionFailure){
         console.log(

@@ -1,4 +1,13 @@
-# ZeroLog V4 — delivery, presence and transfer reliability repair
+# ZeroLog V5 — hardened background transfer and session reliability
+
+
+## Hardened reliability pass (2026-09-11)
+- Background file wake-ups are stored in a durable native queue instead of a single pending-transfer slot; multiple FCM wake-ups no longer overwrite each other.
+- A single headless Flutter worker processes queued transfers sequentially, preserving the existing proven single-transfer state machine and foreground chat/photo path.
+- The foreground transfer service retains queued metadata across service/process restarts instead of clearing it prematurely.
+- Background transfer reconnects keep the server-side reliable session as the source of truth; a transient headless transport exception no longer spins or discards the queued transfer.
+- Verified transfer completion remains terminal; delayed failure/signaling events cannot roll a completed transfer back to failed.
+- Existing foreground chat, photo preview and normal WebSocket transfer path are intentionally unchanged.
 
 - Presence now follows foreground lifecycle state instead of merely an open WebSocket.
 - Background live sockets can receive private messages and acknowledge delivery.

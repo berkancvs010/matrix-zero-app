@@ -404,11 +404,18 @@ class WsClient {
   bool _backgroundTransfer = false;
   String _backgroundTransferId = '';
 
+  String? _lastConnectErrorCode;
+  String? _lastConnectErrorMessage;
+
+  String? get lastConnectErrorCode => _lastConnectErrorCode;
+  String? get lastConnectErrorMessage => _lastConnectErrorMessage;
+
   Future<bool> connect(
     String username,
     String password, {
     bool backgroundTransfer = false,
     String backgroundTransferId = '',
+    bool skipFcmToken = false,
   }) async {
     _manualDisconnect = false;
     this.username = username.trim();
@@ -418,11 +425,14 @@ class WsClient {
     nickname = this.username;
     _reconnectAttempt = 0;
     _reconnectTimer?.cancel();
+    _lastConnectErrorCode = null;
+    _lastConnectErrorMessage = null;
 
     // Login sırasında token yoksa FCM'den doğrudan tekrar al.
     // Böylece başlangıçtaki token alma zamanlamasına bağlı kalmayız.
-    if (ZeroLogPushService.currentToken == null ||
-        ZeroLogPushService.currentToken!.trim().isEmpty) {
+    if (!skipFcmToken &&
+        (ZeroLogPushService.currentToken == null ||
+            ZeroLogPushService.currentToken!.trim().isEmpty)) {
       try {
         final token = await FirebaseMessaging.instance.getToken();
 
@@ -739,6 +749,13 @@ class WsClient {
 
               if (data['type'] == 'authError') {
                 connected = false;
+                _lastConnectErrorCode =
+                    (data['code'] ?? 'AUTH_ERROR').toString();
+                _lastConnectErrorMessage =
+                    (data['message'] ?? 'Giriş başarısız.').toString();
+                // An authentication rejection is final for this attempt;
+                // never keep reconnecting with the same invalid credentials.
+                _manualDisconnect = true;
 
                 if (!authCompleter.isCompleted) {
                   authCompleter.complete(false);
@@ -794,11 +811,17 @@ class WsClient {
 
       if (!authenticated) {
         connected = false;
+        if (_lastConnectErrorCode == null) {
+          _lastConnectErrorCode = 'SERVER_UNREACHABLE';
+          _lastConnectErrorMessage =
+              'Sunucuya ulaşılamıyor veya yanıt alınamıyor.';
+        }
         await _closeCurrent();
 
-        // Auth timeout/gecikmesi bağlantıyı tamamen kilitlemesin.
-        // Bekleyen mesajlar queue'da korunur ve sonraki bağlantıda gönderilir.
-        _scheduleReconnect();
+        // Auth timeout is a transport failure; reconnect remains enabled.
+        if (!_manualDisconnect) {
+          _scheduleReconnect();
+        }
 
         return false;
       }
@@ -811,8 +834,10 @@ class WsClient {
       _events.add({'type': 'connectionRestored'});
 
       return true;
-    } catch (_) {
+    } catch (error) {
       connected = false;
+      _lastConnectErrorCode = 'SERVER_UNREACHABLE';
+      _lastConnectErrorMessage = 'Sunucuya ulaşılamıyor.';
       await _closeCurrent();
       return false;
     } finally {

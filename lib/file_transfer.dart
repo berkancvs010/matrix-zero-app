@@ -154,7 +154,7 @@ class FileTransfer {
   Timer? _connectionTimeoutTimer;
   Timer? _transferTimeoutTimer;
 
-  // At most 32 chunks can be outstanding. Keep their encoded frames so a
+  // Keep a bounded 64-chunk send window. Encoded frames are retained so a
   // short WebSocket transition can be recovered without restarting the file.
   static const int _sendWindowSize = 64;
   static const int _chunkSize = 64 * 1024;

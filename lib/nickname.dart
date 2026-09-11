@@ -130,18 +130,53 @@ class _NicknameScreenState extends State<NicknameScreen>
       _loading = true;
     });
 
-    final ok = await WsClient.instance.connect(username, password);
+    try {
+      try {
+        await InternetAddress.lookup('zerolog.giize.com').timeout(
+          const Duration(seconds: 4),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _loading = false);
+        _show('İnternet bağlantısı yok. Lütfen bağlantınızı kontrol edin.');
+        return;
+      }
 
-    if (!mounted) return;
+      final ok = await WsClient.instance.connect(username, password);
 
-    setState(() {
-      _loading = false;
-    });
+      if (!mounted) return;
 
-    if (!ok) {
-      _show(
-        'Giriş başarısız. Kullanıcı adı, şifre veya hesap durumu kontrol edilmeli.',
-      );
+      setState(() => _loading = false);
+
+      if (!ok) {
+        final code = WsClient.instance.lastConnectErrorCode;
+        final message = WsClient.instance.lastConnectErrorMessage;
+
+        switch (code) {
+          case 'INVALID_CREDENTIALS':
+            _show('Kullanıcı adı veya şifre hatalı.');
+            break;
+          case 'ACCOUNT_IN_USE':
+            _show('Bu hesap başka bir cihazda aktif.');
+            break;
+          case 'SERVER_MAINTENANCE':
+            _show('Sunucuda bakım çalışması yapılıyor. Lütfen daha sonra tekrar deneyin.');
+            break;
+          case 'SERVER_UNREACHABLE':
+          case 'CONNECTION_TIMEOUT':
+            _show('Sunucuya ulaşılamıyor. Lütfen daha sonra tekrar deneyin.');
+            break;
+          default:
+            _show(message?.trim().isNotEmpty == true
+                ? message!.trim()
+                : 'Giriş başarısız. Lütfen tekrar deneyin.');
+        }
+        return;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _show('Sunucuya ulaşılamıyor. Lütfen daha sonra tekrar deneyin.');
       return;
     }
 

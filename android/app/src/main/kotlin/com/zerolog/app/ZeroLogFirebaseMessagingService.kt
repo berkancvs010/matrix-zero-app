@@ -32,6 +32,16 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
         private const val CALL_STATUS_NOTIFICATION_ID = 9003
         private const val ACTIVE_CALL_ID_KEY = "flutter.zerolog.active_call_id"
 
+        fun cancelFileNotification(context: Context, fileId: String) {
+            val id = fileId.trim()
+            if (id.isEmpty()) return
+            try {
+                NotificationManagerCompat.from(context).cancel(
+                    9100 + ((id.hashCode() and 0x7fffffff) % 9000)
+                )
+            } catch (_: Exception) {}
+        }
+
         private var incomingCallPlayer: MediaPlayer? = null
         private var incomingCallVibrator: Vibrator? = null
 
@@ -843,7 +853,9 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
     private fun messageNotificationId(message: RemoteMessage): Int {
         val key = (
-            message.data["id"]
+            message.data["fileId"]
+                ?: message.data["transferId"]
+                ?: message.data["id"]
                 ?: message.data["clientMessageId"]
                 ?: message.data["from"]
                 ?: System.currentTimeMillis().toString()
