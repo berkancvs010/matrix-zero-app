@@ -1,3 +1,12 @@
+# ZeroLog V4 — delivery, presence and transfer reliability repair
+
+- Presence now follows foreground lifecycle state instead of merely an open WebSocket.
+- Background live sockets can receive private messages and acknowledge delivery.
+- Terminated/background FCM private-message delivery now sends a token-authenticated native delivery receipt.
+- Background file OFFERs retain an FCM wake-up path and duplicate ACCEPT races cannot steal the transfer socket.
+- File relay throughput increased to 64 KiB frames with a 64-frame send window and 16-frame ACK cadence.
+- Server still relays file bytes only; file contents are never persisted server-side.
+
 ## 1.1.1+16 — Final reliability pass (2026-09-08)
 - Dosya/fotoğraf aktarımı kimliği doğrulanmış WebSocket + ZLF2 binary chunk protokolüne taşındı; WebRTC DataChannel dosya aktarımı kullanılmıyor.
 - Gönderici END bildirimi alıcıya aktarılıyor; alıcı gerçek `.part` dosyasını boyut + SHA-256 ile doğrulayıp `fileTransferComplete` ile sunucuya onaylıyor.

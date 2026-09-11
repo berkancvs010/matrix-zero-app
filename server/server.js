@@ -329,27 +329,32 @@ async function sendReliableFileOffer(session){
   const recipient=fileSocketFor(session.to,session.transferId);
 
   /*
-   * Transfer routing is independent from presence. A background transfer
-   * socket is a valid transfer endpoint but must never publish online state.
+   * Transfer routing is independent from presence. A dedicated background
+   * transfer socket is a valid transfer endpoint. A primary background socket
+   * is also live, but Android may suspend its Dart isolate; therefore keep the
+   * FCM wake-up as a second idempotent path for primary background state.
    */
   if(recipient){
     const backgroundEndpoint=isBackgroundSocket(recipient);
     const foregroundEndpoint=isForegroundActive(session.to);
+    const delivered=send(recipient,reliableFileOffer(session));
 
-    if(backgroundEndpoint || foregroundEndpoint){
-      const delivered=send(recipient,reliableFileOffer(session));
-      if(delivered){
-        console.log(
-          `[FILE_TRANSFER] OFFER live transfer=${session.transferId} ` +
-          `to=${session.to} endpoint=${backgroundEndpoint?'background':'foreground'}`
-        );
+    if(delivered){
+      console.log(
+        `[FILE_TRANSFER] OFFER live transfer=${session.transferId} ` +
+        `to=${session.to} endpoint=${backgroundEndpoint?'background':'foreground'}`
+      );
+
+      // Foreground and dedicated headless transfer sockets are already
+      // listening. For a primary background socket continue to FCM below.
+      if(foregroundEndpoint || backgroundEndpoint){
         return true;
       }
     }
   }
 
   /*
-   * DATA-ONLY FCM is the wake-up path for a terminated/background receiver.
+   * DATA-only FCM is the wake-up path for a terminated/background receiver.
    * It must not depend on ordinary message notification preferences.
    *
    * "from" is reserved by Firebase and causes messaging/invalid-argument.
@@ -651,6 +656,18 @@ async function handleReliableFileEvent(ws,d,me){
     }
 
     if(session.state==='completed' || session.state==='failed' || session.state==='rejected'){
+      return true;
+    }
+
+    // A foreground/background wake-up can race and send ACCEPT twice. Keep
+    // the first live receiver socket pinned so a second socket cannot steal
+    // the binary stream midway through a transfer.
+    if(
+      session.accepted &&
+      session.receiverWs &&
+      session.receiverWs.readyState===1 &&
+      session.receiverWs!==ws
+    ){
       return true;
     }
 
@@ -2058,6 +2075,10 @@ function visibleUsersFor(viewer){
 
   return [...sockets.keys()]
     .filter(username=>{
+      if(!isForegroundActive(username)){
+        return false;
+      }
+
       if(
         viewerNick &&
         normalizeUsername(username)===normalizeUsername(viewerNick)
@@ -2084,6 +2105,8 @@ function visibleProfilesFor(viewer){
       viewerNick &&
       normalizeUsername(username)===normalizeUsername(viewerNick);
 
+    if(!isForegroundActive(username))continue;
+
     if(!isSelf && !presenceVisible(username))continue;
 
     result[username]=profileDataFor(account);
@@ -2094,6 +2117,7 @@ function visibleProfilesFor(viewer){
 
 function listUsers(){
   return [...sockets.keys()]
+    .filter(username=>isForegroundActive(username))
     .filter(username=>presenceVisible(username))
     .sort((a,b)=>a.localeCompare(b));
 }
@@ -2114,6 +2138,9 @@ function updatePresence(){
 
   for(const ws of users.keys()){
     if(isBackgroundSocket(ws))continue;
+
+    const nick=users.get(ws);
+    if(!nick || !isForegroundActive(nick))continue;
 
     const rs=ws._rooms||new Set();
 
@@ -2543,7 +2570,107 @@ function disconnect(ws){
   broadcastUserOffline(nick);
   updatePresence();
 }
-const server=http.createServer((req,res)=>{res.setHeader('Access-Control-Allow-Origin','*');if(req.url==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,service:'zerolog',users:sockets.size,rooms:rooms.length}));return;}res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8'});res.end('Zerolog Signaling & Chat Server Aktif');});
+const server=http.createServer((req,res)=>{
+  res.setHeader('Access-Control-Allow-Origin','*');
+
+  if(req.url==='/health'){
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      ok:true,
+      service:'zerolog',
+      users:sockets.size,
+      rooms:rooms.length,
+    }));
+    return;
+  }
+
+  if(req.url==='/delivery' && req.method==='POST'){
+    let body='';
+    let tooLarge=false;
+
+    req.on('data',chunk=>{
+      if(body.length>16384){
+        tooLarge=true;
+        return;
+      }
+      body+=chunk.toString();
+    });
+
+    req.on('end',()=>{
+      if(tooLarge){
+        res.writeHead(413,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false,error:'payload_too_large'}));
+        return;
+      }
+
+      let d;
+      try{
+        d=JSON.parse(body||'{}');
+      }catch{
+        res.writeHead(400,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false,error:'invalid_json'}));
+        return;
+      }
+
+      const sender=safeNick(d.sender||d.from);
+      const recipient=safeNick(d.recipient||d.to);
+      const messageId=String(d.messageId||'').trim();
+      const clientMessageId=String(d.clientMessageId||'').trim();
+      const deliveryToken=String(d.deliveryToken||'').trim();
+
+      if(
+        !sender ||
+        !recipient ||
+        (!messageId && !clientMessageId) ||
+        !deliveryToken
+      ){
+        res.writeHead(400,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false,error:'invalid_delivery_receipt'}));
+        return;
+      }
+
+      const delivered=markPrivateMessageDelivered(
+        sender,
+        recipient,
+        messageId,
+        clientMessageId,
+        deliveryToken,
+      );
+
+      if(!delivered){
+        res.writeHead(403,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false,error:'delivery_rejected'}));
+        return;
+      }
+
+      const senderSocket=socketFor(sender);
+      if(senderSocket){
+        send(senderSocket,{
+          type:'messageDelivered',
+          messageId:delivered.id||messageId,
+          clientMessageId:delivered.clientMessageId||clientMessageId,
+          from:recipient,
+          to:sender,
+          deliveredTo:recipient,
+          ts:delivered.deliveredAt||Date.now(),
+        });
+      }
+
+      console.log(
+        `[MESSAGE] DELIVERED_FCM id=${delivered.id||messageId} ` +
+        `sender=${sender} recipient=${recipient}`
+      );
+
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:true}));
+    });
+
+    return;
+  }
+
+  res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8'});
+  res.end('Zerolog Signaling & Chat Server Aktif');
+});
 const wss=new WebSocketServer({server});
 
 const presenceInterval=setInterval(()=>{
@@ -2960,6 +3087,7 @@ wss.on('connection',(ws)=>{
     if(state!=='foreground' && state!=='background')break;
 
     const stateKey=normalizeUsername(me);
+    const previousState=appStates.get(stateKey);
     appStates.set(stateKey,state);
     appStateUpdatedAt.set(stateKey,Date.now());
 
@@ -2969,8 +3097,17 @@ wss.on('connection',(ws)=>{
       );
     }
 
+    if(previousState!==state){
+      if(state==='foreground'){
+        broadcastUserOnline(me);
+      }else{
+        broadcastUserOffline(me);
+      }
+      updatePresence();
+    }
+
     if(state==='foreground'){
-      // Uygulama arka plandayken kuyruklanan WebRTC signaling event'leri
+      // Uygulama arka plandayken kuyruklanan dosya-transfer event'leri
       // yeniden görünür olduğunda hemen teslim edilmeli.
       deliverPendingFileTransfers(ws,me);
     }
@@ -3510,14 +3647,15 @@ wss.on('connection',(ws)=>{
     });
 
     const recipient=socketFor(to);
-    const recipientForeground=!!recipient && isForegroundActive(to);
+    let deliveredLive=false;
 
-    if(recipientForeground){
-      // WebSocket.send() başarısı yalnızca verinin socket'e yazıldığını
-      // gösterir. Gerçek delivered durumu alıcının messageDelivered
-      // ACK'i geldikten sonra oluşturulmalıdır.
-      send(recipient,stored);
-    }else if(messageNotificationsEnabled(to)){
+    if(recipient){
+      // Arka plandaki ama hâlâ canlı ana WebSocket de gerçek bir teslim
+      // endpoint'idir. Alıcı transport katmanı messageDelivered ACK'i verir.
+      deliveredLive=send(recipient,stored);
+    }
+
+    if(!deliveredLive && messageNotificationsEnabled(to)){
       const pushed=await sendFcmPush(to,{
         // DATA-ONLY: native Android service bildirimi oluşturur.
         data:{

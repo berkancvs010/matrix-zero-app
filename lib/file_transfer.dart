@@ -156,8 +156,8 @@ class FileTransfer {
 
   // At most 32 chunks can be outstanding. Keep their encoded frames so a
   // short WebSocket transition can be recovered without restarting the file.
-  static const int _sendWindowSize = 32;
-  static const int _chunkSize = 32 * 1024;
+  static const int _sendWindowSize = 64;
+  static const int _chunkSize = 64 * 1024;
   final Map<int, Uint8List> _outstandingFrames = <int, Uint8List>{};
   Completer<void>? _windowWaiter;
 
@@ -915,7 +915,7 @@ class FileTransfer {
 
     // ACK every 8 chunks and at the end. This gives the sender enough
     // throughput while keeping the outstanding frame window bounded.
-    if (seq % 8 == 7 || _receivedBytes == _fileSize) {
+    if (seq % 16 == 15 || _receivedBytes == _fileSize) {
       ws.send({
         'type': 'fileTransferChunkAck',
         'from': me,

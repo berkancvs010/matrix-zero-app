@@ -18,6 +18,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.net.HttpURLConnection
+import java.net.URL
 
 class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -207,11 +209,23 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 if (message.notification == null) {
                     showMessageNotification(message)
                 }
+
+                // FCM kabulü tek başına "delivered" değildir. Bu token,
+                // alıcı cihazın native FCM callback'inden sunucuya güvenli
+                // delivery receipt göndermesini sağlar.
+                acknowledgePrivateMessageDelivery(message)
             }
 
             "privateFileMessage" -> {
                 if (isAutoAcceptFileTransferEnabled()) {
-                    startBackgroundFileTransfer(message)
+                    if (message.priority == RemoteMessage.PRIORITY_HIGH) {
+                        startBackgroundFileTransfer(message)
+                    } else {
+                        android.util.Log.w(
+                            "ZeroLogFile",
+                            "File wake FCM was downgraded; not starting dataSync FGS"
+                        )
+                    }
                 }
                 showFileNotification(message)
             }
@@ -550,6 +564,89 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             "flutter.zerolog.notifications.auto_accept_files",
             true
         )
+    }
+
+    private fun acknowledgePrivateMessageDelivery(
+        message: RemoteMessage
+    ) {
+        val data = message.data
+
+        val sender = (
+            data["sender"] ?: data["from"] ?: ""
+        ).trim()
+
+        val recipient = (
+            data["recipient"] ?: data["to"] ?: ""
+        ).trim()
+
+        val messageId = (
+            data["messageId"] ?: data["id"] ?: ""
+        ).trim()
+
+        val clientMessageId =
+            data["clientMessageId"]?.trim().orEmpty()
+
+        val deliveryToken =
+            data["deliveryToken"]?.trim().orEmpty()
+
+        if (
+            sender.isEmpty() ||
+            recipient.isEmpty() ||
+            (messageId.isEmpty() && clientMessageId.isEmpty()) ||
+            deliveryToken.isEmpty()
+        ) {
+            return
+        }
+
+        Thread {
+            var connection: HttpURLConnection? = null
+
+            try {
+                val url = URL(
+                    "https://zerolog.giize.com:8443/delivery"
+                )
+
+                connection =
+                    (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 2500
+                        readTimeout = 2500
+                        doOutput = true
+                        setRequestProperty(
+                            "Content-Type",
+                            "application/json; charset=utf-8"
+                        )
+                    }
+
+                val body = JSONObject().apply {
+                    put("sender", sender)
+                    put("recipient", recipient)
+                    put("messageId", messageId)
+                    put("clientMessageId", clientMessageId)
+                    put("deliveryToken", deliveryToken)
+                }.toString()
+
+                connection.outputStream.use { output ->
+                    output.write(body.toByteArray(Charsets.UTF_8))
+                }
+
+                val code = connection.responseCode
+
+                android.util.Log.d(
+                    "ZeroLogFCM",
+                    "delivery receipt code=$code " +
+                        "messageId=$messageId"
+                )
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "ZeroLogFCM",
+                    "delivery receipt failed",
+                    e
+                )
+            } finally {
+                connection?.disconnect()
+            }
+        }.start()
     }
 
     private fun startBackgroundFileTransfer(
