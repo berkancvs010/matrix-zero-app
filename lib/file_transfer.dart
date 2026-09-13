@@ -157,7 +157,9 @@ class FileTransfer {
   // Keep a bounded 64-chunk send window. Encoded frames are retained so a
   // short WebSocket transition can be recovered without restarting the file.
   static const int _sendWindowSize = 64;
-  static const int _chunkSize = 64 * 1024;
+  // Larger frames reduce WebSocket/Dart framing overhead while keeping the
+  // bounded 64-frame window at a reasonable memory footprint (~8 MiB).
+  static const int _chunkSize = 128 * 1024;
   final Map<int, Uint8List> _outstandingFrames = <int, Uint8List>{};
   Completer<void>? _windowWaiter;
 
@@ -666,6 +668,12 @@ class FileTransfer {
 
           _touchTransferTimeout(id);
 
+          // Give the Flutter event loop a brief chance to paint progress and
+          // service incoming ACKs without throttling the actual socket send.
+          if (seq % 4 == 3) {
+            await Future<void>.delayed(Duration.zero);
+          }
+
           if (seq - _lastAckSeq >= _sendWindowSize) {
             await _waitForAck(id, seq);
           }
@@ -692,7 +700,7 @@ class FileTransfer {
   }
 
   Future<void> _sendEndAndWaitForCompletion(String transferId) async {
-    final deadline = DateTime.now().add(const Duration(minutes: 5));
+    final deadline = DateTime.now().add(const Duration(minutes: 30));
 
     // Do not let the byte-transfer inactivity timer abort a healthy receiver
     // while it hashes/finalizes the completed file.
@@ -737,7 +745,7 @@ class FileTransfer {
   }
 
   Future<void> _waitForAck(String transferId, int targetSeq) async {
-    final deadline = DateTime.now().add(const Duration(minutes: 3));
+    final deadline = DateTime.now().add(const Duration(minutes: 10));
 
     while (_lastAckSeq < targetSeq) {
       if (_disposed || _transferId != transferId) {
@@ -802,7 +810,7 @@ class FileTransfer {
     int seq,
     Uint8List frame,
   ) async {
-    final end = DateTime.now().add(const Duration(seconds: 90));
+    final end = DateTime.now().add(const Duration(minutes: 5));
 
     while (!_disposed &&
         _transferId == transferId &&
@@ -913,8 +921,8 @@ class FileTransfer {
       status: 'transferring',
     );
 
-    // ACK every 8 chunks and at the end. This gives the sender enough
-    // throughput while keeping the outstanding frame window bounded.
+    // ACK every 16 chunks and at the end. With 128 KiB chunks this keeps
+    // acknowledgement traffic low while preserving bounded backpressure.
     if (seq % 16 == 15 || _receivedBytes == _fileSize) {
       ws.send({
         'type': 'fileTransferChunkAck',
@@ -1025,7 +1033,11 @@ class FileTransfer {
     required int fileSize,
     required String sha256,
   }) async {
-    final deadline = DateTime.now().add(const Duration(minutes: 2));
+    final deadline = DateTime.now().add(
+      backgroundTransferMode
+          ? const Duration(minutes: 15)
+          : const Duration(minutes: 5),
+    );
     _completionAcknowledged = false;
 
     while (!_disposed &&
@@ -1208,7 +1220,15 @@ class FileTransfer {
 
   void _startTransferTimeout(String id) {
     _transferTimeoutTimer?.cancel();
-    _transferTimeoutTimer = Timer(const Duration(seconds: 60), () {
+
+    // Background transfers can legitimately be paused by Android while the
+    // foreground service is being resumed. Give those transfers a longer
+    // inactivity window without weakening the normal foreground timeout.
+    final timeout = backgroundTransferMode
+        ? const Duration(minutes: 20)
+        : const Duration(minutes: 10);
+
+    _transferTimeoutTimer = Timer(timeout, () {
       if (_disposed || _transferId != id || _terminalEventHandled) {
         return;
       }
@@ -1216,7 +1236,9 @@ class FileTransfer {
       unawaited(
         _failTransfer(
           id,
-          'Dosya aktarımı 60 saniye boyunca ilerlemedi.',
+          backgroundTransferMode
+              ? 'Dosya aktarımı 20 dakika boyunca ilerlemedi.'
+              : 'Dosya aktarımı 10 dakika boyunca ilerlemedi.',
           reset: true,
           incoming: _incomingTransfer,
         ),
@@ -1331,7 +1353,7 @@ class FileTransfer {
     final raf = await file.open();
     try {
       while (true) {
-        final bytes = await raf.read(64 * 1024);
+        final bytes = await raf.read(_chunkSize);
         if (bytes.isEmpty) break;
         input.add(bytes);
       }

@@ -73,8 +73,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
       // Geçici ağ/proxy/sunucu kesintisinde kullanıcıyı tekrar login ekranına
       // düşürme. Kayıtlı kimlik bilgileri korunur; WsClient arka planda yeniden
-      // bağlanmayı sürdürür. Yalnızca sunucu kimlik bilgilerini kesin olarak
-      // reddederse gerçek login ekranına dön.
+      // bağlanmayı sürdürür. Kimlik/account-policy hatalarında gerçek login
+      // ekranına dönülür.
       final ok = await WsClient.instance.connect(
         saved['username']!,
         saved['password']!,
@@ -82,7 +82,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
       if (ok) return true;
 
-      return WsClient.instance.lastConnectErrorCode != 'INVALID_CREDENTIALS';
+      // Only transient transport failures should preserve the session and
+      // enter MainScreen. Authentication/account-policy failures must return
+      // to the login screen instead of opening an unauthenticated-looking UI.
+      const transientErrors = {
+        'SERVER_UNREACHABLE',
+        'CONNECTION_TIMEOUT',
+      };
+
+      return transientErrors.contains(
+        WsClient.instance.lastConnectErrorCode,
+      );
     } catch (_) {
       return false;
     }

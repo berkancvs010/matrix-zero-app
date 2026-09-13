@@ -218,18 +218,24 @@ Future<void> zerologBackgroundTransferMain() async {
         }
 
         if (!terminal) {
-          await done.future.timeout(
-            const Duration(minutes: 5),
-            onTimeout: () {},
-          );
+          try {
+            await done.future.timeout(const Duration(minutes: 30));
+          } on TimeoutException {
+            // A long-running transfer must never be discarded merely because
+            // the background worker's observation window elapsed. Keep the
+            // durable queue item and let a later service/FCM wake-up resume it.
+            retryLater = true;
+          }
         }
 
-        // A completed/failed transfer has reached a terminal local state.
-        // Remove only this item; other queued transfers remain durable.
-        await channel.invokeMethod<dynamic>(
-          'removePendingTransfer',
-          <String, dynamic>{'fileId': transferId},
-        );
+        if (terminal) {
+          // Only a real completed/failed terminal state may remove the durable
+          // queue item. Other queued transfers remain untouched.
+          await channel.invokeMethod<dynamic>(
+            'removePendingTransfer',
+            <String, dynamic>{'fileId': transferId},
+          );
+        }
 
         // Keep the verified local file registration path exactly as before.
         if (completedLocalUri != null &&

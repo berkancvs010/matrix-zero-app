@@ -41,7 +41,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _applyAutoFocusPreference() async {
     final prefs = await SharedPreferences.getInstance();
-    final autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
+    final autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? false;
 
     if (!autoFocus || !mounted) return;
 

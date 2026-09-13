@@ -251,6 +251,16 @@ class FileTransferForegroundService : Service() {
                 .putString(PENDING_QUEUE_KEY, next.toString())
                 .apply()
 
+            if (removed) {
+                // The native FCM notification uses the transfer id as its
+                // stable notification key. Cancel it exactly when this
+                // durable queue item reaches a terminal state.
+                ZeroLogFirebaseMessagingService.cancelFileNotification(
+                    this,
+                    fileId
+                )
+            }
+
             return removed
         }
     }
@@ -630,16 +640,17 @@ class FileTransferForegroundService : Service() {
     private fun stopTransferService() {
         Log.d(TAG, "Stopping file transfer service")
 
-        val currentFileId = getSharedPreferences(PREFS, MODE_PRIVATE)
-            .getString(EXTRA_FILE_ID, "")
-            ?.trim()
-            .orEmpty()
-
-        if (currentFileId.isNotEmpty()) {
-            ZeroLogFirebaseMessagingService.cancelFileNotification(
-                this,
-                currentFileId
-            )
+        // The queue is JSON-backed and no longer stores a single
+        // EXTRA_FILE_ID preference. Cancel any notifications still associated
+        // with queued transfers before deciding whether the service can stop.
+        for (pending in readPendingTransfers()) {
+            val pendingFileId = pending[EXTRA_FILE_ID]?.trim().orEmpty()
+            if (pendingFileId.isNotEmpty()) {
+                ZeroLogFirebaseMessagingService.cancelFileNotification(
+                    this,
+                    pendingFileId
+                )
+            }
         }
 
         try {

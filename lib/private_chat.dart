@@ -137,7 +137,8 @@ Widget _privacyInfoItem(
   );
 }
 
-class _PrivateChatScreenState extends State<PrivateChatScreen> {
+class _PrivateChatScreenState extends State<PrivateChatScreen>
+    with WidgetsBindingObserver {
   final FocusNode _messageFocusNode = FocusNode();
 
   final TextEditingController _controller = TextEditingController();
@@ -159,6 +160,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   bool _connected = true;
   bool _autoAcceptIncomingFiles = true;
   final Map<String, Future<Uint8List?>> _fileThumbnailCache = {};
+  final Map<String, DateTime> _lastFileProgressUiAt = <String, DateTime>{};
+  final Map<String, int> _lastFileProgressPercent = <String, int>{};
+  Timer? _keyboardScrollTimer;
 
   MemoryImage? _chatPeerProfileImage;
   String _chatPeerProfileImageVersion = '';
@@ -363,7 +367,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       }
     });
 
-    // Dosya aktarımı sırasında onProgress her 16 KB parçada gelebilir.
+    // Progress UI is throttled; file bytes themselves are never throttled here.
     // Her parçayı SharedPreferences'a yazmak gereksiz I/O oluşturur.
     // Cache'i yalnızca anlamlı durum geçişlerinde güncelle.
     const cacheStatuses = {
@@ -380,10 +384,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       unawaited(_saveHistoryCache());
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-    });
+    if (status != 'transferring') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      });
+    }
   }
 
   void _updateFileMessageStatus(
@@ -640,6 +646,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _connected = WsClient.instance.connected;
 
@@ -669,6 +676,25 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             required String status,
           }) {
             if (!mounted) return;
+
+            if (status == 'transferring') {
+              final now = DateTime.now();
+              final percent = totalBytes > 0
+                  ? ((sentBytes / totalBytes) * 100).clamp(0, 100).floor()
+                  : 0;
+              final lastAt = _lastFileProgressUiAt[transferId];
+              final lastPercent = _lastFileProgressPercent[transferId];
+              if (lastAt != null &&
+                  now.difference(lastAt).inMilliseconds < 200 &&
+                  lastPercent == percent) {
+                return;
+              }
+              _lastFileProgressUiAt[transferId] = now;
+              _lastFileProgressPercent[transferId] = percent;
+            } else {
+              _lastFileProgressUiAt.remove(transferId);
+              _lastFileProgressPercent.remove(transferId);
+            }
 
             final existingIndex = _messages.indexWhere(
               (message) => message.isFile && message.fileId == transferId,
@@ -789,15 +815,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Future<void> _applyAutoFocusPreference() async {
-    final prefs = await SharedPreferences.getInstance();
-    final autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
-
-    if (!autoFocus || !mounted) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _messageFocusNode.requestFocus();
-    });
+    // Opening a private chat must not summon the keyboard. The keyboard can
+    // still be opened normally by tapping the composer. Keeping the old
+    // preference from requesting focus also prevents an older saved setting
+    // from hiding the newest messages when a chat is opened.
   }
 
   int _messageStatusRank(String status) {
@@ -1661,21 +1682,62 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
   }
 
+  Future<String> _persistPickedFile(PlatformFile picked, String transferId) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final targetDirectory = Directory(
+      '${directory.path}/ZeroLog/sent_files',
+    );
+    await targetDirectory.create(recursive: true);
+
+    final rawName = picked.name.trim();
+    final safeName = rawName.isEmpty
+        ? 'file'
+        : rawName.replaceAll(RegExp(r'[\\/:*?"<>|\r\n]'), '_');
+    final target = File('${targetDirectory.path}/$transferId-$safeName');
+
+    final pickedPath = picked.path?.trim() ?? '';
+    if (pickedPath.isNotEmpty) {
+      final source = File(pickedPath);
+      if (await source.exists()) {
+        if (!await target.exists() ||
+            await target.length() != await source.length()) {
+          await source.copy(target.path);
+        }
+        return target.path;
+      }
+    }
+
+    // Android SAF/cloud providers may not expose a local path. file_picker
+    // v12 provides a byte stream for exactly this case; keep it streamed so
+    // a large PDF/document is never loaded fully into RAM.
+    final sink = target.openWrite();
+    try {
+      await sink.addStream(picked.readAsByteStream());
+    } finally {
+      await sink.close();
+    }
+
+    if (!await target.exists() || await target.length() <= 0) {
+      throw StateError('Seçilen dosya okunamadı.');
+    }
+
+    return target.path;
+  }
+
   Future<void> _sendFile() async {
     try {
-      final files = await FilePicker.pickFiles();
-      if (files.isEmpty) return;
-      final picked = files.single;
-      final path = picked.path;
-      if (path == null || path.isEmpty) return;
+      final picked = await FilePicker.pickFile();
+      if (picked == null) return;
 
       final transferSeed =
           '${DateTime.now().microsecondsSinceEpoch}-${widget.myNick}';
-      final persistentPath = await _persistOutgoingFile(path, transferSeed);
+      final persistentPath = await _persistPickedFile(picked, transferSeed);
       final persistentFile = File(persistentPath);
 
       _lastOutgoingFile = persistentFile;
-      _lastOutgoingFileName = picked.name;
+      _lastOutgoingFileName = picked.name.trim().isEmpty
+          ? 'file'
+          : picked.name.trim();
 
       final transferId = await _fileTransfer.sendFile(
         sourceFile: persistentFile,
@@ -1688,9 +1750,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Dosya gönderilemedi: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dosya gönderilemedi: $e')),
+      );
     }
   }
 
@@ -1808,6 +1870,26 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+
+    // Scaffold resizes the message list while the Android IME animates in.
+    // Debounce until the resize settles, then reveal the newest messages.
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    if (bottomInset <= 0) return;
+
+    _keyboardScrollTimer?.cancel();
+    _keyboardScrollTimer = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  @override
   void dispose() {
     if (WsClient.instance.activePrivateChatPeer?.toLowerCase() ==
         widget.targetNick.toLowerCase()) {
@@ -1815,6 +1897,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
 
     _subscription.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _keyboardScrollTimer?.cancel();
+    _keyboardScrollTimer = null;
     _messageExpiryTimer?.cancel();
     _messageExpiryTimer = null;
     _fileTransfer.unbindCallbacks();

@@ -4079,7 +4079,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     bool enterToSend = prefs.getBool('zerolog.chat.enter_to_send') ?? true;
     bool messagePreview = prefs.getBool('zerolog.chat.message_preview') ?? true;
-    bool autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? true;
+    bool autoFocus = prefs.getBool('zerolog.chat.auto_focus') ?? false;
 
     if (!mounted) return;
 

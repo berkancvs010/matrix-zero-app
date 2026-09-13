@@ -47,10 +47,11 @@ const backgroundSocketByWs=new Map(); // ws -> transferId
 // Reliable WebSocket file-transfer sessions. File bytes are relayed only;
 // the server does not persist file contents.
 const reliableFileTransfers=new Map(); // transferId -> session
-const RELIABLE_FILE_TRANSFER_TTL_MS=30*60*1000;
-const RELIABLE_FILE_MAX_CHUNK_BYTES=64*1024;
-// Receiver wake-up/socket handoff can take longer than one sender window.
-// Keep a bounded in-memory relay buffer larger than the client send window.
+const RELIABLE_FILE_TRANSFER_TTL_MS=60*60*1000;
+const RELIABLE_FILE_MAX_CHUNK_BYTES=128*1024;
+// Keep up to two full sender windows in memory while the receiver socket is
+// waking/reconnecting. With 128 KiB chunks this is about 16 MiB per transfer.
+
 // File contents are never persisted to disk.
 const RELIABLE_FILE_MAX_PENDING_CHUNKS=128;
 
@@ -1758,13 +1759,15 @@ async function sendFileTransferPush(username,event){
       fileName,
       fileSize,
     },
+    // IMPORTANT: keep file-transfer wake-ups DATA-ONLY.
+    // A notification payload can be handled by Android's system tray while
+    // the app is backgrounded, without invoking onMessageReceived(). The
+    // native FCM service must receive this callback to start the foreground
+    // transfer worker when the app process is terminated. The foreground
+    // service itself owns the persistent transfer notification.
     android:{
       priority:'high',
       ttl:3600000,
-      notification:{
-        channelId:'zerolog_files_v1',
-        sound:'default',
-      },
     },
   });
 }

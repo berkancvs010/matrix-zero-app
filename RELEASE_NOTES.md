@@ -93,3 +93,27 @@
 - Main screen now acknowledges private messages as **delivered** when they reach the device while the chat is not open. Read receipts remain the responsibility of the active private chat, restoring the intended single-tick → double-tick → green double-tick lifecycle.
 - Profile cache now removes case-variant stale entries so a fresh `profileUpdated` event cannot be shadowed by an older differently-cased cache key.
 - Existing profile revision/ACK handling remains authoritative; server confirmation continues to control successful profile-save completion.
+
+
+## 2026-09-13 — Large-file / document transfer hardening
+
+- Increased reliable WebSocket file chunks to 128 KiB and kept a bounded 64-frame sender window.
+- Increased transfer/session timeouts so large files are not failed merely because a 40 MB transfer takes longer than five minutes.
+- Kept server file contents memory-only; the relay does not persist file bytes to disk.
+- File picker now supports Android SAF/cloud files without a local filesystem path by streaming the selected file into ZeroLog's local send staging file.
+- Single-file selection now uses `FilePicker.pickFile()` to avoid multi-selection ambiguity.
+- Throttled transfer UI updates and removed per-chunk chat auto-scroll to reduce UI work during large transfers.
+- Chat auto-focus now defaults to off; when the keyboard opens, the private chat scrolls to the newest messages after the resize settles.
+
+- Extended ACK/reconnect tolerance for large transfers and fixed session restore so account-in-use/maintenance/auth failures no longer open MainScreen as if the session were valid.
+- Background transfer completion now cancels the exact FCM file notification when its durable queue item is removed.
+
+- V7 integrity hardening: background transfer queue items are removed only after a real terminal state; observation timeout no longer discards an active transfer.
+- Background transfer inactivity/completion windows are extended without changing the normal foreground transfer timeout.
+- Reliable file relay pending-chunk buffer restored to 128 bounded in-memory chunks; file contents remain non-persistent.
+
+## 2026-09-13 V7 final audit
+
+- File-transfer FCM wake-up is DATA-ONLY so Android invokes `onMessageReceived()` while the app process is backgrounded/terminated; the foreground transfer service owns the persistent notification.
+- Private chat no longer auto-focuses the composer on open, preventing the IME from covering the newest messages.
+- Preserved bounded 128 KiB WebSocket chunks, durable background queue, 30-minute worker observation, and terminal-only queue removal.
