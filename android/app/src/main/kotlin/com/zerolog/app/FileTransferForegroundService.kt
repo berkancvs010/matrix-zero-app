@@ -683,6 +683,36 @@ class FileTransferForegroundService : Service() {
         }
     }
 
+
+    override fun onTimeout(
+        startId: Int,
+        fgsType: Int
+    ) {
+        Log.w(
+            TAG,
+            "Foreground dataSync service timeout; stopping transfer service"
+        )
+
+        // Android requires a dataSync service to stop promptly after
+        // onTimeout(). Keep the durable queue intact so a future FCM wake-up
+        // can resume the transfer.
+        try {
+            methodChannel?.setMethodCallHandler(null)
+        } catch (_: Exception) {
+        }
+
+        methodChannel = null
+
+        try {
+            flutterEngine?.destroy()
+        } catch (_: Exception) {
+        }
+
+        flutterEngine = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     override fun onDestroy() {
         try {
             flutterEngine?.destroy()

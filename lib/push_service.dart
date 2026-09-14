@@ -404,9 +404,16 @@ class ZeroLogPushService {
         await cancelIncomingCallNotification();
         await clearPendingCall();
       } else if (type == 'privateMessage') {
-        await showPrivateMessageNotification(message);
+        // Private message notifications have a single authority: the native
+        // FirebaseMessagingService. This prevents duplicate notifications
+        // when a data-only FCM arrives while Flutter is foregrounded.
+        debugPrint('[FCM] private message notification handled by native service');
       } else if (type == 'privateFileMessage') {
-        await showPrivateFileNotification(message);
+        // File-transfer notifications have a single authority: the native
+        // FirebaseMessagingService. It runs for foreground/background/terminated
+        // delivery and uses the same stable notification id as completion.
+        // Do not create a second Dart notification here.
+        debugPrint('[FCM] private file notification handled by native service');
       }
     });
 
@@ -501,6 +508,8 @@ class ZeroLogPushService {
     await clearPendingCall();
   }
 
+  // Legacy compatibility helper. File-transfer notifications are owned by the
+  // native FCM service; this method is intentionally not called by onMessage.
   static Future<void> showPrivateFileNotification(
     RemoteMessage message,
   ) async {
@@ -717,13 +726,22 @@ class ZeroLogPushService {
   }
 
   static Future<void> pullPendingNativeMessage() async {
-    try {
-      final nativeMessage = await _systemChannel.invokeMethod<dynamic>(
-        'getPendingMessageIntent',
-      );
+    const maxDrainItems = 100;
 
-      if (nativeMessage is Map) {
+    try {
+      for (var i = 0; i < maxDrainItems; i++) {
+        final nativeMessage = await _systemChannel.invokeMethod<dynamic>(
+          'getPendingMessageIntent',
+        );
+
+        if (nativeMessage is! Map) {
+          break;
+        }
+
         final data = Map<String, dynamic>.from(nativeMessage);
+        if (data['type'] == '__queue_skip__') {
+          continue;
+        }
 
         if (data['type'] == 'privateMessage' ||
             data['type'] == 'privateFileMessage') {

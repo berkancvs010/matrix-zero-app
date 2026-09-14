@@ -130,3 +130,17 @@
 - File-transfer FCM wake-up is DATA-ONLY so Android invokes `onMessageReceived()` while the app process is backgrounded/terminated; the foreground transfer service owns the persistent notification.
 - Private chat no longer auto-focuses the composer on open, preventing the IME from covering the newest messages.
 - Preserved bounded 128 KiB WebSocket chunks, durable background queue, 30-minute worker observation, and terminal-only queue removal.
+## V14 — File notification single-authority repair
+
+- Native Android FCM is the single owner of private file-transfer notifications.
+- Foreground Dart `onMessage` no longer creates a duplicate file notification.
+- Native OFFER and `privateFileStored` notifications use the same stable notification ID, allowing completion to replace the active transfer notification.
+- File-transfer FCM remains data-only/high-priority so the native callback can wake the background transfer service.
+
+
+
+## V15 notification reliability repair
+- Native FCM is the sole authority for private-message notifications.
+- Pending native message/file notification queue is drained in one bounded pass.
+- Busy call invites are explicitly rejected instead of being silently dropped.
+- Added notification architecture regression tests.

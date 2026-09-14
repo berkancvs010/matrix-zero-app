@@ -147,6 +147,7 @@ class FileTransfer {
 
   int _nextSendSeq = 0;
   int _lastAckSeq = -1;
+  int _confirmedBytes = 0;
   int _lastReceivedSeq = -1;
 
   final Set<String> _terminalTransferTombstones = <String>{};
@@ -166,7 +167,7 @@ class FileTransfer {
   RandomAccessFile? _sendingRaf;
   int? _pendingResumeSeq;
 
-  Future<void> _receiveQueue = Future<void>.value();
+  Future<void> _eventQueue = Future<void>.value();
 
   static bool backgroundTransferMode = false;
 
@@ -222,7 +223,7 @@ class FileTransfer {
           event['type'] == 'connectionRestored') {
         unawaited(_sendResumeHandshake());
       }
-      unawaited(_handleEvent(event));
+      unawaited(handleExternalEvent(event));
     });
   }
 
@@ -276,7 +277,15 @@ class FileTransfer {
     _fileSize = size;
     _sendingFile = file;
     _incomingTransfer = false;
-    _sourceSha256 = await _calculateFileSha256(file);
+    _sourceSha256 = (await _calculateFileSha256(file)).trim().toLowerCase();
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(_sourceSha256!)) {
+      await _failTransfer(
+        transferId,
+        'Dosya SHA-256 bilgisi geçersiz.',
+        reset: true,
+      );
+      throw StateError('Dosya SHA-256 bilgisi geçersiz.');
+    }
     _sentBytes = 0;
     _nextSendSeq = 0;
     _lastAckSeq = -1;
@@ -343,6 +352,13 @@ class FileTransfer {
       _transferId = id;
       _fileName = fileName.trim().isEmpty ? 'received_file' : fileName.trim();
       _fileSize = fileSize;
+      _sourceSha256 = (sha256 ?? '').trim().toLowerCase();
+      if (_sourceSha256!.isNotEmpty &&
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(_sourceSha256!)) {
+        _diag('INCOMING_INVALID_SHA transfer=$id');
+        await _resetTransferState();
+        return false;
+      }
       _accepted = false;
       _receivedBytes = 0;
       _lastReceivedSeq = -1;
@@ -497,7 +513,53 @@ class FileTransfer {
   }
 
   Future<void> handleExternalEvent(Map<String, dynamic> event) async {
-    await _handleEvent(event);
+    final next = _eventQueue.then((_) async {
+      try {
+        await _handleEvent(event);
+      } catch (error, stack) {
+        final eventId = (event['transferId'] ?? '').toString().trim();
+        final activeId = eventId.isNotEmpty ? eventId : _transferId;
+        _diag('FILE_EVENT_QUEUE_FAILED transfer=$activeId error=$error stack=$stack');
+        if (activeId != null &&
+            activeId.isNotEmpty &&
+            _transferId == activeId &&
+            !_terminalEventHandled) {
+          try {
+            await _failTransfer(
+              activeId,
+              'Dosya transferi beklenmeyen bir hatayla durdu: $error',
+              reset: true,
+              incoming: _incomingTransfer,
+            );
+          } catch (cleanupError, cleanupStack) {
+            _diag(
+              'FILE_EVENT_QUEUE_CLEANUP_FAILED transfer=$activeId '
+              'error=$cleanupError stack=$cleanupStack',
+            );
+            try {
+              await _incomingFile?.close();
+            } catch (closeError) {
+              _diag('FILE_EVENT_QUEUE_FORCE_CLOSE_FAILED error=$closeError');
+            }
+            _incomingFile = null;
+            _cancelTimers();
+            if (_transferId == activeId) {
+              _transferId = null;
+              _sendingFile = null;
+              _incomingTempFile = null;
+              _incomingTransfer = false;
+              _sending = false;
+              _accepted = false;
+              _terminalEventHandled = false;
+            }
+          }
+        }
+      }
+    });
+    _eventQueue = next.catchError((error, stack) {
+      _diag('FILE_EVENT_QUEUE_RECOVERY_FAILED error=$error stack=$stack');
+    });
+    await _eventQueue;
   }
 
   Future<void> _handleEvent(Map<String, dynamic> event) async {
@@ -512,7 +574,44 @@ class FileTransfer {
       final seq = rawSeq is num
           ? rawSeq.toInt()
           : int.tryParse(rawSeq?.toString() ?? '') ?? -1;
-      if (seq < -1) return;
+      final expectedMaxSeq = _fileSize > 0
+          ? ((_fileSize + _chunkSize - 1) ~/ _chunkSize) - 1
+          : -1;
+      if (seq < -1 || seq > expectedMaxSeq) {
+        await _failTransfer(
+          resumeId,
+          'Geçersiz resume sequence bilgisi.',
+          reset: true,
+          incoming: _incomingTransfer,
+        );
+        return;
+      }
+      final stateFrom = (event['from'] ?? '').toString().trim();
+      final stateTo = (event['to'] ?? '').toString().trim();
+      final stateName = (event['fileName'] ?? '').toString().trim();
+      final stateSize = int.tryParse((event['fileSize'] ?? '').toString()) ?? 0;
+      final stateSha = (event['sha256'] ?? '').toString().trim().toLowerCase();
+      final expectedSha = (_sourceSha256 ?? '').trim().toLowerCase();
+      final resumeMetadataValid =
+          stateFrom.toLowerCase() == peer.toLowerCase() &&
+          stateTo.toLowerCase() == me.toLowerCase() &&
+          stateName == (_fileName ?? '') &&
+          stateSize == _fileSize &&
+          stateSha == expectedSha &&
+          event['protocolVersion']?.toString() == '1';
+      if (!resumeMetadataValid) {
+        await _failTransfer(
+          resumeId,
+          'Resume metadata bilgisi eşleşmedi.',
+          reset: true,
+          incoming: _incomingTransfer,
+        );
+        return;
+      }
+      if (!_incomingTransfer && event['state']?.toString() == 'completed') {
+        await _handleRemoteCompletion(event);
+        return;
+      }
       if (_incomingTransfer) {
         // The receiver's durable manifest/.part is authoritative. A server
         // resume state can be stale relative to the last locally flushed
@@ -520,6 +619,7 @@ class FileTransfer {
         return;
       }
       _lastAckSeq = seq;
+      _confirmedBytes = _seqCommittedBytes(seq);
       _outstandingFrames.removeWhere((key, _) => key <= seq);
       _nextSendSeq = seq + 1;
       _sentBytes = _seqCommittedBytes(seq);
@@ -640,8 +740,22 @@ class FileTransfer {
             ? raw.toInt()
             : int.tryParse(raw?.toString() ?? '') ?? -1;
 
+        final maxAckSeq = _fileSize > 0
+            ? ((_fileSize + _chunkSize - 1) ~/ _chunkSize) - 1
+            : -1;
+        if (receivedSeq < -1 || receivedSeq > maxAckSeq) {
+          await _failTransfer(
+            id,
+            'Geçersiz dosya ACK sequence bilgisi.',
+            reset: true,
+            incoming: false,
+          );
+          return;
+        }
+
         if (receivedSeq > _lastAckSeq) {
           _lastAckSeq = receivedSeq;
+          _confirmedBytes = _seqCommittedBytes(receivedSeq);
           _outstandingFrames.removeWhere(
             (seq, _) => seq <= _lastAckSeq,
           );
@@ -682,23 +796,23 @@ class FileTransfer {
 
       case 'fileTransferChunk':
         final bytes = event['bytes'];
-        if (bytes is Uint8List) {
-          _receiveQueue = _receiveQueue
-              .then((_) => _receiveChunk(bytes, event['seq']))
-              .catchError((error, stack) {
-                unawaited(_handleReceiveQueueFailure(id, error, stack));
-              });
-        } else if (bytes is List<int>) {
-          _receiveQueue = _receiveQueue
-              .then((_) => _receiveChunk(Uint8List.fromList(bytes), event['seq']))
-              .catchError((error, stack) {
-                unawaited(_handleReceiveQueueFailure(id, error, stack));
-              });
+        try {
+          if (bytes is Uint8List) {
+            await _receiveChunk(bytes, event['seq']);
+          } else if (bytes is List<int>) {
+            await _receiveChunk(
+              Uint8List.fromList(bytes),
+              event['seq'],
+            );
+          }
+        } catch (error, stack) {
+          await _handleReceiveQueueFailure(id, error, stack);
         }
         break;
 
       case 'fileTransferEnd':
-        await _receiveQueue;
+        // All file events are serialized by _eventQueue, so END can never
+        // overtake an in-flight chunk or its failure handler.
         await _finalizeIncoming(event);
         break;
     }
@@ -774,11 +888,10 @@ class FileTransfer {
           );
 
           if (!ws.sendBinary(frame)) {
-            final restored = await _waitForConnection(
-              const Duration(seconds: 90),
-            );
-            if (!restored ||
-                !await _resendFrameUntilAccepted(id, seq, frame)) {
+            // A false return can mean normal socket backpressure, not a lost
+            // connection. Do not enter the 90-second reconnect path here.
+            // Retry the same frame promptly while preserving its sequence.
+            if (!await _resendFrameUntilAccepted(id, seq, frame)) {
               throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
             }
           }
@@ -788,7 +901,10 @@ class FileTransfer {
 
           onProgress?.call(
             transferId: id,
-            sentBytes: _sentBytes,
+            // UI progress is receiver-confirmed, not merely bytes queued
+            // into the local socket. This keeps sender and receiver progress
+            // on the same authoritative ACK boundary.
+            sentBytes: _confirmedBytes.clamp(0, _fileSize),
             totalBytes: _fileSize,
             status: 'transferring',
           );
@@ -940,6 +1056,10 @@ class FileTransfer {
       'transferId': id,
       'role': _incomingTransfer ? 'receiver' : 'sender',
       'lastReceivedSeq': receivedSeq,
+      'fileName': _fileName ?? '',
+      'fileSize': _fileSize,
+      'sha256': _sourceSha256 ?? '',
+      'protocolVersion': 1,
     });
   }
 
@@ -948,6 +1068,21 @@ class FileTransfer {
     final dir = Directory('${support.path}/received_files');
     await dir.create(recursive: true);
     return File('${dir.path}/${_sanitizeId(transferId)}.manifest.json');
+  }
+
+  Future<Map<String, dynamic>?> _readReceiveManifest(String transferId) async {
+    try {
+      final file = await _receiveManifestFile(transferId);
+      if (!await file.exists()) return null;
+      final raw = await file.readAsString();
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic>
+          ? decoded
+          : (decoded is Map ? Map<String, dynamic>.from(decoded) : null);
+    } catch (e) {
+      _diag('RECEIVE_MANIFEST_READ_FAILED transfer=$transferId error=$e');
+      return null;
+    }
   }
 
   Future<void> _persistReceiveManifest(String transferId) async {
@@ -960,6 +1095,7 @@ class FileTransfer {
         'fileName': _fileName ?? 'received_file',
         'fileSize': _fileSize,
         'sha256': _sourceSha256 ?? '',
+        'protocolVersion': 1,
         'lastReceivedSeq': _lastReceivedSeq,
         'receivedBytes': _receivedBytes,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
@@ -1001,7 +1137,7 @@ class FileTransfer {
 
     while (!_disposed && DateTime.now().isBefore(end)) {
       if (ws.connected) return true;
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
     return !_disposed && ws.connected;
@@ -1074,8 +1210,18 @@ class FileTransfer {
         ? rawSeq.toInt()
         : int.tryParse(rawSeq?.toString() ?? '') ?? -1;
 
-    if (seq < 0) {
+    final maxSeq = _fileSize > 0
+        ? ((_fileSize + _chunkSize - 1) ~/ _chunkSize) - 1
+        : -1;
+    if (seq < 0 || seq > maxSeq) {
       throw StateError('Geçersiz dosya parça numarası.');
+    }
+
+    final expectedChunkBytes = seq == maxSeq
+        ? _fileSize - (seq * _chunkSize)
+        : _chunkSize;
+    if (expectedChunkBytes <= 0 || bytes.length != expectedChunkBytes) {
+      throw StateError('Dosya parçasının boyutu geçersiz.');
     }
 
     if (seq <= _lastReceivedSeq) {
@@ -1123,10 +1269,14 @@ class FileTransfer {
       status: 'transferring',
     );
 
-    // ACK every 8 chunks and at the end. With 128 KiB chunks this keeps
-    // acknowledgement traffic low while preserving bounded backpressure.
-    if (seq % 8 == 7 || _receivedBytes == _fileSize) {
-      await _persistReceiveManifest(id);
+    // ACK every 4 chunks (~512 KiB) so the sender's UI follows the receiver
+    // closely without creating excessive ACK traffic. Persist the durable
+    // checkpoint less often; the .part file itself remains the authoritative
+    // local resume source.
+    if (seq % 4 == 3 || _receivedBytes == _fileSize) {
+      if (seq % 32 == 31 || _receivedBytes == _fileSize) {
+        await _persistReceiveManifest(id);
+      }
       ws.send({
         'type': 'fileTransferChunkAck',
         'from': me,
@@ -1150,8 +1300,6 @@ class FileTransfer {
     _cancelTimers();
 
     try {
-      await _receiveQueue;
-
       final declaredSize =
           int.tryParse(event['fileSize']?.toString() ?? '') ?? 0;
       final declaredSha = (event['sha256'] ?? '')
@@ -1321,16 +1469,61 @@ class FileTransfer {
     await dir.create(recursive: true);
 
     final temp = File('${dir.path}/${_sanitizeId(transferId)}.part');
+    final manifest = await _readReceiveManifest(transferId);
 
-    // Keep an interrupted receive so a new background isolate/process can
-    // resume the same transfer. Only complete fixed-size chunks are trusted;
-    // a partial last chunk is truncated and will be retransmitted.
+    // A .part file is resumable only when its durable manifest proves that it
+    // belongs to the same transfer. Never trust an orphaned/foreign partial
+    // file after an app/process restart.
+    var manifestValid = false;
+    if (manifest != null) {
+      final manifestId = (manifest['transferId'] ?? '').toString().trim();
+      final manifestName = (manifest['fileName'] ?? '').toString().trim();
+      final manifestSize = int.tryParse(
+        (manifest['fileSize'] ?? '').toString(),
+      ) ?? 0;
+      final manifestSha = (manifest['sha256'] ?? '').toString().trim().toLowerCase();
+      final manifestProtocol = int.tryParse(
+        (manifest['protocolVersion'] ?? '').toString(),
+      ) ?? 0;
+      final manifestSeq = int.tryParse(
+        (manifest['lastReceivedSeq'] ?? '').toString(),
+      ) ?? -2;
+      final manifestBytes = int.tryParse(
+        (manifest['receivedBytes'] ?? '').toString(),
+      ) ?? -1;
+      final expectedSha = (_sourceSha256 ?? '').trim().toLowerCase();
+      final maxSeq = _fileSize > 0
+          ? ((_fileSize + _chunkSize - 1) ~/ _chunkSize) - 1
+          : -1;
+
+      manifestValid = manifestId == transferId &&
+          manifestName == (_fileName ?? 'received_file') &&
+          manifestSize == _fileSize &&
+          manifestProtocol == 1 &&
+          manifestSeq >= -1 &&
+          manifestSeq <= maxSeq &&
+          manifestBytes >= 0 &&
+          manifestBytes <= _fileSize &&
+          (expectedSha.isEmpty || manifestSha == expectedSha);
+
+      if (!manifestValid) {
+        await temp.delete().catchError((_) => temp);
+        await _deleteReceiveManifest(transferId);
+      }
+    } else if (await temp.exists()) {
+      // No metadata means we cannot prove which transfer produced the bytes.
+      await temp.delete();
+    }
+
     var existingLength = 0;
-    if (await temp.exists()) {
+    if (manifestValid && await temp.exists()) {
       existingLength = await temp.length();
+
       if (existingLength > _fileSize && _fileSize > 0) {
         await temp.delete();
+        await _deleteReceiveManifest(transferId);
         existingLength = 0;
+        manifestValid = false;
       } else if (existingLength % _chunkSize != 0) {
         final completeLength =
             (existingLength ~/ _chunkSize) * _chunkSize;
@@ -1338,6 +1531,26 @@ class FileTransfer {
         await truncateFile.truncate(completeLength);
         await truncateFile.close();
         existingLength = completeLength;
+      }
+
+      // The physical .part length is the byte-level source of truth. The
+      // manifest is metadata only and must describe exactly that prefix.
+      final manifestBytes = int.tryParse(
+        (manifest?['receivedBytes'] ?? '').toString(),
+      ) ?? -1;
+      final manifestSeq = int.tryParse(
+        (manifest?['lastReceivedSeq'] ?? '').toString(),
+      ) ?? -2;
+      final expectedSeq = existingLength > 0
+          ? (existingLength ~/ _chunkSize) - 1
+          : -1;
+      final expectedBytes = existingLength;
+      if (manifestBytes != expectedBytes || manifestSeq != expectedSeq) {
+        _diag(
+          'RECEIVE_MANIFEST_NORMALIZED transfer=$transferId '
+          'manifestBytes=$manifestBytes physicalBytes=$expectedBytes '
+          'manifestSeq=$manifestSeq physicalSeq=$expectedSeq',
+        );
       }
     }
 
@@ -1514,9 +1727,9 @@ class FileTransfer {
     _completionAcknowledged = false;
     _nextSendSeq = 0;
     _lastAckSeq = -1;
+    _confirmedBytes = 0;
     _outstandingFrames.clear();
     _lastReceivedSeq = -1;
-    _receiveQueue = Future<void>.value();
     }
 
   String _safeRandomPart() =>

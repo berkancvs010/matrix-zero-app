@@ -441,12 +441,23 @@ class MainActivity : FlutterActivity() {
     private fun getReceivedLocalFile(fileId: String): File? {
         if (fileId.isBlank()) return null
 
-        val file = File(
-            File(filesDir, "received_files"),
-            fileId.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        )
+        val receivedDir = File(filesDir, "received_files")
+        val safeId = fileId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val exact = File(receivedDir, safeId)
 
-        return if (file.exists() && file.length() > 0L) file else null
+        if (exact.exists() && exact.length() > 0L) return exact
+
+        // Foreground Dart storage keeps the original extension:
+        // <transferId>.pdf / <transferId>.jpg / ...
+        // Native lookup historically searched only <transferId>, which made
+        // foreground-completed files impossible to open through MethodChannel.
+        val candidates = receivedDir.listFiles { candidate ->
+            candidate.isFile &&
+                candidate.name.startsWith("$safeId.") &&
+                candidate.length() > 0L
+        } ?: emptyArray()
+
+        return candidates.maxByOrNull { it.lastModified() }
     }
 
     private fun getReceivedImageInputStream(fileId: String): java.io.InputStream? {
@@ -1997,7 +2008,7 @@ class MainActivity : FlutterActivity() {
                                 .putString("queue", queue.toString())
                                 .apply()
 
-                            result.success(null)
+                            result.success(mapOf("type" to "__queue_skip__"))
                             return@setMethodCallHandler
                         }
 
@@ -2038,8 +2049,20 @@ class MainActivity : FlutterActivity() {
                                 text.isNotEmpty()
                             }
 
-                        // Sadece tüketilen ilk kaydı kuyruktan çıkar.
-                        // Diğer pending mesajlar korunur.
+                        if (!valid) {
+                            // Drop malformed entries without preventing later
+                            // valid notifications from being delivered.
+                            queue.remove(0)
+                            prefs.edit()
+                                .putString("queue", queue.toString())
+                                .apply()
+                            result.success(mapOf("type" to "__queue_skip__"))
+                            return@setMethodCallHandler
+                        }
+
+                        // Consume exactly one valid record. Dart calls this
+                        // method repeatedly until it returns null, draining
+                        // the complete pending queue in one pass.
                         queue.remove(0)
 
                         prefs.edit()
@@ -2047,8 +2070,7 @@ class MainActivity : FlutterActivity() {
                             .apply()
 
                         val data =
-                            if (valid) {
-                                buildMap<String, Any> {
+                            buildMap<String, Any> {
                                     put("type", type)
                                     put("from", from)
                                     put("to", to)
@@ -2062,9 +2084,6 @@ class MainActivity : FlutterActivity() {
                                         put("fileSize", fileSize)
                                     }
                                 }
-                            } else {
-                                null
-                            }
 
                         result.success(data)
                     } catch (e: Exception) {

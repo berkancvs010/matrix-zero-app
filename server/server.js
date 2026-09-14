@@ -54,6 +54,9 @@ const RELIABLE_FILE_MAX_CHUNK_BYTES=128*1024;
 
 // File contents are never persisted to disk.
 const RELIABLE_FILE_MAX_PENDING_CHUNKS=128;
+const RELIABLE_FILE_MAX_PENDING_BYTES=64*1024*1024;
+// O(1) global accounting for queued relay bytes. File contents remain RAM-only.
+let reliablePendingTotalBytes=0;
 const RELIABLE_FILE_MAX_SIZE=1024*1024*1024;
 const RELIABLE_FILE_META_PREFIX='reliable-file-';
 
@@ -306,6 +309,8 @@ function persistReliableFileSession(session){
     lastReceivedSeq:Number.isSafeInteger(session.lastReceivedSeq)
       ? session.lastReceivedSeq : -1,
     pendingEnd:session.pendingEnd||null,
+    lastWakePushAt:Number(session.lastWakePushAt)||0,
+    wakePushCount:Number(session.wakePushCount)||0,
     updatedAt:Number(session.updatedAt)||Date.now(),
   };
   try{
@@ -322,6 +327,21 @@ function deleteReliableFileMeta(transferId){
   try{
     fs.unlinkSync(path.join(DATA,reliableFileMetaName(transferId)));
   }catch{}
+}
+
+function removeReliableFileSession(transferId){
+  const key=String(transferId||'').trim();
+  const session=reliableFileTransfers.get(key);
+  if(session){
+    const pending=Number(session.pendingBytes)||0;
+    reliablePendingTotalBytes=Math.max(0,reliablePendingTotalBytes-pending);
+    session.pendingBytes=0;
+    session.pendingChunks=[];
+    reliableFileTransfers.delete(key);
+  }else{
+    reliableFileTransfers.delete(key);
+  }
+  deleteReliableFileMeta(key);
 }
 
 function loadReliableFileSessions(){
@@ -344,8 +364,11 @@ function loadReliableFileSessions(){
         lastReceivedSeq:Number.isSafeInteger(Number(meta.lastReceivedSeq))
           ? Number(meta.lastReceivedSeq) : -1,
         pendingChunks:[],
+        pendingBytes:0,
         receiverWs:null,
         pendingEnd:meta.pendingEnd||null,
+        lastWakePushAt:Number(meta.lastWakePushAt)||0,
+        wakePushCount:Number(meta.wakePushCount)||0,
         updatedAt:Number(meta.updatedAt)||Date.now(),
       };
       reliableFileTransfers.set(String(meta.transferId),session);
@@ -364,8 +387,7 @@ function cleanupReliableFileTransfers(){
       !session.updatedAt ||
       now-session.updatedAt>RELIABLE_FILE_TRANSFER_TTL_MS
     ){
-      reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+      removeReliableFileSession(transferId);
     }
   }
 }
@@ -382,6 +404,30 @@ function reliableFileSession(transferId){
 // false here is intentionally treated by the reliable relay as backpressure,
 // not as a connection failure.
 const RELIABLE_FILE_SOCKET_HIGH_WATER_BYTES=2*1024*1024;
+
+function reliablePendingBytes(){
+  return reliablePendingTotalBytes;
+}
+
+function queueReliableFileChunk(session,buffer){
+  if(!session || !Buffer.isBuffer(buffer)) return false;
+  if(!Array.isArray(session.pendingChunks)) session.pendingChunks=[];
+  if(session.pendingChunks.length>=RELIABLE_FILE_MAX_PENDING_CHUNKS) return false;
+
+  const currentBytes=Number(session.pendingBytes)||0;
+  if(
+    currentBytes+buffer.length>RELIABLE_FILE_MAX_PENDING_BYTES ||
+    reliablePendingBytes()+buffer.length>RELIABLE_FILE_MAX_PENDING_BYTES
+  ){
+    return false;
+  }
+
+  session.pendingChunks.push(Buffer.from(buffer));
+  session.pendingBytes=currentBytes+buffer.length;
+  reliablePendingTotalBytes+=buffer.length;
+  session.updatedAt=Date.now();
+  return true;
+}
 
 function sendBinary(ws,buffer){
   if(
@@ -423,13 +469,15 @@ function reliableFileOffer(session){
 }
 
 async function sendReliableFileOffer(session){
+  if(!session || !session.transferId)return false;
+
   const recipient=fileSocketFor(session.to,session.transferId);
 
   /*
-   * Transfer routing is independent from presence. A dedicated background
-   * transfer socket is a valid transfer endpoint. A primary background socket
-   * is also live, but Android may suspend its Dart isolate; therefore keep the
-   * FCM wake-up as a second idempotent path for primary background state.
+   * A dedicated background socket is the preferred transport endpoint.
+   * FCM remains the durable wake-up path when no transfer socket exists.
+   * The FCM payload is DATA-only and HIGH priority so Android can start the
+   * dataSync foreground service from the background.
    */
   if(recipient){
     const backgroundEndpoint=isBackgroundSocket(recipient);
@@ -442,20 +490,16 @@ async function sendReliableFileOffer(session){
         `to=${session.to} endpoint=${backgroundEndpoint?'background':'foreground'}`
       );
 
-      // Foreground and dedicated headless transfer sockets are already
-      // listening. For a primary background socket continue to FCM below.
       if(foregroundEndpoint || backgroundEndpoint){
         return true;
       }
     }
   }
 
-  /*
-   * DATA-only FCM is the wake-up path for a terminated/background receiver.
-   * It must not depend on ordinary message notification preferences.
-   *
-   * "from" is reserved by Firebase and causes messaging/invalid-argument.
-   */
+  if(isForegroundActive(session.to)){
+    return false;
+  }
+
   const pushed=await sendFcmPush(session.to,{
     data:{
       type:'privateFileMessage',
@@ -465,6 +509,7 @@ async function sendReliableFileOffer(session){
       transferId:session.transferId,
       fileName:session.fileName,
       fileSize:String(session.fileSize),
+      sha256:session.sha256,
       clientMessageId:session.clientMessageId,
       deliveryToken:session.deliveryToken||'',
       messageId:session.messageId,
@@ -475,10 +520,16 @@ async function sendReliableFileOffer(session){
     },
   });
 
-  console.log(
-    `[FILE_TRANSFER] OFFER ${pushed?'FCM_SENT':'FCM_FAILED'} ` +
-    `transfer=${session.transferId} to=${session.to}`
-  );
+  if(pushed){
+    session.lastWakePushAt=Date.now();
+    session.wakePushCount=(Number(session.wakePushCount)||0)+1;
+    session.updatedAt=Date.now();
+    persistReliableFileSession(session);
+    console.log(
+      `[FILE_TRANSFER] FCM_WAKE transfer=${session.transferId} ` +
+      `count=${session.wakePushCount}`
+    );
+  }
 
   return pushed;
 }
@@ -631,6 +682,7 @@ async function handleReliableFileEvent(ws,d,me){
       accepted:false,
       receivedBytes:0,
       pendingChunks:[],
+      pendingBytes:0,
       pendingEnd:null,
       receiverWs:null,
       updatedAt:Date.now(),
@@ -851,8 +903,7 @@ async function handleReliableFileEvent(ws,d,me){
       transferId,
     });
 
-    reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+    removeReliableFileSession(transferId);
     return true;
   }
 
@@ -868,7 +919,20 @@ async function handleReliableFileEvent(ws,d,me){
         (receivedSeq+1)*RELIABLE_FILE_MAX_CHUNK_BYTES
       );
       session.updatedAt=Date.now();
-      persistReliableFileSession(session);
+
+      // The in-memory sequence is authoritative during a live transfer.
+      // Persist less often to avoid turning every progress ACK into a disk
+      // write. On reconnect the receiver sends its durable local sequence,
+      // which supersedes this checkpoint.
+      const shouldPersist =
+        !Number.isSafeInteger(session.lastPersistedSeq) ||
+        receivedSeq-session.lastPersistedSeq>=16 ||
+        session.receivedBytes>=session.fileSize;
+
+      if(shouldPersist){
+        session.lastPersistedSeq=receivedSeq;
+        persistReliableFileSession(session);
+      }
     }
 
     send(fileSocketFor(session.from,transferId),{
@@ -886,11 +950,45 @@ async function handleReliableFileEvent(ws,d,me){
     if(!isSender && !isReceiver)return true;
     if(session.state==='failed' || session.state==='rejected')return true;
 
+    const role=String(d.role||'').toLowerCase();
+    if(role!=='sender' && role!=='receiver') return true;
+    if(role==='sender' && !isSender) return true;
+    if(role==='receiver' && !isReceiver) return true;
+
+    const reported=Number(d.lastReceivedSeq);
+    const maxSeq=Math.max(
+      -1,
+      Math.ceil(session.fileSize/RELIABLE_FILE_MAX_CHUNK_BYTES)-1
+    );
+    const resumeFrom=String(d.from||'').trim();
+    const resumeTo=String(d.to||'').trim();
+    const resumeName=String(d.fileName||'').trim();
+    const resumeSize=Number(d.fileSize);
+    const resumeSha=String(d.sha256||'').trim().toLowerCase();
+    const protocolVersion=Number(d.protocolVersion);
+    if(
+      resumeFrom.toLowerCase()!==String(session.from||'').toLowerCase() ||
+      resumeTo.toLowerCase()!==String(session.to||'').toLowerCase() ||
+      resumeName!==String(session.fileName||'') ||
+      resumeSize!==session.fileSize ||
+      resumeSha!==String(session.sha256||'').toLowerCase() ||
+      protocolVersion!==1 ||
+      !Number.isSafeInteger(reported) ||
+      reported<-1 ||
+      reported>maxSeq
+    ){
+      send(ws,{
+        type:'fileTransferFailed',
+        transferId,
+        reason:'Resume metadata doğrulaması başarısız.',
+      });
+      return true;
+    }
+
     if(isReceiver){
       session.receiverWs=ws;
       session.accepted=true;
       session.state='accepted';
-      const reported=Number(d.lastReceivedSeq);
       if(Number.isSafeInteger(reported) && reported>=-1){
         /*
          * The receiver's durable .part/manifest is authoritative for the
@@ -919,6 +1017,10 @@ async function handleReliableFileEvent(ws,d,me){
       lastReceivedSeq:Number(session.lastReceivedSeq)||-1,
       receivedBytes:Number(session.receivedBytes)||0,
       state:session.state,
+      fileName:session.fileName,
+      fileSize:session.fileSize,
+      sha256:session.sha256,
+      protocolVersion:1,
     });
 
     if(isReceiver){
@@ -930,6 +1032,10 @@ async function handleReliableFileEvent(ws,d,me){
         lastReceivedSeq:Number(session.lastReceivedSeq)||-1,
         receivedBytes:Number(session.receivedBytes)||0,
         state:session.state,
+        fileName:session.fileName,
+        fileSize:session.fileSize,
+        sha256:session.sha256,
+        protocolVersion:1,
       });
       flushReliableFileChunks(session);
       deliverPendingReliableFileEnd(session);
@@ -986,8 +1092,7 @@ async function handleReliableFileEvent(ws,d,me){
         });
       }
 
-      reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+      removeReliableFileSession(transferId);
       return true;
     }
 
@@ -1073,8 +1178,7 @@ async function handleReliableFileEvent(ws,d,me){
         reason:'Alıcı dosya doğrulamasını tamamlayamadı.',
       });
 
-      reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+      removeReliableFileSession(transferId);
       return true;
     }
 
@@ -1185,8 +1289,7 @@ async function handleReliableFileEvent(ws,d,me){
       reason:String(d.reason||'Dosya transferi başarısız oldu.'),
     });
 
-    reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+    removeReliableFileSession(transferId);
     return true;
   }
 
@@ -1220,6 +1323,9 @@ function flushReliableFileChunks(session){
       return;
     }
 
+    const sentLength=Buffer.isBuffer(buffer)?buffer.length:0;
+    session.pendingBytes=Math.max(0,(Number(session.pendingBytes)||0)-sentLength);
+    reliablePendingTotalBytes=Math.max(0,reliablePendingTotalBytes-sentLength);
     session.updatedAt=Date.now();
   }
 
@@ -1287,6 +1393,18 @@ function handleReliableFileBinary(ws,buffer,me){
     return true;
   }
 
+  const expectedChunkBytes=seq===maxSeq
+    ? session.fileSize-(seq*RELIABLE_FILE_MAX_CHUNK_BYTES)
+    : RELIABLE_FILE_MAX_CHUNK_BYTES;
+  if(payload.length!==expectedChunkBytes){
+    send(ws,{
+      type:'fileTransferFailed',
+      transferId,
+      reason:'Dosya parçasının boyutu geçersiz.',
+    });
+    return true;
+  }
+
   const recipient=fileSocketFor(session.to,transferId);
 
   /*
@@ -1300,13 +1418,8 @@ function handleReliableFileBinary(ws,buffer,me){
    * tekrar senkronize eder.
    */
   if(!recipient){
-    if(!Array.isArray(session.pendingChunks)){
-      session.pendingChunks=[];
-    }
-
-    // Keep a bounded relay window while the receiver socket is transitioning.
-    // It must be larger than the client's 64-chunk send window, otherwise a
-    // normal background wake-up can be misclassified as a transfer failure.
+    // Keep both a per-transfer and global RAM relay budget while the receiver
+    // socket is transitioning. File contents are never written to disk.
     if(session.pendingChunks.length>=RELIABLE_FILE_MAX_PENDING_CHUNKS){
       send(ws,{
         type:'fileTransferFailed',
@@ -1321,14 +1434,11 @@ function handleReliableFileBinary(ws,buffer,me){
         transferId,
         'failed',
       );
-      reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+      removeReliableFileSession(transferId);
       return true;
     }
 
-    session.pendingChunks.push(Buffer.from(buffer));
-    session.updatedAt=Date.now();
-    return true;
+    if(queueReliableFileChunk(session,buffer)) return true;
   }
 
   /*
@@ -1344,11 +1454,7 @@ function handleReliableFileBinary(ws,buffer,me){
        * The receiver disappeared again while flushing. Queue the current
        * chunk behind the older pending chunks so ordering is preserved.
        */
-      if(session.pendingChunks.length<RELIABLE_FILE_MAX_PENDING_CHUNKS){
-        session.pendingChunks.push(Buffer.from(buffer));
-        session.updatedAt=Date.now();
-        return true;
-      }
+      if(queueReliableFileChunk(session,buffer)) return true;
 
       send(ws,{
         type:'fileTransferFailed',
@@ -1363,8 +1469,7 @@ function handleReliableFileBinary(ws,buffer,me){
         transferId,
         'failed',
       );
-      reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+      removeReliableFileSession(transferId);
       return true;
     }
   }
@@ -1376,15 +1481,7 @@ function handleReliableFileBinary(ws,buffer,me){
      * sendBinary failure can be a transient socket transition. Preserve
      * this chunk instead of destroying the transfer session.
      */
-    if(!Array.isArray(session.pendingChunks)){
-      session.pendingChunks=[];
-    }
-
-    if(session.pendingChunks.length<RELIABLE_FILE_MAX_PENDING_CHUNKS){
-      session.pendingChunks.push(Buffer.from(buffer));
-      session.updatedAt=Date.now();
-      return true;
-    }
+    if(queueReliableFileChunk(session,buffer)) return true;
 
     send(ws,{
       type:'fileTransferFailed',
@@ -1399,8 +1496,7 @@ function handleReliableFileBinary(ws,buffer,me){
       transferId,
       'failed',
     );
-    reliableFileTransfers.delete(transferId);
-    deleteReliableFileMeta(transferId);
+    removeReliableFileSession(transferId);
     return true;
   }
 
@@ -2013,6 +2109,7 @@ async function sendFileTransferPush(username,event){
       transferId,
       fileName,
       fileSize,
+      sha256:String(event && event.sha256 || '').trim().toLowerCase(),
     },
     // IMPORTANT: keep file-transfer wake-ups DATA-ONLY.
     // A notification payload can be handled by Android's system tray while
@@ -3221,6 +3318,16 @@ wss.on('connection',(ws)=>{
         transferId:backgroundTransferId,
       });
 
+      const reliableSession=reliableFileTransfers.get(backgroundTransferId);
+      if(reliableSession){
+        // A fresh headless socket is a new wake-up opportunity. Reset the
+        // bounded FCM retry counter so a later process death can be recovered.
+        reliableSession.lastWakePushAt=0;
+        reliableSession.wakePushCount=0;
+        reliableSession.updatedAt=Date.now();
+        persistReliableFileSession(reliableSession);
+      }
+
       backgroundSockets.set(loginStateKey,transferMap);
       backgroundSocketByWs.set(
         ws,
@@ -4106,6 +4213,28 @@ wss.on('connection',(ws)=>{
     );
 
     if(existingPartyCall){
+      // The callee (or caller) is already participating in another call.
+      // Reject the new invite explicitly instead of silently dropping it.
+      const busyRecipient = socketFor(me);
+      send(
+        busyRecipient,
+        {
+          type:'callRejected',
+          from:to,
+          to:me,
+          callId,
+          reason:'busy',
+        }
+      );
+
+      if(!busyRecipient && callNotificationsEnabled(me)){
+        await sendCallStatusPushIfOffline(
+          me,
+          callId,
+          'Çağrı meşgul',
+          `${to} şu anda başka bir çağrıda.`,
+        );
+      }
       break;
     }
 
@@ -4533,6 +4662,7 @@ wss.on('connection',(ws)=>{
             fileId:transferId,
             fileName:String(d.fileName||'Dosya'),
             fileSize:String(Number(d.fileSize||0)),
+            sha256:String(d.sha256||'').trim().toLowerCase(),
           },
           android:{
             priority:'high',
@@ -4581,4 +4711,42 @@ wss.on('connection',(ws)=>{
  });ws.on('close',()=>disconnect(ws));ws.on('error',()=>disconnect(ws));
 });
 loadReliableFileSessions();
+
+const reliableFileWakeInterval=setInterval(async()=>{
+  const now=Date.now();
+
+  for(const session of reliableFileTransfers.values()){
+    if(!session || (session.state!=='waiting' && session.state!=='accepted'))continue;
+    if(isForegroundActive(session.to))continue;
+
+    const endpoint=backgroundSocketFor(session.to,session.transferId);
+    if(endpoint)continue;
+
+    const lastPush=Number(session.lastWakePushAt)||0;
+    const pushCount=Number(session.wakePushCount)||0;
+
+    // FCM is a wake-up, not the file transport. Retry a missed wake-up for
+    // a bounded period so a single delayed/lost push cannot strand a file.
+    if(
+      pushCount>=12 ||
+      (lastPush>0 && now-lastPush<300000)
+    ){
+      continue;
+    }
+
+    try{
+      await sendReliableFileOffer(session);
+    }catch(error){
+      console.error(
+        `[FILE_TRANSFER] wake retry failed transfer=${session.transferId}:`,
+        error && error.message || error
+      );
+    }
+  }
+
+  cleanupReliableFileTransfers();
+},15000);
+
+reliableFileWakeInterval.unref();
+
 server.listen(PORT,'0.0.0.0',()=>console.log(`ZeroLog server listening on ${PORT}`));

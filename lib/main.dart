@@ -163,6 +163,7 @@ Future<void> zerologBackgroundTransferMain() async {
 
         final done = Completer<void>();
         var terminal = false;
+        var completedSuccessfully = false;
         String? completedLocalUri;
 
         transfer.bindCallbacks(
@@ -172,6 +173,7 @@ Future<void> zerologBackgroundTransferMain() async {
             String? localUri,
           }) {
             if (status == 'completed') {
+              completedSuccessfully = true;
               if (localUri != null && localUri.trim().isNotEmpty) {
                 completedLocalUri = localUri.trim();
               }
@@ -250,9 +252,10 @@ Future<void> zerologBackgroundTransferMain() async {
           }
         }
 
-        if (terminal) {
-          // Remove the durable queue only after the verified local file has
-          // been registered. A registration failure must be recoverable.
+        if (terminal && completedSuccessfully) {
+          // Remove the durable queue only after a verified successful
+          // completion. A transient/terminal failure must remain queued so
+          // the next FCM/service wake-up can resume it.
           await channel.invokeMethod<dynamic>(
             'removePendingTransfer',
             <String, dynamic>{'fileId': transferId},

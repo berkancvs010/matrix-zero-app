@@ -2726,18 +2726,38 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                     ],
                   ),
                 ),
-                if ((message.status == 'transferring' ||
-                        message.status == 'connecting') &&
+                if ({
+                      'sending',
+                      'waiting',
+                      'stored',
+                      'incoming',
+                      'accepting',
+                      'transferring',
+                      'connecting',
+                      'pending',
+                    }.contains(message.status) &&
                     message.fileId.isNotEmpty)
-                  IconButton(
-                    tooltip: 'Transferi iptal et',
-                    visualDensity: VisualDensity.compact,
+                  TextButton.icon(
                     onPressed: () => unawaited(
                       _cancelActiveTransfer(message),
                     ),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 34),
+                      padding: const EdgeInsets.symmetric(horizontal: 7),
+                      visualDensity: VisualDensity.compact,
+                    ),
                     icon: Icon(
                       Icons.close_rounded,
-                      color: theme.text.withValues(alpha: 0.55),
+                      size: 17,
+                      color: theme.text.withValues(alpha: 0.65),
+                    ),
+                    label: Text(
+                      'İptal',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.65),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 if (message.status == 'failed' && mine)
@@ -2749,8 +2769,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                   ),
               ],
             ),
-            if (message.status == 'transferring' ||
-                message.status == 'connecting') ...[
+            if ({
+                  'transferring',
+                  'connecting',
+                }.contains(message.status)) ...[
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(99),
