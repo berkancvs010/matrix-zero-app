@@ -1,3 +1,10 @@
+## V16 — Reliable file wake-up / stale presence fix (2026-09-14)
+
+- Fixed a transfer-start deadlock when the server's presence state still says `foreground` but the recipient's WebSocket is already gone.
+- Reliable file OFFER wake-up now falls back to data-only HIGH-priority FCM whenever no live transfer/foreground socket actually accepted the OFFER.
+- The 15-second recovery loop now checks the actual live sockets instead of trusting stale foreground presence, so a missed wake-up can be retried.
+- Added a regression assertion covering the stale-presence/no-live-socket path.
+
 
 ## V9 — Reliable transfer protocol hardening (2026-09-13)
 

@@ -496,10 +496,16 @@ async function sendReliableFileOffer(session){
     }
   }
 
-  if(isForegroundActive(session.to)){
-    return false;
-  }
-
+  /*
+   * Presence can legitimately be stale for a short period: Android may have
+   * killed the primary socket, or the appState heartbeat may still say
+   * "foreground" while the WebSocket is already gone. In that case refusing
+   * the FCM wake-up strands the durable transfer indefinitely.
+   *
+   * FCM is only a wake-up path, not the file transport. If no live
+   * transfer/foreground socket accepted the OFFER above, always allow the
+   * data-only FCM wake-up to start/reconnect the receiver.
+   */
   const pushed=await sendFcmPush(session.to,{
     data:{
       type:'privateFileMessage',
@@ -2035,7 +2041,10 @@ async function sendFileStoredPush(username,event){
   const target=safeNick(username);
   if(!target)return false;
 
-  if(isForegroundActive(target))return false;
+  // Presence can be stale while the primary WebSocket is already gone.
+  // Only suppress FCM when a real live foreground socket exists.
+  const liveForeground=socketFor(target);
+  if(liveForeground && isForegroundActive(target))return false;
 
   const transferId=String(
     event && (event.transferId || event.fileId) || ''
@@ -2078,8 +2087,10 @@ async function sendFileTransferPush(username,event){
   if(!target)return false;
 
   // Kullanıcı uygulamayı aktif olarak kullanıyorsa WebSocket üzerinden
-  // offer zaten teslim edilir; ikinci bildirim üretme.
-  if(isForegroundActive(target))return false;
+  // offer zaten teslim edilir; ikinci bildirim üretme. Sadece presence'a
+  // güvenme: Android'de heartbeat gecikmiş/stale kalabilir.
+  const liveForeground=socketFor(target);
+  if(liveForeground && isForegroundActive(target))return false;
 
   const transferId=String(
     event && (event.transferId || event.fileId) || ''
@@ -4717,10 +4728,9 @@ const reliableFileWakeInterval=setInterval(async()=>{
 
   for(const session of reliableFileTransfers.values()){
     if(!session || (session.state!=='waiting' && session.state!=='accepted'))continue;
-    if(isForegroundActive(session.to))continue;
-
     const endpoint=backgroundSocketFor(session.to,session.transferId);
-    if(endpoint)continue;
+    const foreground=socketFor(session.to);
+    if(endpoint || foreground)continue;
 
     const lastPush=Number(session.lastWakePushAt)||0;
     const pushCount=Number(session.wakePushCount)||0;

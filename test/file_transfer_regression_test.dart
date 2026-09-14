@@ -31,4 +31,47 @@ void main() {
     expect(transferSource, contains('Dosya SHA-256 bilgisi geçersiz.'));
     expect(transferSource, contains(r"RegExp(r'^[a-f0-9]{64}$')"));
   });
+
+  test('legacy file push helpers never suppress FCM from stale presence alone', () {
+    expect(
+      serverSource,
+      contains(
+        'const liveForeground=socketFor(target);\n  if(liveForeground && isForegroundActive(target))return false;',
+      ),
+    );
+    expect(
+      serverSource,
+      isNot(contains(
+        'if(isForegroundActive(target))return false;\n\n  const transferId=String(',
+      )),
+    );
+  });
+
+  test('server sends a background wake-up when presence is stale and no live socket exists', () {
+    expect(
+      serverSource,
+      contains(
+        'const pushed=await sendFcmPush(session.to,{',
+      ),
+    );
+    expect(
+      serverSource,
+      contains(
+        'const foreground=socketFor(session.to);',
+      ),
+    );
+    expect(
+      serverSource,
+      contains(
+        'if(endpoint || foreground)continue;',
+      ),
+    );
+    expect(
+      serverSource,
+      isNot(contains(
+        'if(isForegroundActive(session.to)){\n    return false;\n  }\n\n  const pushed=await sendFcmPush',
+      )),
+    );
+  });
+
 }
