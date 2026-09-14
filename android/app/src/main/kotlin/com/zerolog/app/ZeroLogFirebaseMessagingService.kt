@@ -718,6 +718,10 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 FileTransferForegroundService.EXTRA_FILE_SIZE,
                 fileSize
             )
+            putExtra(
+                FileTransferForegroundService.EXTRA_SHA256,
+                (data["sha256"] ?: "").trim()
+            )
         }
 
         try {
@@ -818,8 +822,20 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             FILE_CHANNEL_ID
         )
             .setSmallIcon(applicationInfo.icon)
-            .setContentTitle("Dosya • $sender")
-            .setContentText("$fileName gönderildi")
+            .setContentTitle(
+                if (message.data["type"] == "privateFileStored") {
+                    "Dosya alındı • $sender"
+                } else {
+                    "Dosya geliyor • $sender"
+                }
+            )
+            .setContentText(
+                if (message.data["type"] == "privateFileStored") {
+                    "$fileName başarıyla alındı"
+                } else {
+                    "$fileName indiriliyor"
+                }
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)

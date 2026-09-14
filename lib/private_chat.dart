@@ -339,6 +339,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
         ? status
         : _mergeFileTransferStatus(existing.status, status);
 
+    // Progress events can arrive interleaved with the persisted chat message
+    // replay. Never let a stale 0/smaller value move an active transfer
+    // backwards on screen.
+    final effectiveTransferBytes = effectiveStatus == 'completed'
+        ? (fileSize > 0 ? fileSize : (existing?.fileSize ?? transferBytes))
+        : (existing == null
+              ? transferBytes
+              : transferBytes > existing.transferBytes
+              ? transferBytes
+              : existing.transferBytes);
+
     final message = ChatMessage(
       id: transferId,
       sender: sender,
@@ -350,7 +361,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
       fileId: transferId,
       fileName: fileName.isEmpty ? (existing?.fileName ?? 'Dosya') : fileName,
       fileSize: fileSize > 0 ? fileSize : (existing?.fileSize ?? 0),
-      transferBytes: transferBytes,
+      transferBytes: effectiveTransferBytes,
       expiresAt: expiresAt,
       localPath: localPath != null && localPath.isNotEmpty
           ? localPath
@@ -1452,13 +1463,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
           : existing.status;
 
       final transferBytes = existing?.transferBytes ?? 0;
+      final effectiveTransferBytes = transferStatus == 'completed'
+          ? fileSize
+          : (existing == null
+              ? transferBytes
+              : transferBytes > existing.transferBytes
+                  ? transferBytes
+                  : existing.transferBytes);
 
       _upsertFileMessage(
         transferId: fileId,
         sender: sender,
         fileName: fileName,
         fileSize: fileSize,
-        transferBytes: transferBytes,
+        transferBytes: effectiveTransferBytes,
         status: transferStatus,
       );
 
@@ -1832,6 +1850,19 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
       _messages[index] = _messages[index].copyWith(localPath: path);
     });
     unawaited(_saveHistoryCache());
+  }
+
+  Future<void> _cancelActiveTransfer(ChatMessage message) async {
+    if (message.fileId.isEmpty) return;
+
+    try {
+      await _fileTransfer.cancelTransfer(message.fileId);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dosya transferi iptal edilemedi: $e')),
+      );
+    }
   }
 
   Future<void> _retryFailedTransfer(ChatMessage message) async {
@@ -2695,6 +2726,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                     ],
                   ),
                 ),
+                if ((message.status == 'transferring' ||
+                        message.status == 'connecting') &&
+                    message.fileId.isNotEmpty)
+                  IconButton(
+                    tooltip: 'Transferi iptal et',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => unawaited(
+                      _cancelActiveTransfer(message),
+                    ),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: theme.text.withValues(alpha: 0.55),
+                    ),
+                  ),
                 if (message.status == 'failed' && mine)
                   IconButton(
                     tooltip: 'Tekrar dene',

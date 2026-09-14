@@ -92,6 +92,8 @@ Future<void> zerologBackgroundTransferMain() async {
           (data['fileName'] ?? 'received_file').toString().trim();
       final fileSize =
           int.tryParse((data['fileSize'] ?? '').toString()) ?? 0;
+      final sha256 =
+          (data['sha256'] ?? '').toString().trim().toLowerCase();
 
       if (sender.isEmpty ||
           recipient.isEmpty ||
@@ -190,6 +192,7 @@ Future<void> zerologBackgroundTransferMain() async {
           fileName: fileName,
           fileSize: fileSize,
           sender: sender,
+          sha256: sha256,
         );
 
         if (!prepared) {
@@ -228,15 +231,6 @@ Future<void> zerologBackgroundTransferMain() async {
           }
         }
 
-        if (terminal) {
-          // Only a real completed/failed terminal state may remove the durable
-          // queue item. Other queued transfers remain untouched.
-          await channel.invokeMethod<dynamic>(
-            'removePendingTransfer',
-            <String, dynamic>{'fileId': transferId},
-          );
-        }
-
         // Keep the verified local file registration path exactly as before.
         if (completedLocalUri != null &&
             completedLocalUri!.trim().isNotEmpty) {
@@ -254,6 +248,15 @@ Future<void> zerologBackgroundTransferMain() async {
               '[BG_TRANSFER] received file registration failed: $e',
             );
           }
+        }
+
+        if (terminal) {
+          // Remove the durable queue only after the verified local file has
+          // been registered. A registration failure must be recoverable.
+          await channel.invokeMethod<dynamic>(
+            'removePendingTransfer',
+            <String, dynamic>{'fileId': transferId},
+          );
         }
       } catch (e, stack) {
         retryLater = true;

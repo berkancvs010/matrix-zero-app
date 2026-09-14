@@ -116,6 +116,16 @@ class _CallScreenState extends State<CallScreen> {
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
+    // The call screen must use the same authoritative profile cache as the
+    // working chat/contact avatars. Request the full profile only when the
+    // cached directory entry does not already contain the photo.
+    final cachedProfile = WsClient.instance.profileFor(widget.targetNick);
+    final cachedPhoto =
+        (cachedProfile?['photoData'] ?? '').toString().trim();
+    if (cachedPhoto.isEmpty && WsClient.instance.connected) {
+      WsClient.instance.requestProfile(widget.targetNick);
+    }
+
     if (widget.outgoing) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _startOutgoingCall();
@@ -509,6 +519,17 @@ class _CallScreenState extends State<CallScreen> {
 
     final type = data['type'];
 
+    if (type == 'profile' || type == 'profileUpdated') {
+      final profileName =
+          (data['username'] ?? '').toString().trim().toLowerCase();
+      if (profileName == widget.targetNick.trim().toLowerCase() &&
+          mounted &&
+          !_closing) {
+        setState(() {});
+      }
+      return;
+    }
+
     if (type == 'connectionRestored' || type == 'registered') {
       _flushPendingOutgoingIce();
       if (_remoteDescriptionSet) {
@@ -887,6 +908,53 @@ class _CallScreenState extends State<CallScreen> {
     super.dispose();
   }
 
+  MemoryImage? _callProfileImage() {
+    final profile = WsClient.instance.profileFor(widget.targetNick);
+    final type = (profile?['type'] ?? 'avatar').toString();
+    final source = (profile?['photoData'] ?? '').toString().trim();
+
+    if (type != 'photo' || source.isEmpty) return null;
+
+    try {
+      return MemoryImage(base64Decode(source));
+    } catch (e) {
+      debugPrint('[CALL] profile photo decode failed: $e');
+      return null;
+    }
+  }
+
+  Widget _callAvatar(ZeroLogThemeData theme) {
+    final profileImage = _callProfileImage();
+    final letter = widget.targetNick.trim().isEmpty
+        ? '?'
+        : widget.targetNick.trim().substring(0, 1).toUpperCase();
+
+    return ClipOval(
+      child: SizedBox(
+        width: 92,
+        height: 92,
+        child: profileImage != null
+            ? Image(
+                image: profileImage,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              )
+            : Container(
+                color: theme.surface,
+                alignment: Alignment.center,
+                child: Text(
+                  letter,
+                  style: TextStyle(
+                    color: theme.primary,
+                    fontSize: 34,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = ThemeController.instance.data;
@@ -939,31 +1007,7 @@ class _CallScreenState extends State<CallScreen> {
                       width: 1.5,
                     ),
                   ),
-                  child: Center(
-                    child: Container(
-                      width: 92,
-                      height: 92,
-                      decoration: BoxDecoration(
-                        color: theme.surface,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          widget.targetNick.isEmpty
-                              ? '?'
-                              : widget.targetNick
-                                    .trim()
-                                    .substring(0, 1)
-                                    .toUpperCase(),
-                          style: TextStyle(
-                            color: theme.primary,
-                            fontSize: 34,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: _callAvatar(theme),
                 ),
 
                 const SizedBox(height: 24),

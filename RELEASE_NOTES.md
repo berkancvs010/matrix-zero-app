@@ -1,3 +1,16 @@
+
+## V9 — Reliable transfer protocol hardening (2026-09-13)
+
+- Added durable receiver transfer manifests beside `.part` files with atomic updates.
+- Added server-side transfer metadata persistence; file bytes remain RAM-only and are never written by the server.
+- Added reconnect resume handshake using the receiver's committed sequence.
+- Added sender seek/resume from the authoritative committed sequence after reconnect.
+- Added controlled receive-queue failure handling so chunk exceptions cannot leave a transfer silently stuck.
+- Added SHA-256 metadata to background file-transfer wake-up data.
+- Added 1 GB client/server file-size validation.
+- Delayed background queue removal until verified local-file registration completes.
+- Preserved existing message delivery, profile-photo, and successful file-preview paths.
+
 # ZeroLog V5 — hardened background transfer and session reliability
 
 

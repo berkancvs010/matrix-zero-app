@@ -154,14 +154,17 @@ class FileTransfer {
   Timer? _connectionTimeoutTimer;
   Timer? _transferTimeoutTimer;
 
-  // Keep a bounded 64-chunk send window. Encoded frames are retained so a
+  // Keep a bounded 32-chunk send window. Encoded frames are retained so a
   // short WebSocket transition can be recovered without restarting the file.
-  static const int _sendWindowSize = 64;
+  static const int _sendWindowSize = 32;
   // Larger frames reduce WebSocket/Dart framing overhead while keeping the
-  // bounded 64-frame window at a reasonable memory footprint (~8 MiB).
+  // bounded 32-frame window at a reasonable memory footprint (~4 MiB).
   static const int _chunkSize = 128 * 1024;
+  static const int _maxFileSize = 1024 * 1024 * 1024;
   final Map<int, Uint8List> _outstandingFrames = <int, Uint8List>{};
   Completer<void>? _windowWaiter;
+  RandomAccessFile? _sendingRaf;
+  int? _pendingResumeSeq;
 
   Future<void> _receiveQueue = Future<void>.value();
 
@@ -215,6 +218,10 @@ class FileTransfer {
     _initialized = true;
 
     _eventsSub = ws.events.listen((event) {
+      if (event is Map<String, dynamic> &&
+          event['type'] == 'connectionRestored') {
+        unawaited(_sendResumeHandshake());
+      }
       unawaited(_handleEvent(event));
     });
   }
@@ -246,6 +253,9 @@ class FileTransfer {
     final size = await file.length();
     if (size <= 0) {
       throw StateError('Seçilen dosya boş.');
+    }
+    if (size > _maxFileSize) {
+      throw StateError('Dosya boyutu 1 GB sınırını aşıyor.');
     }
 
     if (_transferId != null || _sending || _accepted) {
@@ -309,8 +319,14 @@ class FileTransfer {
     required String fileName,
     required int fileSize,
     required String sender,
+    String? sha256,
   }) async {
-    if (_disposed || transferId.trim().isEmpty || fileSize <= 0) return false;
+    if (_disposed ||
+        transferId.trim().isEmpty ||
+        fileSize <= 0 ||
+        fileSize > _maxFileSize) {
+      return false;
+    }
 
     final id = transferId.trim();
 
@@ -372,6 +388,7 @@ class FileTransfer {
       if (sent) {
         _connectionTimeoutTimer?.cancel();
         _connectionTimeoutTimer = null;
+        await _sendResumeHandshake();
       } else {
         _startConnectionTimeout(transferId);
       }
@@ -399,7 +416,9 @@ class FileTransfer {
         'transferId': transferId,
       });
 
-      if (!sent) {
+      if (sent) {
+        await _sendResumeHandshake();
+      } else {
         // Keep the prepared incoming transfer alive. WsClient will reconnect
         // and the ACCEPT is retried by the caller/normal transfer signaling
         // path instead of destroying a valid pending receive.
@@ -416,6 +435,51 @@ class FileTransfer {
     }
   }
 
+  /// User-initiated cancellation. It is deliberately separate from
+  /// transport failure so an active transfer cannot leave the shared
+  /// FileTransfer instance occupied after its chat bubble is removed.
+  Future<void> cancelTransfer(String transferId) async {
+    if (_disposed || _transferId != transferId || transferId.trim().isEmpty) {
+      return;
+    }
+
+    if (_terminalEventHandled) {
+      await _resetTransferState();
+      return;
+    }
+
+    _terminalEventHandled = true;
+    _markTerminal(transferId);
+
+    _diag('TRANSFER_CANCELLED transfer=$transferId');
+
+    ws.send({
+      'type': 'fileTransferFailed',
+      'from': me,
+      'to': peer,
+      'transferId': transferId,
+      'reason': 'Dosya transferi kullanıcı tarafından iptal edildi.',
+    });
+
+    final incoming = _incomingTransfer;
+    onProgress?.call(
+      transferId: transferId,
+      sentBytes: incoming ? _receivedBytes : _sentBytes,
+      totalBytes: _fileSize,
+      status: 'failed',
+    );
+
+    if (incoming) {
+      onIncomingStatus?.call(
+        transferId: transferId,
+        status: 'failed',
+      );
+    }
+
+    await _deleteReceiveManifest(transferId);
+    await _resetTransferState();
+  }
+
   Future<void> rejectIncoming(String transferId) async {
     if (_disposed || _transferId != transferId) return;
 
@@ -428,6 +492,7 @@ class FileTransfer {
 
     onIncomingStatus?.call(transferId: transferId, status: 'rejected');
 
+    await _deleteReceiveManifest(transferId);
     await _resetTransferState();
   }
 
@@ -439,6 +504,31 @@ class FileTransfer {
     if (_disposed) return;
 
     final type = (event['type'] ?? '').toString();
+
+    if (type == 'fileTransferResumeState') {
+      final resumeId = (event['transferId'] ?? '').toString().trim();
+      if (resumeId != _transferId || _terminalEventHandled) return;
+      final rawSeq = event['lastReceivedSeq'];
+      final seq = rawSeq is num
+          ? rawSeq.toInt()
+          : int.tryParse(rawSeq?.toString() ?? '') ?? -1;
+      if (seq < -1) return;
+      if (_incomingTransfer) {
+        // The receiver's durable manifest/.part is authoritative. A server
+        // resume state can be stale relative to the last locally flushed
+        // chunk, so never advance local receive state from this event.
+        return;
+      }
+      _lastAckSeq = seq;
+      _outstandingFrames.removeWhere((key, _) => key <= seq);
+      _nextSendSeq = seq + 1;
+      _sentBytes = _seqCommittedBytes(seq);
+      _pendingResumeSeq = seq;
+      final waiter = _windowWaiter;
+      _windowWaiter = null;
+      if (waiter != null && !waiter.isCompleted) waiter.complete();
+      return;
+    }
 
     if (type == 'fileTransferStartAck') {
       final id = (event['transferId'] ?? '').toString().trim();
@@ -470,15 +560,32 @@ class FileTransfer {
           : int.tryParse(rawSize?.toString() ?? '') ?? 0;
 
       final name = (event['fileName'] ?? 'Dosya').toString().trim();
-      if (size <= 0 || name.isEmpty) return;
+      if (size <= 0 || size > _maxFileSize || name.isEmpty) return;
 
       if (_transferId != null && _transferId != id) return;
 
       if (_transferId == id) {
         // A reconnect can replay the same OFFER after the receiver prepared
-        // the file. ACCEPT is idempotent and must be retried even when a
-        // previous ACCEPT was sent before the socket changed.
-        if (_incomingTransfer) {
+        // the file. The metadata must remain identical to the original
+        // transfer before the existing partial file is reused.
+        final replaySha = (event['sha256'] ?? '').toString().trim().toLowerCase();
+        if (_incomingTransfer &&
+            (_fileSize != size ||
+             (_sourceSha256 != null &&
+              _sourceSha256!.isNotEmpty &&
+              replaySha.isNotEmpty &&
+              _sourceSha256 != replaySha))) {
+          await _failTransfer(
+            id,
+            'Dosya transferi metadata bilgisi değişti.',
+            reset: true,
+            incoming: true,
+          );
+          return;
+        }
+        if (_incomingTransfer && replaySha.isNotEmpty) {
+          _sourceSha256 = replaySha;
+          await _persistReceiveManifest(id);
           await acceptIncoming(id);
         }
         return;
@@ -576,13 +683,17 @@ class FileTransfer {
       case 'fileTransferChunk':
         final bytes = event['bytes'];
         if (bytes is Uint8List) {
-          _receiveQueue = _receiveQueue.then(
-            (_) => _receiveChunk(bytes, event['seq']),
-          );
+          _receiveQueue = _receiveQueue
+              .then((_) => _receiveChunk(bytes, event['seq']))
+              .catchError((error, stack) {
+                unawaited(_handleReceiveQueueFailure(id, error, stack));
+              });
         } else if (bytes is List<int>) {
-          _receiveQueue = _receiveQueue.then(
-            (_) => _receiveChunk(Uint8List.fromList(bytes), event['seq']),
-          );
+          _receiveQueue = _receiveQueue
+              .then((_) => _receiveChunk(Uint8List.fromList(bytes), event['seq']))
+              .catchError((error, stack) {
+                unawaited(_handleReceiveQueueFailure(id, error, stack));
+              });
         }
         break;
 
@@ -616,6 +727,7 @@ class FileTransfer {
 
     try {
       final raf = await file.open();
+      _sendingRaf = raf;
       try {
 
         while (true) {
@@ -635,8 +747,23 @@ class FileTransfer {
             await _resendOutstandingFrames(id);
           }
 
+          final pendingResume = _pendingResumeSeq;
+          if (pendingResume != null) {
+            _pendingResumeSeq = null;
+            final offset = _seqCommittedBytes(pendingResume);
+            await raf.setPosition(offset);
+            _sentBytes = offset;
+          }
+
           final bytes = await raf.read(_chunkSize);
           if (bytes.isEmpty) break;
+
+          if (_pendingResumeSeq != null) {
+            // A resume handshake arrived while the read was awaiting I/O.
+            // Discard this stale chunk and restart from the receiver's
+            // authoritative committed sequence.
+            continue;
+          }
 
           final seq = _nextSendSeq++;
 
@@ -670,7 +797,7 @@ class FileTransfer {
 
           // Give the Flutter event loop a brief chance to paint progress and
           // service incoming ACKs without throttling the actual socket send.
-          if (seq % 4 == 3) {
+          if (seq % 8 == 7) {
             await Future<void>.delayed(Duration.zero);
           }
 
@@ -679,6 +806,7 @@ class FileTransfer {
           }
         }
       } finally {
+        if (identical(_sendingRaf, raf)) _sendingRaf = null;
         await raf.close();
       }
 
@@ -792,6 +920,80 @@ class FileTransfer {
 
       await _resendOutstandingFrames(transferId);
     }
+  }
+
+  int _seqCommittedBytes(int seq) {
+    if (seq < 0) return 0;
+    final value = (seq + 1) * _chunkSize;
+    return value > _fileSize ? _fileSize : value;
+  }
+
+  Future<void> _sendResumeHandshake() async {
+    final id = _transferId;
+    if (_disposed || id == null || id.isEmpty || _terminalEventHandled) return;
+    if (!ws.connected) return;
+    final receivedSeq = _incomingTransfer ? _lastReceivedSeq : -1;
+    ws.send({
+      'type': 'fileTransferResume',
+      'from': me,
+      'to': peer,
+      'transferId': id,
+      'role': _incomingTransfer ? 'receiver' : 'sender',
+      'lastReceivedSeq': receivedSeq,
+    });
+  }
+
+  Future<File> _receiveManifestFile(String transferId) async {
+    final support = await getApplicationSupportDirectory();
+    final dir = Directory('${support.path}/received_files');
+    await dir.create(recursive: true);
+    return File('${dir.path}/${_sanitizeId(transferId)}.manifest.json');
+  }
+
+  Future<void> _persistReceiveManifest(String transferId) async {
+    if (!_incomingTransfer || transferId.isEmpty || _fileSize <= 0) return;
+    try {
+      final file = await _receiveManifestFile(transferId);
+      final temp = File('${file.path}.tmp');
+      final payload = jsonEncode({
+        'transferId': transferId,
+        'fileName': _fileName ?? 'received_file',
+        'fileSize': _fileSize,
+        'sha256': _sourceSha256 ?? '',
+        'lastReceivedSeq': _lastReceivedSeq,
+        'receivedBytes': _receivedBytes,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      await temp.writeAsString(payload, flush: true);
+      await temp.rename(file.path);
+    } catch (e) {
+      _diag('RECEIVE_MANIFEST_SAVE_FAILED transfer=$transferId error=$e');
+    }
+  }
+
+  Future<void> _deleteReceiveManifest(String transferId) async {
+    try {
+      final file = await _receiveManifestFile(transferId);
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
+
+  Future<void> _handleReceiveQueueFailure(
+    String? transferId,
+    Object error,
+    StackTrace stack,
+  ) async {
+    final id = transferId;
+    if (id == null || id.isEmpty || _transferId != id || _terminalEventHandled) {
+      return;
+    }
+    _diag('RECEIVE_QUEUE_FAILED transfer=$id error=$error');
+    await _failTransfer(
+      id,
+      'Dosya parçası işlenemedi: $error',
+      reset: true,
+      incoming: true,
+    );
   }
 
   Future<bool> _waitForConnection(Duration timeout) async {
@@ -921,9 +1123,10 @@ class FileTransfer {
       status: 'transferring',
     );
 
-    // ACK every 16 chunks and at the end. With 128 KiB chunks this keeps
+    // ACK every 8 chunks and at the end. With 128 KiB chunks this keeps
     // acknowledgement traffic low while preserving bounded backpressure.
-    if (seq % 16 == 15 || _receivedBytes == _fileSize) {
+    if (seq % 8 == 7 || _receivedBytes == _fileSize) {
+      await _persistReceiveManifest(id);
       ws.send({
         'type': 'fileTransferChunkAck',
         'from': me,
@@ -1017,6 +1220,7 @@ class FileTransfer {
         localUri: finalFile.path,
       );
 
+      await _deleteReceiveManifest(id);
       await _resetTransferState(keepFinalFile: true);
     } catch (e) {
       await _failTransfer(
@@ -1147,6 +1351,7 @@ class FileTransfer {
     _receivedBytes = existingLength;
     _lastReceivedSeq =
         existingLength > 0 ? (existingLength ~/ _chunkSize) - 1 : -1;
+    await _persistReceiveManifest(transferId);
   }
 
   Future<void> _failTransfer(
@@ -1186,7 +1391,13 @@ class FileTransfer {
       }
     }
 
-    if (reset) {
+    if (reset && incoming) {
+      await _deleteReceiveManifest(transferId);
+    }
+
+    if (reset && _transferId == transferId) {
+      // A stale async send/receive task can finish after the user has already
+      // started a new transfer. Never let that old task reset the new transfer.
       await _resetTransferState();
     }
   }
@@ -1272,6 +1483,10 @@ class FileTransfer {
     try {
       await _incomingFile?.close();
     } catch (_) {}
+    try {
+      await _sendingRaf?.close();
+    } catch (_) {}
+    _sendingRaf = null;
 
     _incomingFile = null;
 
@@ -1302,7 +1517,7 @@ class FileTransfer {
     _outstandingFrames.clear();
     _lastReceivedSeq = -1;
     _receiveQueue = Future<void>.value();
-  }
+    }
 
   String _safeRandomPart() =>
       DateTime.now().microsecondsSinceEpoch.toRadixString(36);

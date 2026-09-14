@@ -40,6 +40,7 @@ class FileTransferForegroundService : Service() {
         const val EXTRA_FILE_ID = "fileId"
         const val EXTRA_FILE_NAME = "fileName"
         const val EXTRA_FILE_SIZE = "fileSize"
+        const val EXTRA_SHA256 = "sha256"
 
         private const val TAG = "ZeroLogFile"
         private const val METHOD_CHANNEL =
@@ -125,6 +126,11 @@ class FileTransferForegroundService : Service() {
                 ?.trim()
                 .orEmpty()
 
+        val sha256 =
+            intent?.getStringExtra(EXTRA_SHA256)
+                ?.trim()
+                .orEmpty()
+
         if (sender.isEmpty() ||
             recipient.isEmpty() ||
             fileId.isEmpty() ||
@@ -140,7 +146,8 @@ class FileTransferForegroundService : Service() {
             recipient = recipient,
             fileId = fileId,
             fileName = fileName,
-            fileSize = fileSize
+            fileSize = fileSize,
+            sha256 = sha256
         )
 
         startFlutterEngine()
@@ -153,7 +160,8 @@ class FileTransferForegroundService : Service() {
         recipient: String,
         fileId: String,
         fileName: String,
-        fileSize: String
+        fileSize: String,
+        sha256: String = ""
     ) {
         synchronized(PREFS_LOCK) {
             val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
@@ -175,6 +183,7 @@ class FileTransferForegroundService : Service() {
                     put(EXTRA_FILE_ID, fileId)
                     put(EXTRA_FILE_NAME, fileName)
                     put(EXTRA_FILE_SIZE, fileSize)
+                    put(EXTRA_SHA256, sha256)
                 }
             )
 
@@ -203,6 +212,7 @@ class FileTransferForegroundService : Service() {
                 val fileId = item.optString(EXTRA_FILE_ID).trim()
                 val fileName = item.optString(EXTRA_FILE_NAME).trim()
                 val fileSize = item.optString(EXTRA_FILE_SIZE).trim()
+                val sha256 = item.optString(EXTRA_SHA256).trim()
 
                 if (sender.isNotEmpty() &&
                     recipient.isNotEmpty() &&
@@ -215,7 +225,8 @@ class FileTransferForegroundService : Service() {
                             EXTRA_RECIPIENT to recipient,
                             EXTRA_FILE_ID to fileId,
                             EXTRA_FILE_NAME to fileName,
-                            EXTRA_FILE_SIZE to fileSize
+                            EXTRA_FILE_SIZE to fileSize,
+                            EXTRA_SHA256 to sha256
                         )
                     )
                 }
@@ -251,16 +262,10 @@ class FileTransferForegroundService : Service() {
                 .putString(PENDING_QUEUE_KEY, next.toString())
                 .apply()
 
-            if (removed) {
-                // The native FCM notification uses the transfer id as its
-                // stable notification key. Cancel it exactly when this
-                // durable queue item reaches a terminal state.
-                ZeroLogFirebaseMessagingService.cancelFileNotification(
-                    this,
-                    fileId
-                )
-            }
-
+            // Do not cancel the stable file notification here. The transfer
+            // wake-up notification is replaced by the server's authoritative
+            // privateFileStored completion notification, which must remain
+            // visible after a background/terminated receive finishes.
             return removed
         }
     }
