@@ -1985,6 +1985,76 @@ class MainActivity : FlutterActivity() {
 
                     result.success(data)
                 }
+                "ackPendingMessageIntent" -> {
+                    val ackKey =
+                        call.argument<String>("queueKey")?.trim().orEmpty()
+
+                    if (ackKey.isEmpty()) {
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
+
+                    val prefs =
+                        getSharedPreferences("zerolog_native_message", MODE_PRIVATE)
+
+                    try {
+                        val queue =
+                            org.json.JSONArray(prefs.getString("queue", "[]") ?: "[]")
+
+                        var foundIndex = -1
+                        for (index in 0 until queue.length()) {
+                            val item = queue.optJSONObject(index) ?: continue
+                            val itemType =
+                                item.optString("type", "privateMessage").trim()
+                            val itemId =
+                                item.optString("id", "").trim()
+                            val itemClientId =
+                                item.optString("clientMessageId", "").trim()
+                            val itemFileId =
+                                item.optString("fileId", "").trim()
+                            val itemKey =
+                                buildString {
+                                    append(itemType)
+                                    append("|")
+                                    append(item.optString("from", "").trim())
+                                    append("|")
+                                    append(item.optString("to", "").trim())
+                                    append("|")
+                                    append(
+                                        if (itemType == "privateFileMessage") {
+                                            itemFileId
+                                        } else {
+                                            itemId.ifEmpty { itemClientId }
+                                        }
+                                    )
+                                }
+
+                            if (itemKey == ackKey) {
+                                foundIndex = index
+                                break
+                            }
+                        }
+
+                        if (foundIndex >= 0) {
+                            queue.remove(foundIndex)
+                            prefs.edit()
+                                .putString("queue", queue.toString())
+                                .apply()
+                            result.success(true)
+                        } else {
+                            // Idempotent ACK: the item may already have been
+                            // acknowledged by a retry.
+                            result.success(true)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ZeroLogMessage",
+                            "Failed to acknowledge pending message",
+                            e
+                        )
+                        result.success(false)
+                    }
+                }
                 "getPendingMessageIntent" -> {
                     val prefs =
                         getSharedPreferences("zerolog_native_message", MODE_PRIVATE)
@@ -2060,14 +2130,25 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
 
-                        // Consume exactly one valid record. Dart calls this
-                        // method repeatedly until it returns null, draining
-                        // the complete pending queue in one pass.
-                        queue.remove(0)
-
-                        prefs.edit()
-                            .putString("queue", queue.toString())
-                            .apply()
+                        /*
+                         * Do not consume a valid item before Dart has durably
+                         * accepted it. The previous pop-before-store sequence
+                         * could lose a notification if SharedPreferences/Dart
+                         * storage failed between these two operations.
+                         *
+                         * The queue item remains at index 0 until Dart calls
+                         * ackPendingMessageIntent with the deterministic key.
+                         */
+                        val queueKey =
+                            buildString {
+                                append(type)
+                                append("|")
+                                append(from)
+                                append("|")
+                                append(to)
+                                append("|")
+                                append(if (isFile) fileId else id.ifEmpty { clientMessageId })
+                            }
 
                         val data =
                             buildMap<String, Any> {
@@ -2077,6 +2158,7 @@ class MainActivity : FlutterActivity() {
                                     put("text", text)
                                     put("id", id)
                                     put("clientMessageId", clientMessageId)
+                                    put("__queueKey", queueKey)
 
                                     if (isFile) {
                                         put("fileId", fileId)

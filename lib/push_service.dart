@@ -15,6 +15,8 @@ class ZeroLogPushService {
   static const int messageNotificationId = 9002;
   static const String pendingCallKey = 'zerolog.pending_call';
   static const String pendingNotificationKey = 'zerolog.pending_notification';
+  static const String pendingNotificationQueueKey =
+      'zerolog.pending_notification_queue';
 
   static String? _currentToken;
   static bool _notificationsInitialized = false;
@@ -29,23 +31,75 @@ class ZeroLogPushService {
     _incomingCallHandler = handler;
   }
 
-  static Future<void> storeNotificationPayload(String payload) async {
-    if (payload.trim().isEmpty) return;
+  static Future<bool> storeNotificationPayload(String payload) async {
+    if (payload.trim().isEmpty) return false;
 
     try {
       final decoded = jsonDecode(payload);
-
-      if (decoded is! Map) return;
+      if (decoded is! Map) return false;
 
       final type = decoded['type']?.toString();
       final prefs = await SharedPreferences.getInstance();
 
       if (type == 'callInvite') {
-        await prefs.setString(pendingCallKey, payload);
-      } else if (type == 'privateMessage' || type == 'privateFileMessage') {
-        await prefs.setString(pendingNotificationKey, payload);
+        return await prefs.setString(pendingCallKey, payload);
       }
-    } catch (_) {}
+
+      if (type != 'privateMessage' && type != 'privateFileMessage') {
+        return false;
+      }
+
+      final rawQueue =
+          prefs.getString(pendingNotificationQueueKey) ?? '[]';
+      List<dynamic> queue;
+      try {
+        final decodedQueue = jsonDecode(rawQueue);
+        queue = decodedQueue is List ? List<dynamic>.from(decodedQueue) : <dynamic>[];
+      } catch (_) {
+        queue = <dynamic>[];
+      }
+
+      final decodedMap = Map<String, dynamic>.from(decoded);
+      final identity = _notificationIdentity(decodedMap);
+      if (identity.isNotEmpty) {
+        queue.removeWhere(
+          (item) =>
+              item is Map &&
+              _notificationIdentity(Map<String, dynamic>.from(item)) == identity,
+        );
+      }
+
+      queue.add(decodedMap);
+      if (queue.length > 100) {
+        queue = queue.sublist(queue.length - 100);
+      }
+
+      final ok = await prefs.setString(
+        pendingNotificationQueueKey,
+        jsonEncode(queue),
+      );
+
+      // Migrate/clear the legacy single-slot value only after the new queue
+      // has been durably written.
+      if (ok) {
+        await prefs.remove(pendingNotificationKey);
+      }
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static String _notificationIdentity(Map<String, dynamic> data) {
+    final type = data['type']?.toString() ?? '';
+    final fileId = data['fileId']?.toString() ?? '';
+    final id = data['id']?.toString() ?? '';
+    final clientMessageId = data['clientMessageId']?.toString() ?? '';
+    if (type == 'privateFileMessage' && fileId.isNotEmpty) {
+      return '$type|$fileId';
+    }
+    final messageId = id.isNotEmpty ? id : clientMessageId;
+    return messageId.isEmpty ? '' : '$type|$messageId';
   }
 
   static void setCurrentToken(String token) {
@@ -745,7 +799,24 @@ class ZeroLogPushService {
 
         if (data['type'] == 'privateMessage' ||
             data['type'] == 'privateFileMessage') {
-          await storeNotificationPayload(jsonEncode(data));
+          final stored = await storeNotificationPayload(jsonEncode(data));
+          if (!stored) {
+            // Leave the native queue item untouched. A later app-start drain
+            // can retry it without losing the notification.
+            break;
+          }
+
+          final queueKey = data['__queueKey']?.toString().trim() ?? '';
+          if (queueKey.isNotEmpty) {
+            final acknowledged = await _systemChannel.invokeMethod<bool>(
+                  'ackPendingMessageIntent',
+                  <String, dynamic>{'queueKey': queueKey},
+                ) ??
+                false;
+            if (!acknowledged) {
+              break;
+            }
+          }
         }
       }
     } catch (e) {
@@ -756,18 +827,33 @@ class ZeroLogPushService {
   static Future<Map<String, dynamic>?> takePendingNotification() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(pendingNotificationKey);
+      final rawQueue =
+          prefs.getString(pendingNotificationQueueKey) ?? '[]';
 
-      if (raw == null || raw.isEmpty) {
-        return null;
-      }
+      try {
+        final decodedQueue = jsonDecode(rawQueue);
+        if (decodedQueue is List && decodedQueue.isNotEmpty) {
+          final queue = List<dynamic>.from(decodedQueue);
+          final first = queue.removeAt(0);
+          final ok = await prefs.setString(
+            pendingNotificationQueueKey,
+            jsonEncode(queue),
+          );
+          if (!ok) return null;
+          if (first is Map) {
+            return Map<String, dynamic>.from(first);
+          }
+        }
+      } catch (_) {}
 
-      await prefs.remove(pendingNotificationKey);
-
-      final decoded = jsonDecode(raw);
-
-      if (decoded is Map) {
-        return Map<String, dynamic>.from(decoded);
+      // Backward compatibility for payloads written by older builds.
+      final legacy = prefs.getString(pendingNotificationKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        final decoded = jsonDecode(legacy);
+        if (decoded is Map) {
+          await prefs.remove(pendingNotificationKey);
+          return Map<String, dynamic>.from(decoded);
+        }
       }
     } catch (_) {}
 

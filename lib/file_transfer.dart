@@ -786,9 +786,19 @@ class FileTransfer {
         break;
 
       case 'fileTransferFailed':
+        if (event['transferId']?.toString() == _transferId) {
+          ws.send({
+            'type': 'fileTransferFailedAck',
+            'from': me,
+            'to': peer,
+            'transferId': id,
+          });
+        }
         await _failTransfer(
           id,
-          'Dosya transferi karşı tarafta başarısız oldu.',
+          (event['reason']?.toString().trim().isNotEmpty ?? false)
+              ? event['reason'].toString().trim()
+              : 'Dosya transferi karşı tarafta başarısız oldu.',
           reset: true,
           incoming: _incomingTransfer,
         );
@@ -1626,7 +1636,7 @@ class FileTransfer {
 
   void _startConnectionTimeout(String id) {
     _connectionTimeoutTimer?.cancel();
-    _connectionTimeoutTimer = Timer(const Duration(seconds: 90), () {
+    _connectionTimeoutTimer = Timer(const Duration(seconds: 180), () {
       if (_disposed || _transferId != id || _terminalEventHandled) {
         return;
       }
@@ -1634,7 +1644,7 @@ class FileTransfer {
       unawaited(
         _failTransfer(
           id,
-          'Dosya bağlantısı 90 saniye içinde kurulamadı.',
+          'Dosya bağlantısı 180 saniye içinde kurulamadı.',
           reset: true,
           incoming: _incomingTransfer,
         ),

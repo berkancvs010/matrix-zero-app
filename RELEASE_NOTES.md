@@ -1,3 +1,14 @@
+## V17 — Reliable stale-socket routing and notification queue ACK (2026-09-15)
+
+- Reliable file OFFER routing now rejects sockets marked dead by the server heartbeat (`isAlive === false`) and falls back to the DATA-only HIGH-priority FCM wake-up.
+- Reliable file binary/signaling routing also ignores heartbeat-dead sockets, preventing false-success writes during stale WebSocket transitions.
+- Terminal `fileTransferFailed` handling now updates the durable message state and routes a terminal failure to both peers; if a peer is offline, the failure is retained in the pending signaling queue for reconnect delivery.
+- Native Android notification queue changed from pop-before-store to peek-then-ack. Dart acknowledges an item only after durable local storage succeeds.
+- Dart pending private-message/file notifications now use a bounded 100-entry queue with identity-based deduplication instead of a single-slot value.
+- Background file wake retries were tightened to at most once per 60 seconds, while receiver connection timeout was extended to 180 seconds to tolerate delayed Android/FCM wake-up.
+- Added regression assertions for stale-socket routing, terminal failure fan-out, notification queue ACK, bounded notification queue, and wake/timeout timing.
+- Android build version bumped to `1.0.8+14`.
+
 ## V16 — Reliable file wake-up / stale presence fix (2026-09-14)
 
 - Fixed a transfer-start deadlock when the server's presence state still says `foreground` but the recipient's WebSocket is already gone.
@@ -151,3 +162,11 @@
 - Pending native message/file notification queue is drained in one bounded pass.
 - Busy call invites are explicitly rejected instead of being silently dropped.
 - Added notification architecture regression tests.
+
+## V18 — Terminal failure reliability and auth hardening (2026-09-15)
+
+- Retained failed file-transfer sessions for a short terminal TTL and added per-peer failure ACK/replay across reconnects.
+- Propagated the actual failure reason to the sender UI.
+- Added login rate limiting keyed by remote IP and normalized username.
+- Corrected the login privacy text: ZeroLog currently provides TLS/WSS transport encryption, not end-to-end encryption.
+- Kept the server file relay content-free; file bytes are not persisted by the server.

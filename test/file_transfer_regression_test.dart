@@ -74,4 +74,107 @@ void main() {
     );
   });
 
+  test('terminal file failures are routed to both peers and retained if offline', () {
+    expect(
+      serverSource,
+      contains('function failReliableFileTransfer(session,reason,sourceWs=null){'),
+    );
+    expect(serverSource, contains('const deliveredSender=send(sender,eventForSender);'));
+    expect(serverSource, contains('const deliveredReceiver=send(receiver,eventForReceiver);'));
+    expect(serverSource, contains('storeTerminalPendingFileTransfer(session.from,eventForSender);'));
+    expect(serverSource, contains('storeTerminalPendingFileTransfer(session.to,eventForReceiver);'));
+    expect(serverSource, contains("'fileTransferFailedAck'"));
+    expect(serverSource, contains('terminalUntil'));
+  });
+
+  test('stale sockets cannot win reliable file routing', () {
+    expect(serverSource, contains('recipient.isAlive!==false'));
+    expect(serverSource, contains('ws.isAlive===false'));
+    expect(serverSource, contains('session.receiverWs.isAlive!==false'));
+    expect(serverSource, contains('entry.ws.isAlive!==false'));
+  });
+
+  test('native notification queue uses peek then acknowledge', () {
+    final mainSource = File(
+      'android/app/src/main/kotlin/com/zerolog/app/MainActivity.kt',
+    ).readAsStringSync();
+    final pushSource = File('lib/push_service.dart').readAsStringSync();
+
+    expect(mainSource, contains('"ackPendingMessageIntent"'));
+    expect(mainSource, contains('put("__queueKey", queueKey)'));
+    expect(mainSource, contains('append(from)'));
+    expect(mainSource, contains('append(to)'));
+    expect(mainSource, contains('if (itemKey == ackKey)'));
+    expect(pushSource, contains('ackPendingMessageIntent'));
+    expect(pushSource, contains('final stored = await storeNotificationPayload'));
+    expect(pushSource, contains('if (!acknowledged)'));
+    expect(pushSource, contains('pendingNotificationQueueKey'));
+    expect(pushSource, contains('if (queue.length > 100)'));
+    expect(pushSource, contains('_notificationIdentity'));
+    expect(pushSource, contains('ackPendingMessageIntent'));
+  });
+
+  test('release build version is bumped for V18', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    expect(pubspec, contains('version: 1.0.8+15'));
+  });
+
+  test('failure is retained until both peers acknowledge or terminal TTL expires', () {
+    expect(serverSource, contains('session.failureAcks={sender:false,receiver:false};'));
+    expect(serverSource, contains('if(failedSession.failureAcks.sender===true && failedSession.failureAcks.receiver===true)'));
+    expect(serverSource, contains('deliverTerminalFileFailures(ws,account.username);'));
+    expect(transferSource, contains("'type': 'fileTransferFailedAck'"));
+  });
+
+  test('login has IP plus username rate limiting', () {
+    expect(serverSource, contains('LOGIN_RATE_MAX_FAILURES=5;'));
+    expect(serverSource, contains('function loginRateKey(ws,username)'));
+    expect(serverSource, contains("code:'LOGIN_RATE_LIMITED'"));
+  });
+
+
+  test('server failure paths use the durable terminal failure handler', () {
+    expect(
+      serverSource,
+      isNot(contains(
+        "send(ws,{\n      type:'fileTransferFailed',\n      transferId,\n      reason:'Alıcı bağlantısı çok uzun süre kurulamadı.',",
+      )),
+    );
+    expect(
+      RegExp(
+        r"failReliableFileTransfer\(\s*session,\s*'Alıcı bağlantısı çok uzun süre kurulamadı\.',\s*ws,\s*\)",
+      ).allMatches(serverSource).length,
+      greaterThanOrEqualTo(3),
+    );
+    expect(
+      serverSource,
+      contains('session.pendingChunks=[];'),
+    );
+    expect(
+      serverSource,
+      contains('reliablePendingTotalBytes=Math.max('),
+    );
+  });
+
+  test('server relay queue deduplicates retransmitted chunk sequences', () {
+    expect(serverSource, contains('function reliableFileFrameSequence(buffer){'));
+    expect(
+      serverSource,
+      contains(
+        'if(reliableFileFrameSequence(pending)===seq)return true;',
+      ),
+    );
+    expect(
+      serverSource,
+      contains(
+        'Never enqueue the same sequence twice',
+      ),
+    );
+  });
+
+  test('background wake retry is faster than receiver connection timeout', () {
+    expect(serverSource, contains('now-lastPush<60000'));
+    expect(transferSource, contains('Duration(seconds: 180)'));
+  });
+
 }

@@ -66,6 +66,64 @@ const RELIABLE_FILE_META_PREFIX='reliable-file-';
 const appStates=new Map(); // normalized username -> foreground/background
 const appStateUpdatedAt=new Map(); // normalized username -> last lifecycle/heartbeat time
 const APP_FOREGROUND_HEARTBEAT_TTL_MS=45*1000;
+const LOGIN_RATE_WINDOW_MS=15*60*1000;
+const LOGIN_RATE_MAX_FAILURES=5;
+const LOGIN_RATE_BASE_DELAY_MS=1000;
+const LOGIN_RATE_MAX_DELAY_MS=60*1000;
+const loginFailures=new Map();
+
+function clientAddress(ws){
+  const address=String(ws && ws._remoteAddress || '').trim();
+  return address || 'unknown';
+}
+
+function loginRateKey(ws,username){
+  return `${clientAddress(ws)}|${normalizeUsername(username)}`;
+}
+
+function loginRateCheck(ws,username){
+  const key=loginRateKey(ws,username);
+  const now=Date.now();
+  const entry=loginFailures.get(key);
+  if(!entry)return {allowed:true,key};
+  if(now-entry.firstAt>LOGIN_RATE_WINDOW_MS){
+    loginFailures.delete(key);
+    return {allowed:true,key};
+  }
+  const failures=Math.max(0,Number(entry.failures)||0);
+  const delay=failures>=LOGIN_RATE_MAX_FAILURES
+    ? Math.min(LOGIN_RATE_MAX_DELAY_MS,LOGIN_RATE_BASE_DELAY_MS*Math.pow(2,failures-LOGIN_RATE_MAX_FAILURES))
+    : 0;
+  if(delay>0 && now-entry.lastAt<delay){
+    return {allowed:false,key,retryAfterMs:delay-(now-entry.lastAt)};
+  }
+  return {allowed:true,key};
+}
+
+function loginRateFailure(key){
+  const now=Date.now();
+  const current=loginFailures.get(key);
+  if(!current || now-current.firstAt>LOGIN_RATE_WINDOW_MS){
+    loginFailures.set(key,{failures:1,firstAt:now,lastAt:now});
+  }else{
+    current.failures=(Number(current.failures)||0)+1;
+    current.lastAt=now;
+  }
+}
+
+function loginRateSuccess(key){
+  loginFailures.delete(key);
+}
+
+const loginRateCleanupInterval=setInterval(()=>{
+  const now=Date.now();
+  for(const [key,entry] of loginFailures){
+    if(!entry || now-Number(entry.lastAt||0)>LOGIN_RATE_WINDOW_MS){
+      loginFailures.delete(key);
+    }
+  }
+},LOGIN_RATE_WINDOW_MS);
+loginRateCleanupInterval.unref();
 
 function isForegroundActive(username){
   const key=normalizeUsername(username);
@@ -311,6 +369,10 @@ function persistReliableFileSession(session){
     pendingEnd:session.pendingEnd||null,
     lastWakePushAt:Number(session.lastWakePushAt)||0,
     wakePushCount:Number(session.wakePushCount)||0,
+    failureReason:session.failureReason||'',
+    failureEvents:session.failureEvents||null,
+    failureAcks:session.failureAcks||null,
+    terminalUntil:Number(session.terminalUntil)||0,
     updatedAt:Number(session.updatedAt)||Date.now(),
   };
   try{
@@ -354,7 +416,25 @@ function loadReliableFileSessions(){
          Number(meta.fileSize)<=0 || Number(meta.fileSize)>RELIABLE_FILE_MAX_SIZE ||
          !/^[a-f0-9]{64}$/.test(String(meta.sha256||'')))continue;
       if(meta.state==='completed' || meta.state==='failed' || meta.state==='rejected'){
-        if(meta.state!=='completed') deleteReliableFileMeta(meta.transferId);
+        const terminalUntil=Number(meta.terminalUntil)||0;
+        if(meta.state==='failed' && terminalUntil>Date.now()){
+          const session={
+            ...meta,
+            fileSize:Number(meta.fileSize),
+            pendingChunks:[],
+            pendingBytes:0,
+            receiverWs:null,
+            failureAcks:{
+              sender:meta.failureAcks && meta.failureAcks.sender===true,
+              receiver:meta.failureAcks && meta.failureAcks.receiver===true,
+            },
+            terminalUntil,
+            updatedAt:Number(meta.updatedAt)||Date.now(),
+          };
+          reliableFileTransfers.set(String(meta.transferId),session);
+        }else if(meta.state!=='completed'){
+          deleteReliableFileMeta(meta.transferId);
+        }
         continue;
       }
       const session={
@@ -382,8 +462,17 @@ function cleanupReliableFileTransfers(){
   const now=Date.now();
 
   for(const [transferId,session] of reliableFileTransfers){
+    if(!session){
+      removeReliableFileSession(transferId);
+      continue;
+    }
+    if(session.state==='failed' || session.state==='rejected'){
+      if(Number(session.terminalUntil||0)<=now){
+        removeReliableFileSession(transferId);
+      }
+      continue;
+    }
     if(
-      !session ||
       !session.updatedAt ||
       now-session.updatedAt>RELIABLE_FILE_TRANSFER_TTL_MS
     ){
@@ -409,9 +498,32 @@ function reliablePendingBytes(){
   return reliablePendingTotalBytes;
 }
 
+function reliableFileFrameSequence(buffer){
+  if(!Buffer.isBuffer(buffer) || buffer.length<11)return -1;
+  if(buffer[0]!==0x5a || buffer[1]!==0x4c || buffer[2]!==0x46 || buffer[3]!==0x32 || buffer[4]!==1){
+    return -1;
+  }
+  const idLength=buffer.readUInt16BE(5);
+  const headerLength=11+idLength;
+  if(idLength<=0 || idLength>256 || buffer.length<=headerLength)return -1;
+  return buffer.readUInt32BE(7+idLength);
+}
+
 function queueReliableFileChunk(session,buffer){
   if(!session || !Buffer.isBuffer(buffer)) return false;
   if(!Array.isArray(session.pendingChunks)) session.pendingChunks=[];
+  const seq=reliableFileFrameSequence(buffer);
+  if(seq<0)return false;
+
+  // The sender may replay the same outstanding frame after a lost ACK.
+  // Never enqueue the same sequence twice while the receiver socket is
+  // unavailable or under backpressure. Duplicate frames are harmless once
+  // delivered to the receiver, but duplicate relay buffering wastes the
+  // bounded RAM budget and can make large transfers fail spuriously.
+  for(const pending of session.pendingChunks){
+    if(reliableFileFrameSequence(pending)===seq)return true;
+  }
+
   if(session.pendingChunks.length>=RELIABLE_FILE_MAX_PENDING_CHUNKS) return false;
 
   const currentBytes=Number(session.pendingBytes)||0;
@@ -433,6 +545,7 @@ function sendBinary(ws,buffer){
   if(
     !ws ||
     ws.readyState!==1 ||
+    ws.isAlive===false ||
     !Buffer.isBuffer(buffer) ||
     buffer.length===0
   ){
@@ -468,6 +581,76 @@ function reliableFileOffer(session){
   };
 }
 
+function failReliableFileTransfer(session,reason,sourceWs=null){
+  if(!session || !session.transferId)return false;
+
+  const transferId=String(session.transferId).trim();
+  session.state='failed';
+  session.updatedAt=Date.now();
+
+  // A failed transfer must release any relay-buffered chunks immediately.
+  // Terminal failure metadata is persisted separately for ACK/replay, so
+  // retaining binary payloads for the 10-minute terminal TTL would only waste
+  // the global RAM relay budget.
+  const pendingBytes=Number(session.pendingBytes)||0;
+  if(pendingBytes>0){
+    reliablePendingTotalBytes=Math.max(
+      0,
+      reliablePendingTotalBytes-pendingBytes,
+    );
+  }
+  session.pendingBytes=0;
+  session.pendingChunks=[];
+
+  updateReliableFileMessage(
+    session.from,
+    session.to,
+    transferId,
+    'failed',
+  );
+
+  const eventForSender={
+    type:'fileTransferFailed',
+    from:session.to,
+    to:session.from,
+    transferId,
+    reason:String(reason||'Dosya transferi başarısız oldu.'),
+  };
+  const eventForReceiver={
+    type:'fileTransferFailed',
+    from:session.from,
+    to:session.to,
+    transferId,
+    reason:String(reason||'Dosya transferi başarısız oldu.'),
+  };
+
+  const sender=fileSocketFor(session.from,transferId);
+  const receiver=fileSocketFor(session.to,transferId);
+
+  session.state='failed';
+  session.failureReason=String(reason||'Dosya transferi başarısız oldu.');
+  session.failureEvents={
+    sender:eventForSender,
+    receiver:eventForReceiver,
+  };
+  session.failureAcks={sender:false,receiver:false};
+  session.terminalUntil=Date.now()+10*60*1000;
+  session.updatedAt=Date.now();
+  persistReliableFileSession(session);
+
+  const deliveredSender=send(sender,eventForSender);
+  const deliveredReceiver=send(receiver,eventForReceiver);
+
+  if(!deliveredSender){
+    storeTerminalPendingFileTransfer(session.from,eventForSender);
+  }
+  if(!deliveredReceiver){
+    storeTerminalPendingFileTransfer(session.to,eventForReceiver);
+  }
+
+  return deliveredSender || deliveredReceiver;
+}
+
 async function sendReliableFileOffer(session){
   if(!session || !session.transferId)return false;
 
@@ -479,7 +662,7 @@ async function sendReliableFileOffer(session){
    * The FCM payload is DATA-only and HIGH priority so Android can start the
    * dataSync foreground service from the background.
    */
-  if(recipient){
+  if(recipient && recipient.isAlive!==false){
     const backgroundEndpoint=isBackgroundSocket(recipient);
     const foregroundEndpoint=isForegroundActive(session.to);
     const delivered=send(recipient,reliableFileOffer(session));
@@ -566,6 +749,25 @@ function updateReliableFileMessage(from,to,transferId,status,extra={}){
   return arr[index];
 }
 
+function deliverTerminalFileFailures(ws,username){
+  const key=normalizeUsername(username);
+  if(!key)return;
+  for(const session of reliableFileTransfers.values()){
+    if(!session || session.state!=='failed')continue;
+    const isSender=session.fromKey===key;
+    const isReceiver=session.toKey===key;
+    if(!isSender && !isReceiver)continue;
+    const role=isSender?'sender':'receiver';
+    const acks=session.failureAcks||{};
+    if(acks[role]===true)continue;
+    const event=session.failureEvents && session.failureEvents[role];
+    if(!event)continue;
+    if(send(ws,event)){
+      session.updatedAt=Date.now();
+    }
+  }
+}
+
 async function handleReliableFileEvent(ws,d,me){
   const type=String(d && d.type || '');
 
@@ -577,6 +779,7 @@ async function handleReliableFileEvent(ws,d,me){
     'fileTransferEnd',
     'fileTransferComplete',
     'fileTransferFailed',
+    'fileTransferFailedAck',
      'fileTransferResume',
   ].includes(type)){
     return false;
@@ -723,6 +926,7 @@ async function handleReliableFileEvent(ws,d,me){
     const recipient=socketFor(to);
     const foregroundRecipient=
       recipient &&
+      recipient.isAlive!==false &&
       isForegroundActive(to) &&
       !isBackgroundSocket(recipient)
         ? recipient
@@ -983,11 +1187,11 @@ async function handleReliableFileEvent(ws,d,me){
       reported<-1 ||
       reported>maxSeq
     ){
-      send(ws,{
-        type:'fileTransferFailed',
-        transferId,
-        reason:'Resume metadata doğrulaması başarısız.',
-      });
+      failReliableFileTransfer(
+        session,
+        'Resume metadata doğrulaması başarısız.',
+        ws,
+      );
       return true;
     }
 
@@ -1075,30 +1279,11 @@ async function handleReliableFileEvent(ws,d,me){
       !/^[a-f0-9]{64}$/.test(sha256) ||
       sha256!==session.sha256
     ){
-      session.state='failed';
-      updateReliableFileMessage(
-        session.from,
-        session.to,
-        session.transferId,
-        'failed',
+      failReliableFileTransfer(
+        session,
+        'Dosya bitiş/doğrulama bilgisi eşleşmedi.',
+        ws,
       );
-
-      send(ws,{
-        type:'fileTransferFailed',
-        transferId,
-        reason:'Dosya bitiş/doğrulama bilgisi eşleşmedi.',
-      });
-
-      const receiver=fileSocketFor(session.to,transferId);
-      if(receiver){
-        send(receiver,{
-          type:'fileTransferFailed',
-          transferId,
-          reason:'Gönderici dosya doğrulaması başarısız.',
-        });
-      }
-
-      removeReliableFileSession(transferId);
       return true;
     }
 
@@ -1164,27 +1349,11 @@ async function handleReliableFileEvent(ws,d,me){
       !/^[a-f0-9]{64}$/.test(sha256) ||
       sha256!==session.sha256
     ){
-      session.state='failed';
-      updateReliableFileMessage(
-        session.from,
-        session.to,
-        session.transferId,
-        'failed',
+      failReliableFileTransfer(
+        session,
+        'Alıcı dosya doğrulamasını tamamlayamadı.',
+        ws,
       );
-
-      send(ws,{
-        type:'fileTransferFailed',
-        transferId,
-        reason:'Alıcı dosya doğrulamasını tamamlayamadı.',
-      });
-
-      send(fileSocketFor(session.from,transferId),{
-        type:'fileTransferFailed',
-        transferId,
-        reason:'Alıcı dosya doğrulamasını tamamlayamadı.',
-      });
-
-      removeReliableFileSession(transferId);
       return true;
     }
 
@@ -1255,6 +1424,26 @@ async function handleReliableFileEvent(ws,d,me){
     return true;
   }
 
+  if(type==='fileTransferFailedAck'){
+    const failedSession=reliableFileTransfers.get(transferId);
+    if(!failedSession || failedSession.state!=='failed')return true;
+    const ackKey=normalizeUsername(me);
+    if(ackKey===failedSession.fromKey){
+      failedSession.failureAcks={...(failedSession.failureAcks||{}),sender:true};
+    }else if(ackKey===failedSession.toKey){
+      failedSession.failureAcks={...(failedSession.failureAcks||{}),receiver:true};
+    }else{
+      return true;
+    }
+    failedSession.updatedAt=Date.now();
+    if(failedSession.failureAcks.sender===true && failedSession.failureAcks.receiver===true){
+      removeReliableFileSession(transferId);
+    }else{
+      persistReliableFileSession(failedSession);
+    }
+    return true;
+  }
+
   if(type==='fileTransferFailed'){
     if(!isSender && !isReceiver)return true;
 
@@ -1274,31 +1463,13 @@ async function handleReliableFileEvent(ws,d,me){
       return true;
     }
 
-    session.state='failed';
-
-    updateReliableFileMessage(
-      session.from,
-      session.to,
-      session.transferId,
-      'failed',
+    failReliableFileTransfer(
+      session,
+      String(d.reason||'Dosya transferi başarısız oldu.'),
+      ws,
     );
-
-    const other=isSender
-      ? fileSocketFor(session.to,transferId)
-      : fileSocketFor(session.from,transferId);
-
-    send(other,{
-      type:'fileTransferFailed',
-      from:me,
-      to:isSender ? session.to : session.from,
-      transferId,
-      reason:String(d.reason||'Dosya transferi başarısız oldu.'),
-    });
-
-    removeReliableFileSession(transferId);
     return true;
   }
-
   return true;
 }
 
@@ -1391,11 +1562,11 @@ function handleReliableFileBinary(ws,buffer,me){
     Math.ceil(session.fileSize/RELIABLE_FILE_MAX_CHUNK_BYTES)-1
   );
   if(seq>maxSeq){
-    send(ws,{
-      type:'fileTransferFailed',
-      transferId,
-      reason:'Dosya parça numarası dosya boyutunu aşıyor.',
-    });
+    failReliableFileTransfer(
+      session,
+      'Dosya parça numarası dosya boyutunu aşıyor.',
+      ws,
+    );
     return true;
   }
 
@@ -1403,11 +1574,11 @@ function handleReliableFileBinary(ws,buffer,me){
     ? session.fileSize-(seq*RELIABLE_FILE_MAX_CHUNK_BYTES)
     : RELIABLE_FILE_MAX_CHUNK_BYTES;
   if(payload.length!==expectedChunkBytes){
-    send(ws,{
-      type:'fileTransferFailed',
-      transferId,
-      reason:'Dosya parçasının boyutu geçersiz.',
-    });
+    failReliableFileTransfer(
+      session,
+      'Dosya parçasının boyutu geçersiz.',
+      ws,
+    );
     return true;
   }
 
@@ -1427,20 +1598,11 @@ function handleReliableFileBinary(ws,buffer,me){
     // Keep both a per-transfer and global RAM relay budget while the receiver
     // socket is transitioning. File contents are never written to disk.
     if(session.pendingChunks.length>=RELIABLE_FILE_MAX_PENDING_CHUNKS){
-      send(ws,{
-        type:'fileTransferFailed',
-        transferId,
-        reason:'Alıcı bağlantısı çok uzun süre kurulamadı.',
-      });
-
-      session.state='failed';
-      updateReliableFileMessage(
-        session.from,
-        session.to,
-        transferId,
-        'failed',
+      failReliableFileTransfer(
+        session,
+        'Alıcı bağlantısı çok uzun süre kurulamadı.',
+        ws,
       );
-      removeReliableFileSession(transferId);
       return true;
     }
 
@@ -1462,20 +1624,11 @@ function handleReliableFileBinary(ws,buffer,me){
        */
       if(queueReliableFileChunk(session,buffer)) return true;
 
-      send(ws,{
-        type:'fileTransferFailed',
-        transferId,
-        reason:'Alıcı bağlantısı çok uzun süre kurulamadı.',
-      });
-
-      session.state='failed';
-      updateReliableFileMessage(
-        session.from,
-        session.to,
-        transferId,
-        'failed',
+      failReliableFileTransfer(
+        session,
+        'Alıcı bağlantısı çok uzun süre kurulamadı.',
+        ws,
       );
-      removeReliableFileSession(transferId);
       return true;
     }
   }
@@ -1489,20 +1642,11 @@ function handleReliableFileBinary(ws,buffer,me){
      */
     if(queueReliableFileChunk(session,buffer)) return true;
 
-    send(ws,{
-      type:'fileTransferFailed',
-      transferId,
-      reason:'Alıcı bağlantısı çok uzun süre kurulamadı.',
-    });
-
-    session.state='failed';
-    updateReliableFileMessage(
-      session.from,
-      session.to,
-      transferId,
-      'failed',
+    failReliableFileTransfer(
+      session,
+      'Alıcı bağlantısı çok uzun süre kurulamadı.',
+      ws,
     );
-    removeReliableFileSession(transferId);
     return true;
   }
 
@@ -1889,7 +2033,8 @@ function socketFor(username){
 
   for(const [nick,ws] of sockets){
     if(normalizeUsername(nick)===targetKey &&
-       ws && ws.readyState===1){
+       ws && ws.readyState===1 &&
+       ws.isAlive!==false){
       return ws;
     }
   }
@@ -1912,6 +2057,7 @@ function backgroundSocketFor(username,transferId=''){
     entry &&
     entry.ws &&
     entry.ws.readyState===1 &&
+    entry.ws.isAlive!==false &&
     entry.transferId===id
   ){
     return entry.ws;
@@ -1948,7 +2094,8 @@ function fileSocketFor(username,transferId=''){
       session &&
       session.toKey===normalizeUsername(username) &&
       session.receiverWs &&
-      session.receiverWs.readyState===1
+      session.receiverWs.readyState===1 &&
+      session.receiverWs.isAlive!==false
     ){
       return session.receiverWs;
     }
@@ -2206,7 +2353,7 @@ function save(file,data){
   }
 }
 function send(ws,data){
-  if(!ws || ws.readyState!==1)return false;
+  if(!ws || ws.readyState!==1 || ws.isAlive===false)return false;
 
   try{
     ws.send(JSON.stringify(data));
@@ -3083,8 +3230,9 @@ const privateMessagePurgeInterval=setInterval(purgeAllExpiredPrivateMessages,60*
 privateMessagePurgeInterval.unref();
 const roomMessagePurgeInterval=setInterval(purgeExpiredRoomMessages,60*1000);
 roomMessagePurgeInterval.unref();
-wss.on('connection',(ws)=>{
+wss.on('connection',(ws,req)=>{
   ws._rooms=new Set();
+  ws._remoteAddress=req && req.socket ? req.socket.remoteAddress : '';
   ws.isAlive=true;
   ws.on('pong',()=>{ws.isAlive=true;});
   ws.on('message',async (buf,isBinary)=>{
@@ -3161,12 +3309,26 @@ wss.on('connection',(ws)=>{
       return;
     }
 
+    const rate=loginRateCheck(ws,nick);
+    if(!rate.allowed){
+      send(ws,{
+        type:'authError',
+        code:'LOGIN_RATE_LIMITED',
+        message:'Çok fazla başarısız giriş denemesi. Lütfen biraz sonra tekrar deneyin.',
+        retryAfterMs:rate.retryAfterMs,
+      });
+      return;
+    }
+
     const account=accounts[key];
 
     if(!account || !verifyPassword(password,account.passwordHash)){
+      loginRateFailure(rate.key);
       send(ws,{type:'authError',code:'INVALID_CREDENTIALS',message:'Kullanıcı adı veya şifre hatalı.'});
       return;
     }
+
+    loginRateSuccess(rate.key);
 
     const loginStateKey=normalizeUsername(account.username);
     const old=sockets.get(account.username);
@@ -3416,6 +3578,7 @@ wss.on('connection',(ws)=>{
     );
 
     deliverReliableFileTransfers(ws,account.username);
+    deliverTerminalFileFailures(ws,account.username);
 
     const pending=privateMessagesEnabled(account.username)
       ? pendingPrivateMessages(account.username)
@@ -3536,6 +3699,7 @@ wss.on('connection',(ws)=>{
       // Uygulama arka plandayken kuyruklanan dosya-transfer event'leri
       // yeniden görünür olduğunda hemen teslim edilmeli.
       deliverPendingFileTransfers(ws,me);
+      deliverTerminalFileFailures(ws,me);
     }
 
     break;
@@ -4739,7 +4903,7 @@ const reliableFileWakeInterval=setInterval(async()=>{
     // a bounded period so a single delayed/lost push cannot strand a file.
     if(
       pushCount>=12 ||
-      (lastPush>0 && now-lastPush<300000)
+      (lastPush>0 && now-lastPush<60000)
     ){
       continue;
     }
