@@ -4745,13 +4745,25 @@ wss.on('connection',(ws,req)=>{
   case 'fileTransferAccept':
   case 'fileTransferReject':
   case 'fileTransferComplete':
-  case 'fileTransferFailed':{
+  case 'fileTransferFailed':
+  case 'fileTransferAcceptReceived':{
     if(!me)break;
 
     const to=safeNick(d.to);
     const transferId=String(d.transferId||'').trim();
 
     if(!to||!transferId)break;
+
+    if(d.type==='fileTransferAcceptReceived'){
+      console.log(
+        `[FILE_TRANSFER] CLIENT_ACCEPT_RECEIVED ` +
+        `transfer=${transferId} from=${me} to=${to} ` +
+        `state=${String(d.state||'')} ` +
+        `expected=${String(d.expectedTransferId||'')} ` +
+        `hasSendingFile=${d.hasSendingFile===true}`
+      );
+      break;
+    }
 
     /*
      * --------------------------------------------------------

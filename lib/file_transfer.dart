@@ -868,10 +868,27 @@ class FileTransfer {
 
     switch (type) {
       case 'fileTransferAccept':
+        final acceptState =
+            _incomingTransfer
+                ? 'incoming'
+                : (_sending ? 'already_sending' : 'ready');
+
+        final acceptDiagSent = ws.send({
+          'type': 'fileTransferAcceptReceived',
+          'from': me,
+          'to': peer,
+          'transferId': id,
+          'state': acceptState,
+          'expectedTransferId': _transferId ?? '',
+          'hasSendingFile': _sendingFile != null,
+        });
+
         _diag(
           'ACCEPT_RECEIVED transfer=$id incoming=$_incomingTransfer '
-          'sending=$_sending sendingFile=${_sendingFile != null}',
+          'sending=$_sending sendingFile=${_sendingFile != null} '
+          'diagSent=$acceptDiagSent',
         );
+
         if (!_incomingTransfer && !_sending && _sendingFile != null) {
           _diag('SEND_START_REQUEST transfer=$id');
           await _startOutgoingTransfer();
