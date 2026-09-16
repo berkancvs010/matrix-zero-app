@@ -229,6 +229,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
   }
 
   late final FileTransfer _fileTransfer;
+  FileTransferCallbackHandle? _fileTransferCallbackHandle;
 
   Future<void> _openPendingFileNotification() async {
     final data = widget.pendingFileNotification;
@@ -678,7 +679,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
       turnUrls: WsClient.instance.turnUrls,
     );
 
-    _fileTransfer.bindCallbacks(
+    _fileTransferCallbackHandle = _fileTransfer.bindCallbacks(
       onProgress:
           ({
             required String transferId,
@@ -887,6 +888,68 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
     unawaited(_saveHistoryCache());
   }
 
+  void _markLocalMessageFailed({
+    required String clientMessageId,
+    String? reason,
+  }) {
+    if (!mounted || clientMessageId.trim().isEmpty) return;
+
+    final target = clientMessageId.trim();
+    final index = _messages.indexWhere(
+      (message) =>
+          !message.isFile && message.clientMessageId.trim() == target,
+    );
+
+    if (index < 0) return;
+
+    setState(() {
+      _messages[index] = _messages[index].copyWith(status: 'failed');
+    });
+
+    unawaited(_saveHistoryCache());
+
+    final detail = reason?.trim() ?? '';
+    if (detail.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(detail)),
+      );
+    }
+  }
+
+  Future<void> _retryFailedMessage(ChatMessage message) async {
+    if (!mounted || message.isFile || message.status != 'failed') return;
+
+    final newClientMessageId =
+        '${DateTime.now().microsecondsSinceEpoch}-${widget.myNick}-${widget.targetNick}';
+
+    final index = _messages.indexWhere(
+      (item) =>
+          item.id == message.id ||
+          (message.clientMessageId.isNotEmpty &&
+              item.clientMessageId == message.clientMessageId),
+    );
+
+    if (index < 0) return;
+
+    setState(() {
+      _messages[index] = message.copyWith(
+        id: newClientMessageId,
+        clientMessageId: newClientMessageId,
+        status: 'sending',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      );
+    });
+
+    await _saveHistoryCache();
+
+    WsClient.instance.send({
+      'type': 'privateMessage',
+      'to': widget.targetNick,
+      'text': message.text,
+      'clientMessageId': newClientMessageId,
+    });
+  }
+
   Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
@@ -942,6 +1005,31 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
         'type': 'privateHistory',
         'peer': widget.targetNick,
       });
+      return;
+    }
+
+    if (data['type'] == 'messageRateLimited') {
+      final clientMessageId = (data['clientMessageId'] ?? '').toString();
+      if (clientMessageId.isNotEmpty) {
+        _markLocalMessageFailed(
+          clientMessageId: clientMessageId,
+          reason: 'Mesaj gönderilemedi. Lütfen biraz bekleyin ve tekrar deneyin.',
+        );
+      }
+      return;
+    }
+
+    if (data['type'] == 'privateMessageRejected') {
+      final clientMessageId = (data['clientMessageId'] ?? '').toString();
+      final reason = (data['message'] ?? '').toString().trim();
+      if (clientMessageId.isNotEmpty) {
+        _markLocalMessageFailed(
+          clientMessageId: clientMessageId,
+          reason: reason.isNotEmpty
+              ? reason
+              : 'Mesaj gönderilemedi.',
+        );
+      }
       return;
     }
 
@@ -1100,7 +1188,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
           };
 
           final localSending = _messages.where((message) {
-            if (message.status != 'sending') return false;
+            if (message.status != 'sending' && message.status != 'failed') {
+              return false;
+            }
             if (message.expiresAt <= DateTime.now().millisecondsSinceEpoch) {
               return false;
             }
@@ -1933,7 +2023,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
     _keyboardScrollTimer = null;
     _messageExpiryTimer?.cancel();
     _messageExpiryTimer = null;
-    _fileTransfer.unbindCallbacks();
+    _fileTransferCallbackHandle?.dispose();
+    _fileTransferCallbackHandle = null;
     _controller.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
@@ -2390,6 +2481,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
         return 'Teslim edildi';
       case 'read':
         return 'Okundu';
+      case 'failed':
+        return 'Gönderilemedi';
       default:
         return '';
     }
@@ -2967,6 +3060,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                           child: Icon(
                             message.status == 'sending'
                                 ? Icons.schedule_rounded
+                                : message.status == 'failed'
+                                ? Icons.error_outline_rounded
                                 : (message.status == 'read' ||
                                       message.status == 'delivered')
                                 ? Icons.done_all_rounded
@@ -2974,15 +3069,38 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                             size: 14,
                             color: message.status == 'sending'
                                 ? Colors.grey
+                                : message.status == 'failed'
+                                ? Colors.red
                                 : message.status == 'stored'
                                 ? Colors.grey
                                 : message.status == 'delivered'
                                 ? Colors.grey
-                                 : message.status == 'read'
-                                 ? Colors.green
+                                : message.status == 'read'
+                                ? Colors.green
                                 : theme.text.withValues(alpha: 0.48),
                           ),
                         ),
+                        if (message.status == 'failed') ...[
+                          const SizedBox(width: 2),
+                          Tooltip(
+                            message: 'Tekrar gönder',
+                            child: IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                              onPressed: () =>
+                                  unawaited(_retryFailedMessage(message)),
+                              icon: const Icon(
+                                Icons.refresh_rounded,
+                                size: 14,
+                                color: Colors.red,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ],
                   );

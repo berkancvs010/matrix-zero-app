@@ -213,4 +213,74 @@ void main() {
     expect(mainSource, contains('Reuse the shared transfer object'));
   });
 
+
+test('message persistence is asynchronous and serialized per file', () {
+  final saveStart = serverSource.indexOf('function save(file,data){');
+  final sendStart = serverSource.indexOf('function send(ws,data){');
+  expect(saveStart, greaterThanOrEqualTo(0));
+  expect(sendStart, greaterThan(saveStart));
+
+  final saveSource = serverSource.substring(saveStart, sendStart);
+  expect(saveSource, contains('saveQueues'));
+  expect(saveSource, contains('await fs.promises.writeFile('));
+  expect(saveSource, contains('await fs.promises.rename(temp,target);'));
+  expect(saveSource, isNot(contains('fs.writeFileSync')));
+  expect(saveSource, isNot(contains('fs.renameSync')));
+});
+
+test('authenticated private and room messages have a shared per-user flood limit', () {
+  expect(serverSource, contains('const MESSAGE_RATE_WINDOW_MS=10*1000;'));
+  expect(serverSource, contains('const MESSAGE_RATE_MAX=20;'));
+  expect(serverSource, contains('function messageRateCheck(username){'));
+  expect(serverSource, contains("type:'messageRateLimited'"));
+  expect(serverSource, contains("case 'privateMessage'"));
+  expect(serverSource, contains("case 'roomMessage'"));
+
+  final privateStart = serverSource.indexOf("case 'privateMessage'");
+  final roomStart = serverSource.indexOf("case 'roomMessage'");
+  expect(privateStart, greaterThanOrEqualTo(0));
+  expect(roomStart, greaterThanOrEqualTo(0));
+  expect(serverSource.indexOf('messageRateCheck(me)', privateStart),
+      greaterThanOrEqualTo(privateStart));
+  expect(serverSource.indexOf('messageRateCheck(me)', roomStart),
+      greaterThanOrEqualTo(roomStart));
+});
+
+test('client surfaces rejected private messages and rate limits', () {
+  final privateSource = File('lib/private_chat.dart').readAsStringSync();
+  final roomSource = File('lib/chat_room.dart').readAsStringSync();
+
+  expect(privateSource, contains("data['type'] == 'messageRateLimited'"));
+  expect(privateSource, contains("data['type'] == 'privateMessageRejected'"));
+  expect(privateSource, contains("_markLocalMessageFailed("));
+  expect(privateSource, contains("status: 'failed'"));
+  expect(privateSource, contains("Gönderilemedi"));
+  expect(privateSource, contains("Icons.error_outline_rounded"));
+  expect(privateSource, contains("_retryFailedMessage(message)"));
+  expect(serverSource, contains("type:'privateMessageRejected'"));
+  expect(serverSource, contains("reason:'PRIVATE_MESSAGES_DISABLED'"));
+  expect(serverSource, contains("clientMessageId,\n        reason:'PRIVATE_MESSAGES_DISABLED',"));
+  expect(serverSource, contains("type:'messageRateLimited'"));
+  expect(serverSource, contains("retryAfterMs:rate.retryAfterMs"));
+  expect(serverSource, contains("scope:'privateMessage'"));
+  expect(serverSource, contains("scope:'roomMessage'"));
+  expect(roomSource, contains("data['type'] == 'messageRateLimited'"));
+});
+
+  test('file transfer callbacks are multiplexed instead of overwritten', () {
+    expect(transferSource, contains('final List<_FileTransferCallbackBinding>'));
+    expect(transferSource, contains('FileTransferCallbackHandle bindCallbacks('));
+    expect(transferSource, contains('_callbackBindings.add('));
+    expect(transferSource, contains('for (final binding in List<_FileTransferCallbackBinding>.from('));
+    expect(transferSource, contains('_removeCallbackBinding'));
+  });
+
+  test('file transfer keeps the WsClient transport object, not a reconnect-bound raw socket', () {
+    final networkingSource = File('lib/networking.dart').readAsStringSync();
+    expect(transferSource, contains('final dynamic ws;'));
+    expect(networkingSource, contains('static final WsClient instance = WsClient._();'));
+    expect(transferSource, contains('ws.events.listen'));
+    expect(transferSource, contains('ws.send('));
+  });
+
 }

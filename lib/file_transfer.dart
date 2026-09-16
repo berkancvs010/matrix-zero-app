@@ -30,38 +30,99 @@ class _ZeroLogDigestSink implements Sink<Digest> {
   void close() {}
 }
 
+class FileTransferCallbackHandle {
+  FileTransferCallbackHandle._(this._owner);
+
+  final FileTransfer _owner;
+  bool _active = true;
+
+  void dispose() {
+    if (!_active) return;
+    _active = false;
+    _owner._removeCallbackBinding(this);
+  }
+}
+
+class _FileTransferCallbackBinding {
+  _FileTransferCallbackBinding({
+    required this.handle,
+    this.onProgress,
+    this.onIncomingOffer,
+    this.onIncomingStatus,
+  });
+
+  final FileTransferCallbackHandle handle;
+  final void Function({
+    required String transferId,
+    required int sentBytes,
+    required int totalBytes,
+    required String status,
+  })? onProgress;
+  final void Function({
+    required String transferId,
+    required String fileName,
+    required int fileSize,
+    required String sender,
+  })? onIncomingOffer;
+  final void Function({
+    required String transferId,
+    required String status,
+    String? localUri,
+  })? onIncomingStatus;
+
+  void _emitProgress({
+    required String transferId,
+    required int sentBytes,
+    required int totalBytes,
+    required String status,
+  }) {
+    onProgress?.call(
+      transferId: transferId,
+      sentBytes: sentBytes,
+      totalBytes: totalBytes,
+      status: status,
+    );
+  }
+
+  void _emitIncomingOffer({
+    required String transferId,
+    required String fileName,
+    required int fileSize,
+    required String sender,
+  }) {
+    onIncomingOffer?.call(
+      transferId: transferId,
+      fileName: fileName,
+      fileSize: fileSize,
+      sender: sender,
+    );
+  }
+
+  void _emitIncomingStatus({
+    required String transferId,
+    required String status,
+    String? localUri,
+  }) {
+    onIncomingStatus?.call(
+      transferId: transferId,
+      status: status,
+      localUri: localUri,
+    );
+  }
+}
+
 class FileTransfer {
   final dynamic ws;
   final String me;
   final String peer;
 
+  final List<_FileTransferCallbackBinding> _callbackBindings =
+      <_FileTransferCallbackBinding>[];
+
   // Kept for source compatibility with the old WebRTC implementation.
   String? turnUsername;
   String? turnPassword;
   List<String> turnUrls;
-
-  void Function({
-    required String transferId,
-    required int sentBytes,
-    required int totalBytes,
-    required String status,
-  })?
-  onProgress;
-
-  void Function({
-    required String transferId,
-    required String fileName,
-    required int fileSize,
-    required String sender,
-  })?
-  onIncomingOffer;
-
-  void Function({
-    required String transferId,
-    required String status,
-    String? localUri,
-  })?
-  onIncomingStatus;
 
   static final Map<String, FileTransfer> _sharedTransfers =
       <String, FileTransfer>{};
@@ -118,9 +179,6 @@ class FileTransfer {
     this.turnUsername,
     this.turnPassword,
     this.turnUrls = const [],
-    this.onProgress,
-    this.onIncomingOffer,
-    this.onIncomingStatus,
   });
 
   bool _initialized = false;
@@ -180,7 +238,7 @@ class FileTransfer {
     print('[FILE_TRANSFER] $value');
   }
 
-  void bindCallbacks({
+  FileTransferCallbackHandle bindCallbacks({
     void Function({
       required String transferId,
       required int sentBytes,
@@ -202,15 +260,75 @@ class FileTransfer {
     })?
     onIncomingStatus,
   }) {
-    this.onProgress = onProgress;
-    this.onIncomingOffer = onIncomingOffer;
-    this.onIncomingStatus = onIncomingStatus;
+    final handle = FileTransferCallbackHandle._(this);
+    _callbackBindings.add(
+      _FileTransferCallbackBinding(
+        handle: handle,
+        onProgress: onProgress,
+        onIncomingOffer: onIncomingOffer,
+        onIncomingStatus: onIncomingStatus,
+      ),
+    );
+    return handle;
   }
 
-  void unbindCallbacks() {
-    onProgress = null;
-    onIncomingOffer = null;
-    onIncomingStatus = null;
+  void _removeCallbackBinding(FileTransferCallbackHandle handle) {
+    _callbackBindings.removeWhere((binding) => binding.handle == handle);
+  }
+
+  void _emitProgress({
+    required String transferId,
+    required int sentBytes,
+    required int totalBytes,
+    required String status,
+  }) {
+    for (final binding in List<_FileTransferCallbackBinding>.from(
+      _callbackBindings,
+    )) {
+      if (!binding.handle._active) continue;
+      binding._emitProgress(
+        transferId: transferId,
+        sentBytes: sentBytes,
+        totalBytes: totalBytes,
+        status: status,
+      );
+    }
+  }
+
+  void _emitIncomingOffer({
+    required String transferId,
+    required String fileName,
+    required int fileSize,
+    required String sender,
+  }) {
+    for (final binding in List<_FileTransferCallbackBinding>.from(
+      _callbackBindings,
+    )) {
+      if (!binding.handle._active) continue;
+      binding._emitIncomingOffer(
+        transferId: transferId,
+        fileName: fileName,
+        fileSize: fileSize,
+        sender: sender,
+      );
+    }
+  }
+
+  void _emitIncomingStatus({
+    required String transferId,
+    required String status,
+    String? localUri,
+  }) {
+    for (final binding in List<_FileTransferCallbackBinding>.from(
+      _callbackBindings,
+    )) {
+      if (!binding.handle._active) continue;
+      binding._emitIncomingStatus(
+        transferId: transferId,
+        status: status,
+        localUri: localUri,
+      );
+    }
   }
 
   Future<void> initialize() async {
@@ -291,7 +409,7 @@ class FileTransfer {
     _lastAckSeq = -1;
     _terminalEventHandled = false;
 
-    onProgress?.call(
+    _emitProgress(
       transferId: transferId,
       sentBytes: 0,
       totalBytes: size,
@@ -367,7 +485,7 @@ class FileTransfer {
 
       _startConnectionTimeout(id);
 
-      onIncomingOffer?.call(
+      _emitIncomingOffer(
         transferId: id,
         fileName: _fileName!,
         fileSize: _fileSize,
@@ -423,7 +541,7 @@ class FileTransfer {
       _connectionTimeoutTimer?.cancel();
       _connectionTimeoutTimer = null;
 
-      onIncomingStatus?.call(transferId: transferId, status: 'accepting');
+      _emitIncomingStatus(transferId: transferId, status: 'accepting');
 
       final sent = ws.send({
         'type': 'fileTransferAccept',
@@ -478,7 +596,7 @@ class FileTransfer {
     });
 
     final incoming = _incomingTransfer;
-    onProgress?.call(
+    _emitProgress(
       transferId: transferId,
       sentBytes: incoming ? _receivedBytes : _sentBytes,
       totalBytes: _fileSize,
@@ -486,7 +604,7 @@ class FileTransfer {
     );
 
     if (incoming) {
-      onIncomingStatus?.call(
+      _emitIncomingStatus(
         transferId: transferId,
         status: 'failed',
       );
@@ -506,7 +624,7 @@ class FileTransfer {
       'transferId': transferId,
     });
 
-    onIncomingStatus?.call(transferId: transferId, status: 'rejected');
+    _emitIncomingStatus(transferId: transferId, status: 'rejected');
 
     await _deleteReceiveManifest(transferId);
     await _resetTransferState();
@@ -633,7 +751,7 @@ class FileTransfer {
     if (type == 'fileTransferStartAck') {
       final id = (event['transferId'] ?? '').toString().trim();
       if (id == _transferId && !_incomingTransfer) {
-        onProgress?.call(
+        _emitProgress(
           transferId: id,
           sentBytes: _sentBytes,
           totalBytes: _fileSize,
@@ -718,7 +836,7 @@ class FileTransfer {
         await _prepareIncomingFile(id);
         _startConnectionTimeout(id);
 
-        onIncomingOffer?.call(
+        _emitIncomingOffer(
           transferId: id,
           fileName: name,
           fileSize: size,
@@ -954,7 +1072,7 @@ class FileTransfer {
           _outstandingFrames[seq] = frame;
           _sentBytes += bytes.length;
 
-          onProgress?.call(
+          _emitProgress(
             transferId: id,
             // UI progress is receiver-confirmed, not merely bytes queued
             // into the local socket. This keeps sender and receiver progress
@@ -983,7 +1101,7 @@ class FileTransfer {
 
       await _sendEndAndWaitForCompletion(id);
 
-      onProgress?.call(
+      _emitProgress(
         transferId: id,
         sentBytes: _fileSize,
         totalBytes: _fileSize,
@@ -1317,7 +1435,7 @@ class FileTransfer {
     _receivedBytes += bytes.length;
     _touchTransferTimeout(id);
 
-    onProgress?.call(
+    _emitProgress(
       transferId: id,
       sentBytes: _receivedBytes,
       totalBytes: _fileSize,
@@ -1417,7 +1535,7 @@ class FileTransfer {
         sha256: actualSha,
       );
 
-      onIncomingStatus?.call(
+      _emitIncomingStatus(
         transferId: id,
         status: 'completed',
         localUri: finalFile.path,
@@ -1506,7 +1624,7 @@ class FileTransfer {
 
     _terminalEventHandled = true;
 
-    onProgress?.call(
+    _emitProgress(
       transferId: id,
       sentBytes: _fileSize,
       totalBytes: _fileSize,
@@ -1647,7 +1765,7 @@ class FileTransfer {
         'reason': reason,
       });
 
-      onProgress?.call(
+      _emitProgress(
         transferId: transferId,
         sentBytes: incoming ? _receivedBytes : _sentBytes,
         totalBytes: _fileSize,
@@ -1655,7 +1773,7 @@ class FileTransfer {
       );
 
       if (incoming) {
-        onIncomingStatus?.call(transferId: transferId, status: 'failed');
+        _emitIncomingStatus(transferId: transferId, status: 'failed');
       }
     }
 

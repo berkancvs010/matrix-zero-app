@@ -1,3 +1,12 @@
+## V22 — Mesaj rate-limit istemci görünürlüğü (2026-09-16)
+
+- `messageRateLimited` artık özel sohbet istemcisinde ilgili optimistic mesajı `Gönderilemedi` durumuna geçirir.
+- `privateMessageRejected` artık `clientMessageId` üzerinden ilgili optimistic mesajı `Gönderilemedi` olarak işaretler.
+- Başarısız özel mesajlar kırmızı hata simgesi ve `Tekrar gönder` eylemiyle görünür.
+- Başarısız yerel mesajlar sohbet geçmişi yeniden yüklenirken korunur.
+- Oda mesajlarında rate-limit olayı kullanıcıya bekleme süresiyle bildirilir.
+- Sunucu rate-limit/rejection olaylarına gerekli mesaj kimliğini ve kapsam bilgisini ekler.
+
 ## V21 kontrollü birleşim — V20 tabanı + güvenli V21 düzeltmeleri (2026-09-15)
 
 - `callRejected` içinde `reason: busy` için kullanıcıya özel meşgul mesajı eklendi. Sunucunun V20 tabanında zaten gönderdiği `reason: busy` alanıyla uyumludur.
@@ -177,3 +186,9 @@
 - Added login rate limiting keyed by remote IP and normalized username.
 - Corrected the login privacy text: ZeroLog currently provides TLS/WSS transport encryption, not end-to-end encryption.
 - Kept the server file relay content-free; file bytes are not persisted by the server.
+
+## V22 callback/reconnect hardening
+
+- FileTransfer callback registration now uses per-owner handles and a callback multiplexer, so a second UI observer no longer overwrites the first observer's progress/offer/status callbacks.
+- PrivateChat disposes only its own callback registration instead of clearing callbacks owned by another screen.
+- The existing WebSocket transport is intentionally kept as the `WsClient` singleton; reconnect replaces its internal channel rather than the FileTransfer transport reference. No raw WebSocket reconnect change is required.

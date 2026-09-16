@@ -72,6 +72,13 @@ const LOGIN_RATE_BASE_DELAY_MS=1000;
 const LOGIN_RATE_MAX_DELAY_MS=60*1000;
 const loginFailures=new Map();
 
+// Authenticated message flood protection. This is intentionally independent
+// of login throttling so one connected client cannot monopolize the event
+// loop or persistence path by sending messages in a tight loop.
+const MESSAGE_RATE_WINDOW_MS=10*1000;
+const MESSAGE_RATE_MAX=20;
+const messageRates=new Map();
+
 function clientAddress(ws){
   const address=String(ws && ws._remoteAddress || '').trim();
   return address || 'unknown';
@@ -114,6 +121,38 @@ function loginRateFailure(key){
 function loginRateSuccess(key){
   loginFailures.delete(key);
 }
+
+function messageRateCheck(username){
+  const key=normalizeUsername(username);
+  const now=Date.now();
+  if(!key)return {allowed:false,retryAfterMs:MESSAGE_RATE_WINDOW_MS};
+
+  const entry=messageRates.get(key);
+  if(!entry || now-entry.startedAt>=MESSAGE_RATE_WINDOW_MS){
+    messageRates.set(key,{startedAt:now,count:1});
+    return {allowed:true};
+  }
+
+  if(entry.count>=MESSAGE_RATE_MAX){
+    return {
+      allowed:false,
+      retryAfterMs:Math.max(1,MESSAGE_RATE_WINDOW_MS-(now-entry.startedAt)),
+    };
+  }
+
+  entry.count+=1;
+  return {allowed:true};
+}
+
+const messageRateCleanupInterval=setInterval(()=>{
+  const now=Date.now();
+  for(const [key,entry] of messageRates){
+    if(!entry || now-Number(entry.startedAt||0)>MESSAGE_RATE_WINDOW_MS){
+      messageRates.delete(key);
+    }
+  }
+},MESSAGE_RATE_WINDOW_MS);
+messageRateCleanupInterval.unref();
 
 const loginRateCleanupInterval=setInterval(()=>{
   const now=Date.now();
@@ -2348,6 +2387,8 @@ function clearCallTimer(callId){
   }
 }
 
+const saveQueues=new Map();
+
 for(const r of rooms){
   const messages=normalizeRoomMessages(load(`room-${r.id}.json`,[]),r.id);
   roomMessages.set(r.id,messages);
@@ -2355,18 +2396,39 @@ for(const r of rooms){
 }
 function load(file,fallback){try{return JSON.parse(fs.readFileSync(path.join(DATA,file),'utf8'));}catch{return fallback;}}
 function save(file,data){
+  const key=String(file);
+  const target=path.join(DATA,key);
+  const temp=`${target}.tmp`;
+  let snapshot;
+
   try{
-    const target=path.join(DATA,file);
-    const temp=`${target}.tmp`;
-    fs.writeFileSync(
-      temp,
-      JSON.stringify(data.slice(-300)),
-      {mode:0o600}
-    );
-    fs.renameSync(temp,target);
+    snapshot=JSON.stringify(data.slice(-300));
   }catch(error){
-    console.error(`[DATA] ${file} save failed: ${error}`);
+    console.error(`[DATA] ${file} serialization failed: ${error}`);
+    return Promise.resolve(false);
   }
+
+  const previous=saveQueues.get(key)||Promise.resolve();
+  const operation=previous.catch(()=>{}).then(async()=>{
+    try{
+      await fs.promises.writeFile(
+        temp,
+        snapshot,
+        {mode:0o600}
+      );
+      await fs.promises.rename(temp,target);
+      return true;
+    }catch(error){
+      console.error(`[DATA] ${file} save failed: ${error}`);
+      return false;
+    }
+  });
+
+  const tracked=operation.finally(()=>{
+    if(saveQueues.get(key)===tracked)saveQueues.delete(key);
+  });
+  saveQueues.set(key,tracked);
+  return tracked;
 }
 function send(ws,data){
   if(!ws || ws.readyState!==1 || ws.isAlive===false)return false;
@@ -4088,7 +4150,12 @@ wss.on('connection',(ws,req)=>{
   }
   case 'joinRoom':{if(!me)break;purgeExpiredRoomMessages();const id=String(d.room);if(!rooms.some(r=>r.id===id))break;ws._rooms.add(id);send(ws,{type:'roomHistory',room:id,messages:roomMessages.get(id)||[]});updatePresence();break;}
   case 'leaveRoom':{ws._rooms.delete(String(d.room));updatePresence();break;}
-  case 'roomMessage':{if(!me)break;purgeExpiredRoomMessages();const id=String(d.room);if(!ws._rooms.has(id))break;const text=cleanText(d.text);if(!text)break;const ts=Date.now();const msg={id:makeMessageId(),type:'roomMessage',room:id,from:me,text,ts,expiresAt:ts+PRIVATE_MESSAGE_TTL_MS};const arr=roomMessages.get(id)||[];arr.push(msg);roomMessages.set(id,arr);save(`room-${id}.json`,arr);for(const [peer] of users){if(isBackgroundSocket(peer))continue;if((peer._rooms && peer._rooms.has(id)))send(peer,msg);}break;}
+  case 'roomMessage':{if(!me)break;const id=String(d.room);if(!ws._rooms.has(id))break;const text=cleanText(d.text);if(!text)break;const rate=messageRateCheck(me);if(!rate.allowed){send(ws,{
+      type:'messageRateLimited',
+      retryAfterMs:rate.retryAfterMs,
+      scope:'roomMessage',
+      room:id,
+    });break;}purgeExpiredRoomMessages();const ts=Date.now();const msg={id:makeMessageId(),type:'roomMessage',room:id,from:me,text,ts,expiresAt:ts+PRIVATE_MESSAGE_TTL_MS};const arr=roomMessages.get(id)||[];arr.push(msg);roomMessages.set(id,arr);save(`room-${id}.json`,arr);for(const [peer] of users){if(isBackgroundSocket(peer))continue;if((peer._rooms && peer._rooms.has(id)))send(peer,msg);}break;}
   case 'privateHistory':{if(!me)break;const peer=safeNick(d.peer);const messages=purgeExpiredPrivateMessages(me,peer);send(ws,{type:'privateHistory',peer,messages});break;}
   case 'privateFileMessage':{
     if(!me)break;
@@ -4197,10 +4264,22 @@ wss.on('connection',(ws,req)=>{
 
     if(!to||!text)break;
 
+    const rate=messageRateCheck(me);
+    if(!rate.allowed){
+      send(ws,{
+        type:'messageRateLimited',
+        retryAfterMs:rate.retryAfterMs,
+        clientMessageId,
+        scope:'privateMessage',
+      });
+      break;
+    }
+
     if(!privateMessagesEnabled(to)){
       send(ws,{
         type:'privateMessageRejected',
         to,
+        clientMessageId,
         reason:'PRIVATE_MESSAGES_DISABLED',
         message:'Bu kullanıcı özel mesajları kabul etmiyor.',
       });

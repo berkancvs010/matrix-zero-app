@@ -54,6 +54,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _handleEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
+    if (data['type'] == 'messageRateLimited' &&
+        data['scope'] == 'roomMessage' &&
+        data['room'] == widget.roomName) {
+      final retryAfterMs = data['retryAfterMs'] is num
+          ? (data['retryAfterMs'] as num).toInt()
+          : int.tryParse((data['retryAfterMs'] ?? '').toString()) ?? 0;
+      final seconds = retryAfterMs > 0
+          ? ((retryAfterMs + 999) ~/ 1000)
+          : 1;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Çok hızlı mesaj gönderiyorsunuz. $seconds saniye bekleyin.',
+          ),
+        ),
+      );
+      return;
+    }
+
     if (data['type'] == 'roomHistory' && data['room'] == widget.roomName) {
       final history = data['messages'];
 
