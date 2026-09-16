@@ -660,9 +660,23 @@ class FileTransfer {
           : int.tryParse(rawSize?.toString() ?? '') ?? 0;
 
       final name = (event['fileName'] ?? 'Dosya').toString().trim();
-      if (size <= 0 || size > _maxFileSize || name.isEmpty) return;
+      if (size <= 0 || size > _maxFileSize || name.isEmpty) {
+        _diag(
+          'OFFER_REJECTED transfer=$id size=$size nameValid=${name.isNotEmpty}',
+        );
+        return;
+      }
 
-      if (_transferId != null && _transferId != id) return;
+      _diag(
+        'OFFER_RECEIVED transfer=$id from=$from to=$to current=$_transferId',
+      );
+
+      if (_transferId != null && _transferId != id) {
+        _diag(
+          'OFFER_REJECTED transfer=$id reason=another_transfer_active current=$_transferId',
+        );
+        return;
+      }
 
       if (_transferId == id) {
         // A reconnect can replay the same OFFER after the receiver prepared
@@ -723,12 +737,31 @@ class FileTransfer {
     }
 
     final id = (event['transferId'] ?? '').toString().trim();
-    if (id.isEmpty || id != _transferId) return;
+    if (id.isEmpty) {
+      _diag('ACCEPT_REJECTED reason=empty_transfer_id current=$_transferId');
+      return;
+    }
+    if (id != _transferId) {
+      _diag(
+        'ACCEPT_REJECTED reason=transfer_id_mismatch expected=$_transferId received=$id',
+      );
+      return;
+    }
 
     switch (type) {
       case 'fileTransferAccept':
+        _diag(
+          'ACCEPT_RECEIVED transfer=$id incoming=$_incomingTransfer '
+          'sending=$_sending sendingFile=${_sendingFile != null}',
+        );
         if (!_incomingTransfer && !_sending && _sendingFile != null) {
+          _diag('SEND_START_REQUEST transfer=$id');
           await _startOutgoingTransfer();
+        } else {
+          _diag(
+            'ACCEPT_IGNORED transfer=$id incoming=$_incomingTransfer '
+            'sending=$_sending sendingFile=${_sendingFile != null}',
+          );
         }
         break;
 
@@ -838,9 +871,14 @@ class FileTransfer {
         file == null ||
         _sending ||
         _terminalEventHandled) {
+      _diag(
+        'SEND_START_BLOCKED transfer=${id ?? ''} disposed=$_disposed '
+        'hasFile=${file != null} sending=$_sending terminal=$_terminalEventHandled',
+      );
       return;
     }
 
+    _diag('SEND_START transfer=$id file=${file.path} size=$_fileSize');
     _sending = true;
     // The 90-second connection timer only covers the pre-ACCEPT phase.
     // Once the receiver has accepted and byte transfer has started, the
@@ -897,13 +935,20 @@ class FileTransfer {
             payload: Uint8List.fromList(bytes),
           );
 
+          _diag('FIRST_CHUNK_SEND_ATTEMPT transfer=$id seq=$seq bytes=${bytes.length}');
+
           if (!ws.sendBinary(frame)) {
+            _diag('FIRST_CHUNK_SEND_RETRY transfer=$id seq=$seq bytes=${bytes.length}');
             // A false return can mean normal socket backpressure, not a lost
             // connection. Do not enter the 90-second reconnect path here.
             // Retry the same frame promptly while preserving its sequence.
             if (!await _resendFrameUntilAccepted(id, seq, frame)) {
               throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
             }
+          }
+
+          if (seq == 0) {
+            _diag('FIRST_CHUNK_SENT transfer=$id seq=0 bytes=${bytes.length}');
           }
 
           _outstandingFrames[seq] = frame;

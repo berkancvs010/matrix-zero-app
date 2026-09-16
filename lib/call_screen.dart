@@ -590,7 +590,12 @@ class _CallScreenState extends State<CallScreen> {
       await ZeroLogPushService.stopOutgoingCallTone();
 
       if (mounted) {
-        _showError('Arama reddedildi.');
+        final reason = (data['reason'] ?? '').toString().trim();
+        _showError(
+          reason == 'busy'
+              ? 'Kullanıcı şu anda başka bir aramada.'
+              : 'Arama reddedildi.',
+        );
       }
 
       await Future.delayed(const Duration(milliseconds: 700));

@@ -1,3 +1,10 @@
+## V21 kontrollü birleşim — V20 tabanı + güvenli V21 düzeltmeleri (2026-09-15)
+
+- `callRejected` içinde `reason: busy` için kullanıcıya özel meşgul mesajı eklendi. Sunucunun V20 tabanında zaten gönderdiği `reason: busy` alanıyla uyumludur.
+- Android APK sürüm/build numarası `1.0.8+15` → `1.0.8+16` olarak artırıldı.
+- V21 sunucusundaki `reliableFileFrameSequence()` değişikliği alınmadı: gerçek binary handler hâlâ `buffer.length<=headerLength` kontrolünü yaptığı için bu değişiklik tek başına sıfır-byte final chunk sorununu çözmüyor. Çalışan V20 dosya-transfer sunucusuna gereksiz/yarım bir değişiklik eklenmedi.
+- V21'de `file_transfer.dart` ve `main_screen.dart` için V20'den farklı bir kaynak kodu değişikliği bulunmadı; bu nedenle sahte bir birleşim yapılmadı.
+
 ## V17 — Reliable stale-socket routing and notification queue ACK (2026-09-15)
 
 - Reliable file OFFER routing now rejects sockets marked dead by the server heartbeat (`isAlive === false`) and falls back to the DATA-only HIGH-priority FCM wake-up.

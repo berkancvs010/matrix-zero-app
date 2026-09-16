@@ -1079,14 +1079,30 @@ async function handleReliableFileEvent(ws,d,me){
     // destroy a valid transfer merely because the sender is momentarily
     // unavailable. deliverReliableFileTransfers() will replay ACCEPT when
     // the sender reconnects.
-    if(sender){
-      send(sender,{
-        type:'fileTransferAccept',
-        from:session.to,
-        to:session.from,
-        transferId,
-      });
+    const acceptForSender={
+      type:'fileTransferAccept',
+      from:session.to,
+      to:session.from,
+      transferId,
+    };
+
+    const deliveredAccept=send(sender,acceptForSender);
+
+    // ACCEPT is part of the durable transfer state. If the sender socket is
+    // momentarily unavailable/stale, retain the ACCEPT for the sender instead
+    // of leaving the sender permanently stuck at "Gönderim bekliyor".
+    // deliverReliableFileTransfers() also replays ACCEPT from session.state
+    // on the sender's next authenticated connection; the pending event closes
+    // the gap for the normal pending-signaling delivery path.
+    if(!deliveredAccept){
+      storePendingFileTransfer(session.from,acceptForSender);
     }
+
+    console.log(
+      `[FILE_TRANSFER] ACCEPT transfer=${transferId} ` +
+      `from=${session.to} to=${session.from} ` +
+      `senderLive=${deliveredAccept}`
+    );
 
     // Receiver is now authoritative for this transfer. Any chunks that
     // arrived while its socket was temporarily unavailable can be replayed.

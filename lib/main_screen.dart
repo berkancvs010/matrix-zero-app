@@ -862,14 +862,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (transferId.isEmpty || sender.isEmpty || fileSize <= 0) return;
 
-    // Özel sohbet ekranı transferi zaten yönetiyorsa ikinci ACCEPT gönderme.
-    if (FileTransfer.active(widget.nickname, sender) != null) return;
-
-    if (WsClient.instance.activePrivateChatPeer?.trim().toLowerCase() ==
-        sender.toLowerCase()) {
-      return;
-    }
-
+    // The private chat and MainScreen both observe the same WebSocket event.
+    // Do not drop an OFFER merely because the chat is currently marked active:
+    // a lifecycle/socket transition can leave the chat listener between
+    // subscriptions. Reuse the shared transfer object so ACCEPT remains
+    // idempotent instead of creating a competing transfer state machine.
     final transfer = FileTransfer.shared(
       ws: WsClient.instance,
       me: widget.nickname,
@@ -887,8 +884,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // foreground WebSocket üzerinden normal incoming state oluştur.
       await transfer.handleExternalEvent(Map<String, dynamic>.from(data));
 
-      if (transfer.currentTransferId != transferId) return;
+      if (transfer.currentTransferId != transferId) {
+        debugPrint(
+          '[FILE_TRANSFER] BACKGROUND_ACCEPT_SKIPPED transfer=$transferId '
+          'current=${transfer.currentTransferId}',
+        );
+        return;
+      }
 
+      debugPrint('[FILE_TRANSFER] BACKGROUND_ACCEPT_REQUEST transfer=$transferId');
       await transfer.acceptIncoming(transferId);
     } catch (e) {
       debugPrint('[FILE_TRANSFER] background auto-accept failed: $e');

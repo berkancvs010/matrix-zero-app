@@ -116,7 +116,7 @@ void main() {
 
   test('release build version is bumped for V18', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.8+15'));
+    expect(pubspec, contains('version: 1.0.8+16'));
   });
 
   test('failure is retained until both peers acknowledge or terminal TTL expires', () {
@@ -156,25 +156,61 @@ void main() {
     );
   });
 
-  test('server relay queue deduplicates retransmitted chunk sequences', () {
-    expect(serverSource, contains('function reliableFileFrameSequence(buffer){'));
+  test('accepted transfers retain ACCEPT when the sender socket is unavailable', () {
     expect(
       serverSource,
-      contains(
-        'if(reliableFileFrameSequence(pending)===seq)return true;',
-      ),
+      contains("const acceptForSender={\n      type:'fileTransferAccept',"),
+    );
+    expect(
+      serverSource,
+      contains('const deliveredAccept=send(sender,acceptForSender);'),
     );
     expect(
       serverSource,
       contains(
-        'Never enqueue the same sequence twice',
+        'if(!deliveredAccept){\n      storePendingFileTransfer(session.from,acceptForSender);',
       ),
+    );
+    expect(
+      serverSource,
+      contains('[FILE_TRANSFER] ACCEPT transfer='),
+    );
+    expect(
+      serverSource,
+      contains("if(session.state==='accepted' && isSender){"),
+    );
+  });
+
+  test('server relay queue deduplicates retransmitted chunk sequences', () {
+    expect(
+      serverSource,
+      contains('function reliableFileFrameSequence(buffer){'),
+    );
+    expect(
+      serverSource,
+      contains('if(reliableFileFrameSequence(pending)===seq)return true;'),
+    );
+    expect(
+      serverSource,
+      contains('Never enqueue the same sequence twice'),
     );
   });
 
   test('background wake retry is faster than receiver connection timeout', () {
     expect(serverSource, contains('now-lastPush<60000'));
     expect(transferSource, contains('Duration(seconds: 180)'));
+  });
+
+  test('client ACCEPT path is observable and active-chat offers are not dropped', () {
+    expect(transferSource, contains('ACCEPT_RECEIVED transfer='));
+    expect(transferSource, contains('ACCEPT_REJECTED reason=transfer_id_mismatch'));
+    expect(transferSource, contains('SEND_START_REQUEST transfer='));
+    expect(transferSource, contains('SEND_START_BLOCKED transfer='));
+    expect(transferSource, contains('FIRST_CHUNK_SEND_ATTEMPT transfer='));
+    expect(transferSource, contains('FIRST_CHUNK_SENT transfer='));
+    final mainSource = File('lib/main_screen.dart').readAsStringSync();
+    expect(mainSource, contains('BACKGROUND_ACCEPT_REQUEST transfer='));
+    expect(mainSource, contains('Reuse the shared transfer object'));
   });
 
 }
