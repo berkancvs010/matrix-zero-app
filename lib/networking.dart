@@ -490,6 +490,15 @@ class WsClient {
             if (decoded is Map) {
               final data = Map<String, dynamic>.from(decoded);
 
+              if (data['type'] == 'fileTransferAccept') {
+                debugPrint(
+                  '[FILE_TRANSFER_NET] RAW_ACCEPT_RECEIVED '
+                  'transfer=${data['transferId']} '
+                  'from=${data['from']} '
+                  'to=${data['to']}',
+                );
+              }
+
               if (data['type'] == 'turnCredentials') {
                 turnUsername = (data['username'] ?? '').toString().trim();
                 turnPassword = (data['credential'] ?? '').toString();
@@ -764,7 +773,11 @@ class WsClient {
 
               _events.add(data);
             }
-          } catch (_) {}
+          } catch (error, stack) {
+            debugPrint(
+              '[WS] EVENT_PARSE_ERROR error=$error stack=$stack',
+            );
+          }
         },
         onError: (_) {
           connected = false;
