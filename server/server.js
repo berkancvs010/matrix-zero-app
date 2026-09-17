@@ -1274,10 +1274,14 @@ async function handleReliableFileEvent(ws,d,me){
       persistReliableFileSession(session);
     }
 
+    // The resume-state direction must describe the session from the
+    // requester's point of view. The client validates from/to against
+    // (peer -> me), so a receiver requesting resume must see sender -> receiver,
+    // while a sender requesting resume must see receiver -> sender.
     send(ws,{
       type:'fileTransferResumeState',
-      from:session.to,
-      to:session.from,
+      from:isReceiver ? session.from : session.to,
+      to:isReceiver ? session.to : session.from,
       transferId,
       lastReceivedSeq:Number(session.lastReceivedSeq)||-1,
       receivedBytes:Number(session.receivedBytes)||0,
