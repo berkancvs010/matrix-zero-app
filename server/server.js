@@ -4765,6 +4765,16 @@ wss.on('connection',(ws,req)=>{
       break;
     }
 
+    if(d.type==='fileTransferSendStartDiagnostic'){
+      console.log(
+        `[FILE_TRANSFER] CLIENT_SEND_START_ENTERED ` +
+        `transfer=${transferId} from=${me} to=${to} ` +
+        `fileSize=${Number(d.fileSize||0)} ` +
+        `filePath=${String(d.filePath||'').slice(0,160)}`
+      );
+      break;
+    }
+
     /*
      * --------------------------------------------------------
      * TRANSFER LIFECYCLE GATE

@@ -1015,6 +1015,21 @@ class FileTransfer {
 
     _diag('SEND_START transfer=$id file=${file.path} size=$_fileSize');
     _sending = true;
+
+    final sendStartDiagSent = ws.send({
+      'type': 'fileTransferSendStartDiagnostic',
+      'from': me,
+      'to': peer,
+      'transferId': id,
+      'filePath': file.path,
+      'fileSize': _fileSize,
+    });
+
+    _diag(
+      'SEND_START_ENTERED transfer=$id '
+      'diagSent=$sendStartDiagSent file=${file.path} size=$_fileSize',
+    );
+
     // The 90-second connection timer only covers the pre-ACCEPT phase.
     // Once the receiver has accepted and byte transfer has started, the
     // inactivity timer below is the authoritative timeout.
