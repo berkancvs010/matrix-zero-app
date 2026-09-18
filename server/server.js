@@ -4750,7 +4750,8 @@ wss.on('connection',(ws,req)=>{
   case 'fileTransferReject':
   case 'fileTransferComplete':
   case 'fileTransferFailed':
-  case 'fileTransferAcceptReceived':{
+  case 'fileTransferAcceptReceived':
+  case 'fileTransferSendStartDiagnostic':{
     if(!me)break;
 
     const to=safeNick(d.to);
@@ -4774,7 +4775,10 @@ wss.on('connection',(ws,req)=>{
         `[FILE_TRANSFER] CLIENT_SEND_START_ENTERED ` +
         `transfer=${transferId} from=${me} to=${to} ` +
         `fileSize=${Number(d.fileSize||0)} ` +
-        `filePath=${String(d.filePath||'').slice(0,160)}`
+        `incoming=${d.incomingTransfer===true} ` +
+        `sending=${d.sending===true} ` +
+        `hasSendingFile=${d.hasSendingFile===true} ` +
+        `terminal=${d.terminalEventHandled===true}`
       );
       break;
     }

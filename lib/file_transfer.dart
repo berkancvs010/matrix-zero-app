@@ -954,14 +954,16 @@ class FileTransfer {
         break;
 
       case 'fileTransferFailed':
-        if (event['transferId']?.toString() == _transferId) {
-          ws.send({
-            'type': 'fileTransferFailedAck',
-            'from': me,
-            'to': peer,
-            'transferId': id,
-          });
+        if (id != _transferId) {
+          _diag('FAILED_IGNORED transfer=$id current=$_transferId');
+          return;
         }
+        ws.send({
+          'type': 'fileTransferFailedAck',
+          'from': me,
+          'to': peer,
+          'transferId': id,
+        });
         await _failTransfer(
           id,
           (event['reason']?.toString().trim().isNotEmpty ?? false)
@@ -1021,8 +1023,11 @@ class FileTransfer {
       'from': me,
       'to': peer,
       'transferId': id,
-      'filePath': file.path,
       'fileSize': _fileSize,
+      'incomingTransfer': _incomingTransfer,
+      'sending': _sending,
+      'hasSendingFile': _sendingFile != null,
+      'terminalEventHandled': _terminalEventHandled,
     });
 
     _diag(
