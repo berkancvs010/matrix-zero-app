@@ -891,7 +891,9 @@ class FileTransfer {
 
         if (!_incomingTransfer && !_sending && _sendingFile != null) {
           _diag('SEND_START_REQUEST transfer=$id');
-          await _startOutgoingTransfer();
+          // Do not block the serialized event queue while the outgoing
+          // transfer waits for ACK/reconnect events on this same instance.
+          unawaited(_startOutgoingTransfer());
         } else {
           _diag(
             'ACCEPT_IGNORED transfer=$id incoming=$_incomingTransfer '
