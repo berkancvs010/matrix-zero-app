@@ -25,11 +25,15 @@ void main() {
     );
   });
 
-  test('client transfer has defensive event cleanup and manifest normalization', () {
-    expect(transferSource, contains('FILE_EVENT_QUEUE_CLEANUP_FAILED'));
-    expect(transferSource, contains('RECEIVE_MANIFEST_NORMALIZED'));
-    expect(transferSource, contains('Dosya SHA-256 bilgisi geçersiz.'));
+  test('client transfer validates notification SHA and cleans invalid preparation', () {
+    expect(
+      transferSource,
+      contains("if (_sourceSha256!.isNotEmpty && !_validSha(_sourceSha256!)) {"),
+    );
+    expect(transferSource, contains('await _resetTransferState();'));
+    expect(transferSource, contains('return false;'));
     expect(transferSource, contains(r"RegExp(r'^[a-f0-9]{64}$')"));
+    expect(transferSource, contains("!_validSha(declaredSha)"));
   });
 
   test('legacy file push helpers never suppress FCM from stale presence alone', () {
@@ -116,7 +120,7 @@ void main() {
 
   test('release build version is bumped for V18', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.8+16'));
+    expect(pubspec, contains('version: 1.0.8+19'));
   });
 
   test('failure is retained until both peers acknowledge or terminal TTL expires', () {
@@ -282,5 +286,30 @@ test('client surfaces rejected private messages and rate limits', () {
     expect(transferSource, contains('ws.events.listen'));
     expect(transferSource, contains('ws.send('));
   });
+
+
+test('incoming completion retry never blocks the serialized event queue', () {
+  expect(transferSource, contains('bool _completionSending = false;'));
+  expect(transferSource, contains('unawaited(_finishIncomingTransferAfterCommit(id, actualSha, finalFile));'));
+  final handleEndStart = transferSource.indexOf('Future<void> _handleEnd(');
+  final finishStart = transferSource.indexOf('Future<void> _finishIncomingTransferAfterCommit(');
+  expect(handleEndStart, greaterThanOrEqualTo(0));
+  expect(finishStart, greaterThan(handleEndStart));
+  final handleEndSource = transferSource.substring(handleEndStart, finishStart);
+  expect(handleEndSource, isNot(contains('await _sendCompletionWithRetry(')));
+  expect(transferSource, contains('if (_completionSending) return;'));
+});
+
+test('invalid notification SHA cleans the partially initialized transfer state', () {
+  expect(
+    transferSource,
+    contains("if (_sourceSha256!.isNotEmpty && !_validSha(_sourceSha256!)) {\n        await _resetTransferState();\n        return false;\n      }"),
+  );
+});
+
+test('completion timeout is allowed to report a durable failure after commit', () {
+  expect(transferSource, contains("_terminalEventHandled = false;\n        try {\n          if (await finalFile.exists()) await finalFile.delete();"));
+  expect(transferSource, contains("'Dosya tamamlanma onayı alınamadı: \$e'"));
+});
 
 }
