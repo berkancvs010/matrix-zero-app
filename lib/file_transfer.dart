@@ -406,7 +406,28 @@ class FileTransfer {
 
   Future<void> cancelTransfer(String transferId) async {
     final id = transferId.trim();
-    if (id.isEmpty || id != _transferId) return;
+    if (id.isEmpty) return;
+
+    // The UI can outlive the FileTransfer isolate that owned a background
+    // transfer. In that case there is no local _transferId, but the server
+    // still owns the durable transfer session. Send the terminal cancel
+    // directly so the Cancel button remains effective after background work.
+    if (id != _transferId) {
+      if (ws.connected) {
+        final sent = ws.send({
+          'type': 'fileTransferFailed',
+          'from': me,
+          'to': peer,
+          'transferId': id,
+          'reason': 'Dosya transferi kullanıcı tarafından iptal edildi.',
+        });
+        if (sent) {
+          _emitIncomingStatus(transferId: id, status: 'failed');
+        }
+      }
+      return;
+    }
+
     if (ws.connected) {
       ws.send({
         'type': 'fileTransferFailed',
@@ -898,7 +919,11 @@ class FileTransfer {
     _ackWaiter?.complete();
     final waiter = Completer<void>();
     _ackWaiter = waiter;
-    final deadline = DateTime.now().add(const Duration(seconds: 90));
+    final deadline = DateTime.now().add(
+      backgroundTransferMode
+          ? const Duration(minutes: 3)
+          : const Duration(seconds: 90),
+    );
     while (!_disposed && _transferId == id && !_terminalEventHandled && _lastAckSeq < seq) {
       if (DateTime.now().isAfter(deadline)) throw TimeoutException('Dosya ACK zaman aşımına uğradı.');
       await Future.any<void>(<Future<void>>[
@@ -1099,11 +1124,16 @@ class FileTransfer {
 
   void _startTransferTimeout(String id) {
     _transferTimer?.cancel();
-    _transferTimer = Timer(const Duration(seconds: 90), () {
-      if (_transferId == id && !_terminalEventHandled) {
-        unawaited(_failTransfer(id, 'Dosya transferi zaman aşımına uğradı.', reset: true, incoming: _incomingTransfer));
-      }
-    });
+    _transferTimer = Timer(
+      backgroundTransferMode
+          ? const Duration(minutes: 5)
+          : const Duration(seconds: 90),
+      () {
+        if (_transferId == id && !_terminalEventHandled) {
+          unawaited(_failTransfer(id, 'Dosya transferi zaman aşımına uğradı.', reset: true, incoming: _incomingTransfer));
+        }
+      },
+    );
   }
 
   void _touchTransferTimeout(String id) {

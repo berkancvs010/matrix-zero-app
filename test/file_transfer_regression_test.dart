@@ -120,7 +120,7 @@ void main() {
 
   test('release build version is bumped for V18', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.8+19'));
+    expect(pubspec, contains('version: 1.0.8+20'));
   });
 
   test('failure is retained until both peers acknowledge or terminal TTL expires', () {

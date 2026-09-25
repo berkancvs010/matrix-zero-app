@@ -228,15 +228,17 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
             "privateFileMessage" -> {
                 if (isAutoAcceptFileTransferEnabled()) {
-                    if (message.priority == RemoteMessage.PRIORITY_HIGH) {
-                        startBackgroundFileTransfer(message)
-                    } else {
-                        android.util.Log.w(
-                            "ZeroLogFile",
-                            "File wake FCM was downgraded; not starting dataSync FGS"
-                        )
-                    }
+                    // Attempt the background worker for every delivered DATA
+                    // message. HIGH priority is requested by the server, but
+                    // OEM/FCM delivery can report a downgraded priority even
+                    // though onMessageReceived() was actually delivered.
+                    // The foreground-service start is still subject to Android's
+                    // background-start policy and is caught below.
+                    startBackgroundFileTransfer(message)
                 }
+                // Keep the visible notification independent from the transfer
+                // worker so a transport/service failure never hides the file
+                // notification.
                 showFileNotification(message)
             }
 
@@ -821,7 +823,13 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             this,
             FILE_CHANNEL_ID
         )
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(
+                if (message.data["type"] == "privateFileStored") {
+                    android.R.drawable.stat_sys_download_done
+                } else {
+                    android.R.drawable.stat_sys_download
+                }
+            )
             .setContentTitle(
                 if (message.data["type"] == "privateFileStored") {
                     "Dosya alındı • $sender"

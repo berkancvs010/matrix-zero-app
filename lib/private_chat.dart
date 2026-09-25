@@ -418,11 +418,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
     if (index < 0) return;
 
     final current = _messages[index];
+    final effectiveStatus = _mergeFileTransferStatus(
+      current.status,
+      status,
+    );
 
     setState(() {
       _messages[index] = current.copyWith(
-        status: status,
-        transferBytes: status == 'completed'
+        status: effectiveStatus,
+        transferBytes: effectiveStatus == 'completed'
             ? current.fileSize
             : current.transferBytes,
         localPath: localPath != null && localPath.isNotEmpty
@@ -431,7 +435,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
       );
     });
 
-    if (status == 'completed' &&
+    if (effectiveStatus == 'completed' &&
         localPath != null &&
         localPath.isNotEmpty &&
         !localPath.startsWith('content://') &&
