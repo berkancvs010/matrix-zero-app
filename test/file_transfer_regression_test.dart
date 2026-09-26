@@ -120,7 +120,35 @@ void main() {
 
   test('release build version is bumped for V18', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.8+20'));
+    expect(pubspec, contains('version: 1.0.9+21'));
+  });
+
+  test('outgoing/in-app-accepted transfers keep the process foreground-priority', () {
+    // V23 fix: nothing previously protected the process while a transfer
+    // was in flight, so fully swiping the app away (as opposed to just
+    // backgrounding it) killed the send mid-flight and left it stuck on
+    // "Gönderim bekliyor" forever.
+    expect(transferSource, contains("MethodChannel _keepAliveChannel = MethodChannel('zerolog/system');"));
+    expect(transferSource, contains('_startKeepAlive()'));
+    expect(transferSource, contains('_stopKeepAlive()'));
+    expect(transferSource, contains("invokeMethod('startFileTransferForegroundService')"));
+    expect(transferSource, contains("invokeMethod('stopFileTransferForegroundService')"));
+
+    final mainActivitySource = File(
+      'android/app/src/main/kotlin/com/zerolog/app/MainActivity.kt',
+    ).readAsStringSync();
+    expect(mainActivitySource, contains('FileTransferForegroundService.EXTRA_KEEPALIVE, true'));
+
+    final serviceSource = File(
+      'android/app/src/main/kotlin/com/zerolog/app/FileTransferForegroundService.kt',
+    ).readAsStringSync();
+    expect(serviceSource, contains('const val EXTRA_KEEPALIVE = "keepAlive"'));
+    expect(serviceSource, contains('keepAliveRefCount'));
+
+    final manifestSource = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    expect(manifestSource, contains('android:stopWithTask="false"'));
   });
 
   test('failure is retained until both peers acknowledge or terminal TTL expires', () {

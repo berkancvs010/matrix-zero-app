@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// ZeroLog reliable file transport.
@@ -164,6 +165,50 @@ class FileTransfer {
   void _diag(String value) {
     // ignore: avoid_print
     print('[FILE_TRANSFER] $value');
+  }
+
+  // Keeps the Android process foreground-priority for the lifetime of an
+  // active outgoing send or an in-app-accepted incoming transfer.
+  //
+  // Root cause this fixes: previously nothing told the OS this process was
+  // doing important work once a transfer was in flight. While the app sits
+  // in the recent-apps list Android usually leaves the process alone for a
+  // while, so a transfer looked reliable in that state. Fully swiping the
+  // app away removes that grace period entirely: with no foreground service
+  // and no persisted "resume this outgoing send" state, the process (and the
+  // async chunk loop above) was simply killed mid-transfer, and the message
+  // was left stuck on "Gönderim bekliyor" (pending) forever - it could never
+  // resume, because nothing was left running to resume it.
+  //
+  // startFileTransferForegroundService / stopFileTransferForegroundService
+  // are handled natively in MainActivity.kt, which starts/stops
+  // FileTransferForegroundService.kt in a ref-counted "keep-alive" mode
+  // (EXTRA_KEEPALIVE) that is independent from that same service's other
+  // job of running the durable, push-triggered background download queue.
+  static const MethodChannel _keepAliveChannel = MethodChannel('zerolog/system');
+
+  bool _keepAliveActive = false;
+
+  Future<void> _startKeepAlive() async {
+    if (_keepAliveActive || _disposed) return;
+    _keepAliveActive = true;
+    try {
+      await _keepAliveChannel.invokeMethod('startFileTransferForegroundService');
+    } catch (e) {
+      // Never let a platform-channel hiccup abort the transfer itself; the
+      // transfer still proceeds, it just loses the extra kill-protection.
+      _diag('KEEPALIVE_START_FAILED error=$e');
+    }
+  }
+
+  Future<void> _stopKeepAlive() async {
+    if (!_keepAliveActive) return;
+    _keepAliveActive = false;
+    try {
+      await _keepAliveChannel.invokeMethod('stopFileTransferForegroundService');
+    } catch (e) {
+      _diag('KEEPALIVE_STOP_FAILED error=$e');
+    }
   }
 
   FileTransferCallbackHandle bindCallbacks({
@@ -333,6 +378,12 @@ class FileTransfer {
       throw StateError('Dosya transferi sunucuya gönderilemedi.');
     }
 
+    // Protect the process from here on: fileTransferStart has gone out and
+    // the transfer is now live server-side, so from the user's perspective
+    // it is already "gönderiliyor" (in progress) even though we're still
+    // waiting on the peer's accept.
+    unawaited(_startKeepAlive());
+
     _startConnectionTimeout(id);
     return id;
   }
@@ -400,6 +451,7 @@ class FileTransfer {
       _accepted = false;
       throw StateError('Dosya kabulü sunucuya gönderilemedi.');
     }
+    unawaited(_startKeepAlive());
     _emitIncomingStatus(transferId: id, status: 'accepted');
     await _persistReceiveManifest(id);
   }
@@ -1078,6 +1130,7 @@ class FileTransfer {
 
   Future<void> _resetTransferState({bool keepFinalFile = false}) async {
     _cancelTimers();
+    unawaited(_stopKeepAlive());
     _ackWaiter = null;
     final rafIn = _incomingFile;
     _incomingFile = null;

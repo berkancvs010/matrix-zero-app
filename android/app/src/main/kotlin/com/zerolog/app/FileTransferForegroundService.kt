@@ -42,6 +42,14 @@ class FileTransferForegroundService : Service() {
         const val EXTRA_FILE_SIZE = "fileSize"
         const val EXTRA_SHA256 = "sha256"
 
+        // Marks a start/stop request as a plain "keep this process's priority
+        // elevated" request from the Dart side (used while an OUTGOING send
+        // or an in-app-accepted INCOMING transfer is running in the main
+        // Flutter engine). A keep-alive request never touches the durable
+        // incoming-transfer queue and never starts the headless engine: the
+        // already-running engine that requested it is what needs protecting.
+        const val EXTRA_KEEPALIVE = "keepAlive"
+
         private const val TAG = "ZeroLogFile"
         private const val METHOD_CHANNEL =
             "zerolog/background_transfer"
@@ -53,6 +61,13 @@ class FileTransferForegroundService : Service() {
             "pending_transfers_json"
 
         private val PREFS_LOCK = Any()
+
+        // Reference count of active keep-alive holders (concurrent outgoing
+        // sends and/or in-app-accepted incoming transfers can overlap across
+        // different chats). The service must stay in the foreground state
+        // until every holder has released it AND the durable incoming queue
+        // is empty.
+        private val keepAliveRefCount = java.util.concurrent.atomic.AtomicInteger(0)
     }
 
     private var flutterEngine: FlutterEngine? = null
@@ -70,8 +85,14 @@ class FileTransferForegroundService : Service() {
         startId: Int
     ): Int {
 
+        val isKeepAlive = intent?.getBooleanExtra(EXTRA_KEEPALIVE, false) == true
+
         if (intent?.action == ACTION_STOP) {
-            stopTransferService()
+            if (isKeepAlive) {
+                releaseKeepAlive()
+            } else {
+                stopTransferService()
+            }
             return START_NOT_STICKY
         }
 
@@ -88,6 +109,12 @@ class FileTransferForegroundService : Service() {
                 NOTIFICATION_ID,
                 notification
             )
+        }
+
+        if (isKeepAlive) {
+            val count = keepAliveRefCount.incrementAndGet()
+            Log.d(TAG, "Keep-alive acquired, refCount=$count")
+            return START_STICKY
         }
 
         if (intent == null) {
@@ -642,6 +669,20 @@ class FileTransferForegroundService : Service() {
         }
     }
 
+    private fun releaseKeepAlive() {
+        val count = keepAliveRefCount.updateAndGet { current ->
+            if (current > 0) current - 1 else 0
+        }
+        Log.d(TAG, "Keep-alive released, refCount=$count")
+
+        // Only tear the service down once no keep-alive holder AND no durable
+        // incoming transfer is left; either one alone must keep it alive.
+        if (count <= 0 && readPendingTransfers().isEmpty()) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
     private fun stopTransferService() {
         Log.d(TAG, "Stopping file transfer service")
 
@@ -674,12 +715,14 @@ class FileTransferForegroundService : Service() {
 
         // The Dart worker removes each completed transfer explicitly.
         // Never clear the durable queue here: a service restart must be able
-        // to recover a transfer that was interrupted between callbacks.
-        if (readPendingTransfers().isEmpty()) {
+        // to recover a transfer that was interrupted between callbacks. Also
+        // respect any still-active keep-alive holder (e.g. an outgoing send
+        // running concurrently in the main engine).
+        if (readPendingTransfers().isEmpty() && keepAliveRefCount.get() <= 0) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         } else {
-            Log.w(TAG, "Transfer service stop requested while queue is not empty")
+            Log.w(TAG, "Transfer service stop requested while queue/keep-alive is not empty")
         }
     }
 
@@ -721,6 +764,13 @@ class FileTransferForegroundService : Service() {
 
         flutterEngine = null
         methodChannel = null
+
+        // The OS is tearing this service instance down (timeout, low memory,
+        // task removal on OEMs that ignore stopWithTask, etc). Any keep-alive
+        // holder from the old instance is meaningless now; a fresh
+        // start/stop pair from a later attempt (or the resume logic in
+        // FileTransfer) must not inherit a stale, unreleasable count.
+        keepAliveRefCount.set(0)
 
         Log.d(TAG, "File transfer service destroyed")
 

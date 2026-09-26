@@ -50,6 +50,15 @@ class MainActivity : FlutterActivity() {
         super.onPause()
     }
 
+    // These two are invoked from Dart (FileTransfer._startKeepAlive /
+    // _stopKeepAlive in file_transfer.dart) around the lifetime of an
+    // outgoing send or an in-app-accepted incoming transfer. They ask the
+    // OS to treat this process as foreground-priority for as long as the
+    // transfer runs, so Android does not kill the process when the app is
+    // swiped away from Recents mid-transfer. EXTRA_KEEPALIVE=true routes
+    // this through a simple ref-counted start/stop in the service instead
+    // of the durable incoming-transfer queue used for push-triggered
+    // background downloads.
     private fun startFileTransferForegroundService() {
         try {
             val intent = Intent(
@@ -57,6 +66,7 @@ class MainActivity : FlutterActivity() {
                 FileTransferForegroundService::class.java
             ).apply {
                 action = FileTransferForegroundService.ACTION_START
+                putExtra(FileTransferForegroundService.EXTRA_KEEPALIVE, true)
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -80,6 +90,7 @@ class MainActivity : FlutterActivity() {
                 FileTransferForegroundService::class.java
             ).apply {
                 action = FileTransferForegroundService.ACTION_STOP
+                putExtra(FileTransferForegroundService.EXTRA_KEEPALIVE, true)
             }
 
             startService(intent)
