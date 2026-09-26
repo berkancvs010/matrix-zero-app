@@ -165,6 +165,7 @@ class FileTransfer {
   Completer<void>? _ackWaiter;
   Timer? _connectionTimer;
   Timer? _transferTimer;
+  DateTime? _lastProgressEmittedAt;
 
   String? get currentTransferId => _transferId;
   String? get currentFileName => _fileName;
@@ -258,16 +259,34 @@ class FileTransfer {
     required int totalBytes,
     required String status,
   }) {
+    // A 128 KiB chunk can arrive many times per second on a fast link. Do
+    // not rebuild every chat bubble for every chunk; terminal and waiting
+    // states must still be delivered immediately.
+    if (status == 'transferring') {
+      final now = DateTime.now();
+      final previous = _lastProgressEmittedAt;
+      if (previous != null &&
+          now.difference(previous) < const Duration(milliseconds: 100) &&
+          sentBytes < totalBytes) {
+        return;
+      }
+      _lastProgressEmittedAt = now;
+    }
+
     for (final binding in List<_FileTransferCallbackBinding>.from(
       _callbackBindings,
     )) {
       if (!binding.handle._active) continue;
-      binding.onProgress?.call(
-        transferId: transferId,
-        sentBytes: sentBytes,
-        totalBytes: totalBytes,
-        status: status,
-      );
+      try {
+        binding.onProgress?.call(
+          transferId: transferId,
+          sentBytes: sentBytes,
+          totalBytes: totalBytes,
+          status: status,
+        );
+      } catch (error, stack) {
+        _diag('PROGRESS_CALLBACK_FAILED error=$error stack=$stack');
+      }
     }
   }
 
@@ -281,12 +300,16 @@ class FileTransfer {
       _callbackBindings,
     )) {
       if (!binding.handle._active) continue;
-      binding.onIncomingOffer?.call(
-        transferId: transferId,
-        fileName: fileName,
-        fileSize: fileSize,
-        sender: sender,
-      );
+      try {
+        binding.onIncomingOffer?.call(
+          transferId: transferId,
+          fileName: fileName,
+          fileSize: fileSize,
+          sender: sender,
+        );
+      } catch (error, stack) {
+        _diag('OFFER_CALLBACK_FAILED error=$error stack=$stack');
+      }
     }
   }
 
@@ -299,11 +322,15 @@ class FileTransfer {
       _callbackBindings,
     )) {
       if (!binding.handle._active) continue;
-      binding.onIncomingStatus?.call(
-        transferId: transferId,
-        status: status,
-        localUri: localUri,
-      );
+      try {
+        binding.onIncomingStatus?.call(
+          transferId: transferId,
+          status: status,
+          localUri: localUri,
+        );
+      } catch (error, stack) {
+        _diag('STATUS_CALLBACK_FAILED error=$error stack=$stack');
+      }
     }
   }
 
@@ -1006,7 +1033,11 @@ class FileTransfer {
 
   Future<void> _waitForAck(String id, int seq) async {
     if (_lastAckSeq >= seq) return;
-    _ackWaiter?.complete();
+    final previousWaiter = _ackWaiter;
+    _ackWaiter = null;
+    if (previousWaiter != null && !previousWaiter.isCompleted) {
+      previousWaiter.complete();
+    }
     final waiter = Completer<void>();
     _ackWaiter = waiter;
     final deadline = DateTime.now().add(
@@ -1198,6 +1229,7 @@ class FileTransfer {
     _sending = false;
     _terminalEventHandled = false;
     _completionAcknowledged = false;
+    _lastProgressEmittedAt = null;
     _completionSending = false;
     _nextSendSeq = 0;
     _lastAckSeq = -1;

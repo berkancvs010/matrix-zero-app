@@ -98,17 +98,29 @@ class FileTransferForegroundService : Service() {
 
         val notification = buildNotification()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(
-                NOTIFICATION_ID,
-                notification
-            )
+        // Android can reject a foreground-service promotion (for example
+        // while notification permission is being revoked or when the OEM
+        // applies a start restriction). An uncaught exception here kills the
+        // whole app process exactly when a transfer starts. Fail the service
+        // gracefully and leave the durable queue intact for a later retry.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Foreground service promotion failed", e)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
 
         if (isKeepAlive) {
