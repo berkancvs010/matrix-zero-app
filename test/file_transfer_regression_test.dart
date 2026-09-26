@@ -118,9 +118,9 @@ void main() {
     expect(pushSource, contains('ackPendingMessageIntent'));
   });
 
-  test('release build version is bumped for V18', () {
+  test('release build version is bumped for V27', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.9+21'));
+    expect(pubspec, contains('version: 1.0.9+22'));
   });
 
   test('outgoing/in-app-accepted transfers keep the process foreground-priority', () {
@@ -238,8 +238,8 @@ void main() {
     expect(transferSource, contains('ACCEPT_REJECTED reason=transfer_id_mismatch'));
     expect(transferSource, contains('SEND_START_REQUEST transfer='));
     expect(transferSource, contains('SEND_START_BLOCKED transfer='));
-    expect(transferSource, contains('FIRST_CHUNK_SEND_ATTEMPT transfer='));
-    expect(transferSource, contains('FIRST_CHUNK_SENT transfer='));
+    expect(transferSource, contains('CHUNK_SEND_ATTEMPT transfer='));
+    expect(transferSource, contains('CHUNK_SENT transfer='));
     final mainSource = File('lib/main_screen.dart').readAsStringSync();
     expect(mainSource, contains('BACKGROUND_ACCEPT_REQUEST transfer='));
     expect(mainSource, contains('Reuse the shared transfer object'));

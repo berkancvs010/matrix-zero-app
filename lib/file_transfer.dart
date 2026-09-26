@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -11,8 +12,9 @@ import 'package:path_provider/path_provider.dart';
 /// ZeroLog reliable file transport.
 ///
 /// The transport deliberately uses one small state machine over the already
-/// authenticated WsClient connection.  There is no parallel send window:
-/// sender -> one binary chunk -> receiver writes -> ACK -> next chunk.
+/// authenticated WsClient connection.  Outgoing data uses a bounded 8-frame
+/// send window; the receiver still writes chunks strictly in sequence and
+/// returns cumulative ACKs.
 ///
 /// This is intentionally conservative.  Correctness, resumability and clear
 /// failure boundaries are more important than maximum throughput.  The
@@ -121,6 +123,12 @@ class FileTransfer {
   });
 
   static const int _chunkSize = 128 * 1024;
+  // Keep several chunks in flight instead of waiting for an ACK after every
+  // 128 KiB frame. WebSocket/TCP already preserves ordering; the receiver
+  // still validates and writes chunks strictly in sequence. A small window
+  // gives large files much better throughput without turning the transport
+  // into an unbounded RAM queue.
+  static const int _sendWindowSize = 8;
   static const int _maxFileSize = 1024 * 1024 * 1024;
   static const int _protocolVersion = 1;
 
@@ -933,27 +941,57 @@ class FileTransfer {
             }
           }
 
-          final seq = _nextSendSeq;
-          final offset = seq * _chunkSize;
-          await raf.setPosition(offset);
-          _diag('CHUNK_READ_START transfer=$id seq=$seq offset=$offset');
-          final bytes = await raf.read(_chunkSize);
-          _diag('CHUNK_READ_OK transfer=$id seq=$seq bytes=${bytes.length}');
-          if (bytes.isEmpty) throw StateError('Dosya okuma sırasında beklenmeyen son.');
+          // Pipeline a small bounded number of frames. The old implementation
+          // sent one frame and then waited for its ACK, which made throughput
+          // effectively depend on network round-trip time. With 8 x 128 KiB
+          // frames in flight, the receiver still writes strictly in order, but
+          // the sender can keep the TCP/WebSocket connection busy on larger
+          // files. Memory stays bounded to roughly 1 MiB of encoded payloads.
+          final windowEnd = mathMin(
+            (_fileSize + _chunkSize - 1) ~/ _chunkSize,
+            _nextSendSeq + _sendWindowSize,
+          );
 
-          final frame = _encodeChunkFrame(id, seq, Uint8List.fromList(bytes));
-          _diag('FIRST_CHUNK_SEND_ATTEMPT transfer=$id seq=$seq bytes=${bytes.length}');
-          if (!ws.sendBinary(frame)) {
-            throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
+          final firstSeq = _nextSendSeq;
+          while (!_disposed &&
+              !_terminalEventHandled &&
+              _transferId == id &&
+              _nextSendSeq < windowEnd) {
+            final seq = _nextSendSeq;
+            final offset = seq * _chunkSize;
+            await raf.setPosition(offset);
+            _diag('CHUNK_READ_START transfer=$id seq=$seq offset=$offset');
+            final bytes = await raf.read(_chunkSize);
+            _diag('CHUNK_READ_OK transfer=$id seq=$seq bytes=${bytes.length}');
+            if (bytes.isEmpty) {
+              throw StateError('Dosya okuma sırasında beklenmeyen son.');
+            }
+
+            final frame = _encodeChunkFrame(id, seq, Uint8List.fromList(bytes));
+            _diag('CHUNK_SEND_ATTEMPT transfer=$id seq=$seq bytes=${bytes.length}');
+            if (!ws.sendBinary(frame)) {
+              throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
+            }
+            _diag('CHUNK_SENT transfer=$id seq=$seq bytes=${bytes.length}');
+
+            _nextSendSeq = seq + 1;
+            _sentBytes = mathMin(_fileSize, offset + bytes.length);
+            _emitProgress(
+              transferId: id,
+              sentBytes: _lastAckedBytes(seq - 1),
+              totalBytes: _fileSize,
+              status: 'transferring',
+            );
+            _touchTransferTimeout(id);
           }
-          _diag('FIRST_CHUNK_SENT transfer=$id seq=$seq bytes=${bytes.length}');
 
-          _nextSendSeq = seq + 1;
-          _sentBytes = mathMin(_fileSize, offset + bytes.length);
-          _emitProgress(transferId: id, sentBytes: _lastAckedBytes(seq - 1), totalBytes: _fileSize, status: 'transferring');
-          _touchTransferTimeout(id);
-
-          await _waitForAck(id, seq);
+          // Wait for the ACK of the last frame in this bounded window. Since
+          // ACKs are cumulative, receiving this one proves all earlier frames
+          // were written by the receiver in order.
+          final lastSeq = _nextSendSeq - 1;
+          if (lastSeq >= firstSeq) {
+            await _waitForAck(id, lastSeq);
+          }
         }
       } finally {
         if (identical(_sendingRaf, raf)) _sendingRaf = null;
@@ -1231,9 +1269,23 @@ class FileTransfer {
     return frame.takeBytes();
   }
 
+  // Hashing a large (hundreds of MB to multi-GB) file with sha256.bind()
+  // runs its incremental block-compression work synchronously on whichever
+  // isolate calls it. On the main UI isolate that competes directly with
+  // Flutter's own frame scheduling, and is the concrete cause of the "large
+  // files sometimes freeze the app" symptom: once per send (hashing the
+  // source file before the offer goes out) and once per receive (verifying
+  // the assembled file against the expected hash), the UI could visibly
+  // stall for as long as the hash takes to compute. Isolate.run moves that
+  // CPU-bound work off the calling isolate entirely; only the file path
+  // (a plain String, safe to send across isolates) and the resulting digest
+  // string cross the isolate boundary.
   Future<String> _calculateFileSha256(File file) async {
-    final digest = await sha256.bind(file.openRead()).first;
-    return digest.toString();
+    final path = file.path;
+    return Isolate.run(() async {
+      final digest = await sha256.bind(File(path).openRead()).first;
+      return digest.toString();
+    });
   }
 
   bool _validSha(String value) => RegExp(r'^[a-f0-9]{64}$').hasMatch(value);

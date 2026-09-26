@@ -966,6 +966,24 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
       setState(() => _connected = true);
     }
 
+    // The header shows the peer's live status by reading
+    // WsClient.instance.onlineUsers directly inside build(), which is
+    // correct as a single source of truth - but that only takes effect if
+    // something actually triggers a rebuild when presence changes. Without
+    // this, once the peer goes offline while this chat screen is already
+    // open, the header keeps showing whatever it last happened to render
+    // (e.g. from an unrelated message arriving) and never flips to
+    // "Çevrimdışı" until the user leaves and reopens the chat.
+    if (eventType == 'userOnline' || eventType == 'userOffline') {
+      final changedUser = (data['username'] ?? data['nick'] ?? '')
+          .toString()
+          .trim();
+      if (changedUser.isEmpty ||
+          changedUser.toLowerCase() == widget.targetNick.trim().toLowerCase()) {
+        if (mounted) setState(() {});
+      }
+    }
+
     if (data['type'] == 'notificationSettings') {
       final value = data['autoAcceptFileTransfers'];
       if (value is bool) {
