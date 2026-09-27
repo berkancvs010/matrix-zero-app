@@ -47,6 +47,7 @@ const backgroundSocketByWs=new Map(); // ws -> transferId
 // Reliable WebSocket file-transfer sessions. File bytes are relayed only;
 // the server does not persist file contents.
 const reliableFileTransfers=new Map(); // transferId -> session
+const reliableFileSaveQueues=new Map(); // transferId -> Promise<void>
 const RELIABLE_FILE_TRANSFER_TTL_MS=60*60*1000;
 const RELIABLE_FILE_MAX_CHUNK_BYTES=128*1024;
 // Keep up to two full sender windows in memory while the receiver socket is
@@ -414,20 +415,57 @@ function persistReliableFileSession(session){
     terminalUntil:Number(session.terminalUntil)||0,
     updatedAt:Number(session.updatedAt)||Date.now(),
   };
-  try{
-    const target=path.join(DATA,reliableFileMetaName(session.transferId));
-    const temp=`${target}.tmp`;
-    fs.writeFileSync(temp,JSON.stringify(safe),{mode:0o600});
-    fs.renameSync(temp,target);
-  }catch(error){
-    console.error(`[FILE_TRANSFER] metadata save failed: ${error && error.message || error}`);
-  }
+  const key=String(session.transferId).trim();
+  const previous=reliableFileSaveQueues.get(key)||Promise.resolve();
+  const next=previous
+    .catch(()=>{})
+    .then(async()=>{
+      const target=path.join(DATA,reliableFileMetaName(key));
+      const temp=`${target}.tmp`;
+      await fs.promises.writeFile(temp,JSON.stringify(safe),{mode:0o600});
+      await fs.promises.rename(temp,target);
+    });
+
+  reliableFileSaveQueues.set(key,next);
+  void next.catch(error=>{
+    console.error(
+      `[FILE_TRANSFER] metadata save failed: ${error && error.message || error}`
+    );
+  }).finally(()=>{
+    if(reliableFileSaveQueues.get(key)===next){
+      reliableFileSaveQueues.delete(key);
+    }
+  });
 }
 
 function deleteReliableFileMeta(transferId){
-  try{
-    fs.unlinkSync(path.join(DATA,reliableFileMetaName(transferId)));
-  }catch{}
+  const key=String(transferId||'').trim();
+  if(!key)return;
+
+  // Deletion must participate in the same per-transfer queue as writes.
+  // Otherwise a late persistReliableFileSession() can race a queued delete
+  // and have its freshly-written metadata removed by the older delete.
+  const previous=reliableFileSaveQueues.get(key)||Promise.resolve();
+  const next=previous
+    .catch(()=>{})
+    .then(async()=>{
+      try{
+        await fs.promises.unlink(path.join(DATA,reliableFileMetaName(key)));
+      }catch(error){
+        if(error && error.code!=='ENOENT'){
+          console.error(
+            `[FILE_TRANSFER] metadata delete failed: ${error.message||error}`
+          );
+        }
+      }
+    });
+
+  reliableFileSaveQueues.set(key,next);
+  void next.finally(()=>{
+    if(reliableFileSaveQueues.get(key)===next){
+      reliableFileSaveQueues.delete(key);
+    }
+  });
 }
 
 function removeReliableFileSession(transferId){
@@ -1572,6 +1610,32 @@ function flushReliableFileChunks(session){
   deliverPendingReliableFileEnd(session);
 }
 
+/*
+ * ws.send() can legitimately return false from sendBinary() while the
+ * receiver socket is above the high-water mark. Previously the chunk was
+ * retained in session.pendingChunks, but nothing necessarily called
+ * flushReliableFileChunks() after bufferedAmount later fell below the limit:
+ * the sender was waiting for an ACK and therefore sent no new frame to
+ * trigger another flush. That created a reproducible deadlock, often around
+ * the middle of a small photo transfer.
+ *
+ * Retry only the bounded pending queues. This is intentionally separate from
+ * the 15-second wake interval so a normal backpressure recovery takes place
+ * quickly without blocking the WebSocket event loop.
+ */
+const reliableFileFlushInterval=setInterval(()=>{
+  for(const session of reliableFileTransfers.values()){
+    if(!session || session.state!=='accepted')continue;
+    if(Array.isArray(session.pendingChunks) && session.pendingChunks.length){
+      flushReliableFileChunks(session);
+    }else if(session.pendingEnd){
+      deliverPendingReliableFileEnd(session);
+    }
+  }
+},250);
+
+reliableFileFlushInterval.unref();
+
 function handleReliableFileBinary(ws,buffer,me){
   if(!me || !Buffer.isBuffer(buffer))return false;
 
@@ -1720,6 +1784,14 @@ function deliverPendingReliableFileEnd(session){
     !session.pendingEnd ||
     session.state!=='accepted'
   )return false;
+
+  // END must never overtake binary frames that are still waiting in the
+  // bounded relay queue. The fileTransferEnd handler can call this function
+  // directly while pendingChunks is non-empty, so enforce the ordering here
+  // as the single final guard as well as in flushReliableFileChunks().
+  if(Array.isArray(session.pendingChunks) && session.pendingChunks.length){
+    return false;
+  }
 
   const receiver=fileSocketFor(session.to,session.transferId);
   if(!receiver)return false;
