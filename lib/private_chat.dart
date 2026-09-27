@@ -700,9 +700,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                   : 0;
               final lastAt = _lastFileProgressUiAt[transferId];
               final lastPercent = _lastFileProgressPercent[transferId];
+              if (lastPercent != null && percent == lastPercent) {
+                return;
+              }
               if (lastAt != null &&
-                  now.difference(lastAt).inMilliseconds < 200 &&
-                  lastPercent == percent) {
+                  now.difference(lastAt).inMilliseconds < 1000) {
                 return;
               }
               _lastFileProgressUiAt[transferId] = now;

@@ -118,9 +118,9 @@ void main() {
     expect(pushSource, contains('ackPendingMessageIntent'));
   });
 
-  test('release build version is bumped for V27', () {
+  test('release build version is bumped for V28', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.9+22'));
+    expect(pubspec, contains('version: 1.0.9+25'));
   });
 
   test('outgoing/in-app-accepted transfers keep the process foreground-priority', () {
@@ -238,8 +238,8 @@ void main() {
     expect(transferSource, contains('ACCEPT_REJECTED reason=transfer_id_mismatch'));
     expect(transferSource, contains('SEND_START_REQUEST transfer='));
     expect(transferSource, contains('SEND_START_BLOCKED transfer='));
-    expect(transferSource, contains('CHUNK_SEND_ATTEMPT transfer='));
-    expect(transferSource, contains('CHUNK_SENT transfer='));
+    expect(transferSource, contains('SEND_START_ENTERED transfer='));
+    expect(transferSource, contains('SEND_START_ENTERED transfer='));
     final mainSource = File('lib/main_screen.dart').readAsStringSync();
     expect(mainSource, contains('BACKGROUND_ACCEPT_REQUEST transfer='));
     expect(mainSource, contains('Reuse the shared transfer object'));
@@ -335,9 +335,39 @@ test('invalid notification SHA cleans the partially initialized transfer state',
   );
 });
 
-test('completion timeout is allowed to report a durable failure after commit', () {
-  expect(transferSource, contains("_terminalEventHandled = false;\n        try {\n          if (await finalFile.exists()) await finalFile.delete();"));
-  expect(transferSource, contains("'Dosya tamamlanma onayı alınamadı: \$e'"));
+	test('completion timeout is allowed to report a durable failure after commit', () {
+	  expect(transferSource, contains("_terminalEventHandled = false;\n        try {\n          if (await finalFile.exists()) await finalFile.delete();"));
+	  expect(transferSource, contains("'Dosya tamamlanma onayı alınamadı: \$e'"));
+	});
+
+	test('large transfers throttle UI callbacks and isolate callback failures', () {
+	  expect(transferSource, contains('_lastProgressEmittedAt'));
+	  expect(transferSource, contains("const Duration(seconds: 1)"));
+	  expect(transferSource, contains('PROGRESS_CALLBACK_FAILED'));
+	  expect(transferSource, contains('OFFER_CALLBACK_FAILED'));
+	  expect(transferSource, contains('STATUS_CALLBACK_FAILED'));
+	});
+
+	test('receive manifest checkpoints are serialized, recoverable and atomic', () {
+	  expect(transferSource, contains('Future<void> _manifestWriteQueue'));
+	  expect(transferSource, contains('_manifestCheckpointEveryChunks = 8'));
+	  expect(transferSource, contains('MANIFEST_WRITE_FAILED'));
+	  expect(transferSource, contains("final temp = File('\${file.path}.tmp')"));
+	  expect(transferSource, contains('await temp.rename(file.path)'));
+	});
+
+	test('ACK waiter cannot complete a stale completer twice', () {
+	  expect(transferSource, contains('final previousWaiter = _ackWaiter;'));
+	  expect(transferSource, contains('!previousWaiter.isCompleted'));
+	});
+
+	test('Android foreground promotion failure is contained by the service', () {
+	  final serviceSource = File(
+	    'android/app/src/main/kotlin/com/zerolog/app/FileTransferForegroundService.kt',
+	  ).readAsStringSync();
+  expect(serviceSource, contains('Foreground service promotion failed'));
+  expect(serviceSource, contains('stopSelf(startId)'));
+  expect(serviceSource, contains('return START_NOT_STICKY'));
 });
 
 }

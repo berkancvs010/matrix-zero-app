@@ -166,6 +166,9 @@ class FileTransfer {
   Timer? _connectionTimer;
   Timer? _transferTimer;
   DateTime? _lastProgressEmittedAt;
+  Future<void> _manifestWriteQueue = Future<void>.value();
+  int _lastPersistedManifestSeq = -1;
+  static const int _manifestCheckpointEveryChunks = 8;
 
   String? get currentTransferId => _transferId;
   String? get currentFileName => _fileName;
@@ -266,7 +269,7 @@ class FileTransfer {
       final now = DateTime.now();
       final previous = _lastProgressEmittedAt;
       if (previous != null &&
-          now.difference(previous) < const Duration(milliseconds: 100) &&
+          now.difference(previous) < const Duration(seconds: 1) &&
           sentBytes < totalBytes) {
         return;
       }
@@ -488,6 +491,10 @@ class FileTransfer {
     }
     unawaited(_startKeepAlive());
     _emitIncomingStatus(transferId: id, status: 'accepted');
+    // Do not perform a manifest JSON write for every 128 KiB chunk. On a
+    // large transfer that turns into thousands of filesystem operations and
+    // can starve the Flutter isolate/OEM storage stack. Checkpoint every
+    // small window and force a final checkpoint before completion.
     await _persistReceiveManifest(id);
   }
 
@@ -809,6 +816,7 @@ class FileTransfer {
   Future<void> _handleEnd(Map<String, dynamic> event) async {
     final id = _transferId;
     if (_disposed || !_incomingTransfer || !_accepted || id == null || event['transferId']?.toString() != id) return;
+    await _persistReceiveManifest(id, force: true);
     // Once the verified file has been committed locally, completion is sent
     // by a separate task so the event queue stays free to receive the ACK.
     // Duplicate END events during that period are harmless and must not try
@@ -987,19 +995,15 @@ class FileTransfer {
             final seq = _nextSendSeq;
             final offset = seq * _chunkSize;
             await raf.setPosition(offset);
-            _diag('CHUNK_READ_START transfer=$id seq=$seq offset=$offset');
             final bytes = await raf.read(_chunkSize);
-            _diag('CHUNK_READ_OK transfer=$id seq=$seq bytes=${bytes.length}');
             if (bytes.isEmpty) {
               throw StateError('Dosya okuma sırasında beklenmeyen son.');
             }
 
-            final frame = _encodeChunkFrame(id, seq, Uint8List.fromList(bytes));
-            _diag('CHUNK_SEND_ATTEMPT transfer=$id seq=$seq bytes=${bytes.length}');
+            final frame = _encodeChunkFrame(id, seq, bytes);
             if (!ws.sendBinary(frame)) {
               throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
             }
-            _diag('CHUNK_SENT transfer=$id seq=$seq bytes=${bytes.length}');
 
             _nextSendSeq = seq + 1;
             _sentBytes = mathMin(_fileSize, offset + bytes.length);
@@ -1165,19 +1169,59 @@ class FileTransfer {
     }
   }
 
-  Future<void> _persistReceiveManifest(String id) async {
-    final support = await getApplicationSupportDirectory();
-    final dir = Directory('${support.path}/received_files');
-    await dir.create(recursive: true);
-    final file = File('${dir.path}/${_sanitizeId(id)}.manifest.json');
-    await file.writeAsString(jsonEncode({
-      'transferId': id,
-      'fileName': _fileName,
-      'fileSize': _fileSize,
-      'sha256': _sourceSha256,
-      'lastReceivedSeq': _lastReceivedSeq,
-      'receivedBytes': _receivedBytes,
-    }));
+  Future<void> _persistReceiveManifest(String id, {bool force = false}) async {
+    if (_transferId != id) return;
+    if (!force &&
+        _lastReceivedSeq - _lastPersistedManifestSeq <
+            _manifestCheckpointEveryChunks) {
+      return;
+    }
+
+    final seq = _lastReceivedSeq;
+    final bytes = _receivedBytes;
+    final fileName = _fileName;
+    final fileSize = _fileSize;
+    final sha = _sourceSha256;
+    _lastPersistedManifestSeq = seq;
+
+    // Always recover the chain after an I/O failure. Without this catch, one
+    // transient disk-full/permission error permanently rejects the queue and
+    // every later checkpoint becomes an unhandled Future error.
+    _manifestWriteQueue = _manifestWriteQueue.then((_) async {
+      if (seq < 0) return;
+      try {
+        final support = await getApplicationSupportDirectory();
+        final dir = Directory('${support.path}/received_files');
+        await dir.create(recursive: true);
+        final file = File(
+          '${dir.path}/${_sanitizeId(id)}.manifest.json',
+        );
+        final temp = File('${file.path}.tmp');
+        await temp.writeAsString(jsonEncode({
+          'transferId': id,
+          'fileName': fileName,
+          'fileSize': fileSize,
+          'sha256': sha,
+          'lastReceivedSeq': seq,
+          'receivedBytes': bytes,
+        }));
+        // Android uses a POSIX filesystem: rename is atomic when replacing
+        // the target on the same volume. Keep a fallback for providers that
+        // reject replacement of an existing path.
+        try {
+          await temp.rename(file.path);
+        } catch (_) {
+          if (await file.exists()) await file.delete();
+          await temp.rename(file.path);
+        }
+      } catch (error, stack) {
+        _diag('MANIFEST_WRITE_FAILED transfer=$id error=$error stack=$stack');
+      }
+    });
+
+    if (force) {
+      await _manifestWriteQueue;
+    }
   }
 
   Future<void> _deleteReceiveManifest(String id) async {
@@ -1201,6 +1245,10 @@ class FileTransfer {
     _cancelTimers();
     unawaited(_stopKeepAlive());
     _ackWaiter = null;
+    try {
+      await _manifestWriteQueue;
+    } catch (_) {}
+    _manifestWriteQueue = Future<void>.value();
     final rafIn = _incomingFile;
     _incomingFile = null;
     if (rafIn != null) {
@@ -1230,6 +1278,7 @@ class FileTransfer {
     _terminalEventHandled = false;
     _completionAcknowledged = false;
     _lastProgressEmittedAt = null;
+    _lastPersistedManifestSeq = -1;
     _completionSending = false;
     _nextSendSeq = 0;
     _lastAckSeq = -1;
