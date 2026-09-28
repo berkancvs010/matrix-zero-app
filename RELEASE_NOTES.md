@@ -1,3 +1,20 @@
+## V30 — Reliable ACK retransmission / 26% stall repair (2026-09-27)
+
+- Re-audited the complete reliable file-transfer path after the 128 KiB / 26% stall shown in the device test.
+- The sender now retains the exact outstanding binary frame and retransmits it every 2 seconds until its cumulative ACK arrives.
+- A lost ACK can no longer leave the receiver permanently parked at the last chunk while the sender waits for the 90-second timeout.
+- Receiver ACK-send failure is now treated as recoverable; a retransmitted duplicate chunk is detected as already committed and causes the ACK to be sent again instead of tearing down the transfer.
+- A transient `sendBinary()` failure now gets a connection-recovery attempt before the transfer is failed.
+- Sequence ordering, resume, SHA-256 verification, manifest checkpoints, completion handshake, foreground service and server relay behavior remain intact.
+- Added regression assertions for outstanding-frame retransmission and non-fatal ACK-send failure.
+
+## V29 — Reliable file-transfer forward-progress repair (2026-09-27)
+
+- Outgoing reliable file transfers now use a single 128 KiB chunk in flight instead of an 8-chunk burst.
+- This prevents the Android/WebSocket receiver and server relay from being overwhelmed by a burst and then stalling around the first chunk while the sender waits for a cumulative ACK.
+- Resume, SHA-256 verification, durable receiver manifest, background transfer and terminal completion logic are unchanged.
+- Added a regression assertion that prevents the sender window from being accidentally raised back to the burst mode.
+
 ## V22 — Mesaj rate-limit istemci görünürlüğü (2026-09-16)
 
 - `messageRateLimited` artık özel sohbet istemcisinde ilgili optimistic mesajı `Gönderilemedi` durumuna geçirir.

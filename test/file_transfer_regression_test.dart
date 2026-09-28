@@ -6,6 +6,26 @@ void main() {
   final serverSource = File('server/server.js').readAsStringSync();
   final transferSource = File('lib/file_transfer.dart').readAsStringSync();
 
+  test('outgoing transfer uses a single in-flight chunk for Android stability', () {
+    expect(
+      transferSource,
+      contains('static const int _sendWindowSize = 1;'),
+    );
+  });
+
+  test('outgoing transfer retransmits an outstanding chunk when its ACK is lost', () {
+    expect(transferSource, contains('Uint8List? _lastSentFrame;'));
+    expect(transferSource, contains('int _lastSentSeq = -1;'));
+    expect(transferSource, contains('CHUNK_RETRY transfer=\$id seq=\$seq'));
+    expect(transferSource, contains('ws.sendBinary(_lastSentFrame!)'));
+  });
+
+  test('receiver does not fail a valid transfer just because one ACK send is lost', () {
+    expect(transferSource, contains("final ackSent = ws.send({"));
+    expect(transferSource, contains('CHUNK_ACK_SEND_RETRY transfer=\$id seq=\$seq'));
+    expect(transferSource, isNot(contains("throw StateError('Dosya ACK gönderilemedi.')")));
+  });
+
   test('server pending-byte accounting decrements each chunk exactly once', () {
     expect(
       RegExp(

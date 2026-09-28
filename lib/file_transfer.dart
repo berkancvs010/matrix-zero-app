@@ -12,8 +12,8 @@ import 'package:path_provider/path_provider.dart';
 /// ZeroLog reliable file transport.
 ///
 /// The transport deliberately uses one small state machine over the already
-/// authenticated WsClient connection.  Outgoing data uses a bounded 8-frame
-/// send window; the receiver still writes chunks strictly in sequence and
+/// authenticated WsClient connection. Outgoing data uses a single bounded
+/// in-flight frame; the receiver still writes chunks strictly in sequence and
 /// returns cumulative ACKs.
 ///
 /// This is intentionally conservative.  Correctness, resumability and clear
@@ -123,12 +123,12 @@ class FileTransfer {
   });
 
   static const int _chunkSize = 128 * 1024;
-  // Keep several chunks in flight instead of waiting for an ACK after every
-  // 128 KiB frame. WebSocket/TCP already preserves ordering; the receiver
-  // still validates and writes chunks strictly in sequence. A small window
-  // gives large files much better throughput without turning the transport
-  // into an unbounded RAM queue.
-  static const int _sendWindowSize = 8;
+  // Use a single chunk in flight. The previous 8-frame burst could outrun
+  // Android/OEM WebSocket consumers and leave the relay/receiver stalled
+  // around the first chunk while the sender waited for a cumulative ACK.
+  // Correctness and forward progress are more important here than burst
+  // throughput; the transfer remains resumable and the socket stays bounded.
+  static const int _sendWindowSize = 1;
   static const int _maxFileSize = 1024 * 1024 * 1024;
   static const int _protocolVersion = 1;
 
@@ -161,6 +161,8 @@ class FileTransfer {
   int _nextSendSeq = 0;
   int _lastAckSeq = -1;
   int _lastReceivedSeq = -1;
+  Uint8List? _lastSentFrame;
+  int _lastSentSeq = -1;
 
   Completer<void>? _ackWaiter;
   Timer? _connectionTimer;
@@ -801,14 +803,19 @@ class FileTransfer {
       status: 'transferring',
     );
 
-    if (!ws.send({
+    // ACK loss is recoverable: the sender retransmits the same chunk and the
+    // duplicate-sequence branch above sends another ACK. Do not tear down a
+    // perfectly valid received file merely because this one control packet
+    // could not leave a transiently disconnected socket.
+    final ackSent = ws.send({
       'type': 'fileTransferChunkAck',
       'from': me,
       'to': peer,
       'transferId': id,
       'receivedSeq': seq,
-    })) {
-      throw StateError('Dosya ACK gönderilemedi.');
+    });
+    if (!ackSent) {
+      _diag('CHUNK_ACK_SEND_RETRY transfer=$id seq=$seq');
     }
     await _persistReceiveManifest(id);
   }
@@ -976,12 +983,9 @@ class FileTransfer {
             }
           }
 
-          // Pipeline a small bounded number of frames. The old implementation
-          // sent one frame and then waited for its ACK, which made throughput
-          // effectively depend on network round-trip time. With 8 x 128 KiB
-          // frames in flight, the receiver still writes strictly in order, but
-          // the sender can keep the TCP/WebSocket connection busy on larger
-          // files. Memory stays bounded to roughly 1 MiB of encoded payloads.
+          // Keep exactly one frame in flight. Reliability is provided by explicit
+          // retransmission of the outstanding frame when its ACK is lost; this
+          // avoids both Android socket bursts and the old lost-ACK deadlock.
           final windowEnd = mathMin(
             (_fileSize + _chunkSize - 1) ~/ _chunkSize,
             _nextSendSeq + _sendWindowSize,
@@ -1001,9 +1005,21 @@ class FileTransfer {
             }
 
             final frame = _encodeChunkFrame(id, seq, bytes);
+            // Keep the exact encoded frame until its cumulative ACK arrives.
+            // A lost ACK must not make the sender wait 90 seconds and then fail
+            // while the receiver remains parked at the last committed chunk.
+            // _waitForAck() retransmits this same frame; the receiver treats
+            // duplicate sequences as idempotent and sends the ACK again.
             if (!ws.sendBinary(frame)) {
-              throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
+              if (!await _waitForConnection(const Duration(seconds: 30))) {
+                throw StateError('Dosya bağlantısı yeniden kurulamadı.');
+              }
+              if (!ws.sendBinary(frame)) {
+                throw StateError('Dosya parçası karşı tarafa gönderilemedi.');
+              }
             }
+            _lastSentFrame = frame;
+            _lastSentSeq = seq;
 
             _nextSendSeq = seq + 1;
             _sentBytes = mathMin(_fileSize, offset + bytes.length);
@@ -1016,9 +1032,8 @@ class FileTransfer {
             _touchTransferTimeout(id);
           }
 
-          // Wait for the ACK of the last frame in this bounded window. Since
-          // ACKs are cumulative, receiving this one proves all earlier frames
-          // were written by the receiver in order.
+          // Wait for the ACK of the only outstanding frame. Since ACKs are
+          // cumulative, receiving it proves this frame was written in order.
           final lastSeq = _nextSendSeq - 1;
           if (lastSeq >= firstSeq) {
             await _waitForAck(id, lastSeq);
@@ -1049,11 +1064,40 @@ class FileTransfer {
           ? const Duration(minutes: 3)
           : const Duration(seconds: 90),
     );
-    while (!_disposed && _transferId == id && !_terminalEventHandled && _lastAckSeq < seq) {
-      if (DateTime.now().isAfter(deadline)) throw TimeoutException('Dosya ACK zaman aşımına uğradı.');
+    var nextRetryAt = DateTime.now().add(const Duration(seconds: 2));
+
+    while (!_disposed &&
+        _transferId == id &&
+        !_terminalEventHandled &&
+        _lastAckSeq < seq) {
+      final now = DateTime.now();
+      if (now.isAfter(deadline)) {
+        throw TimeoutException('Dosya ACK zaman aşımına uğradı.');
+      }
+
+      // ACKs are control messages and can be lost during a short mobile
+      // network/socket transition. Retransmit the exact outstanding frame
+      // instead of waiting for the whole 90-second timeout. The receiver's
+      // seq<=lastReceivedSeq path is explicitly idempotent and re-ACKs it.
+      if (now.isAfter(nextRetryAt) &&
+          _lastSentSeq == seq &&
+          _lastSentFrame != null) {
+        if (ws.connected) {
+          final resent = ws.sendBinary(_lastSentFrame!);
+          if (resent) {
+            _diag('CHUNK_RETRY transfer=$id seq=$seq');
+            nextRetryAt = now.add(const Duration(seconds: 2));
+          } else {
+            nextRetryAt = now.add(const Duration(seconds: 1));
+          }
+        } else {
+          nextRetryAt = now.add(const Duration(seconds: 1));
+        }
+      }
+
       await Future.any<void>(<Future<void>>[
         waiter.future,
-        Future<void>.delayed(const Duration(seconds: 1)),
+        Future<void>.delayed(const Duration(milliseconds: 250)),
       ]);
     }
     if (_lastAckSeq < seq) throw StateError('Dosya ACK alınamadı.');
@@ -1283,6 +1327,8 @@ class FileTransfer {
     _nextSendSeq = 0;
     _lastAckSeq = -1;
     _lastReceivedSeq = -1;
+    _lastSentFrame = null;
+    _lastSentSeq = -1;
   }
 
   void _startConnectionTimeout(String id) {
