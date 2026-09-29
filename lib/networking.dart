@@ -37,6 +37,33 @@ class SecureSession {
   }
 }
 
+Future<void> clearLocalUserData() async {
+  await SecureSession.clear();
+
+  final prefs = await SharedPreferences.getInstance();
+  final keys = prefs.getKeys().toList(growable: false);
+  for (final key in keys) {
+    if (key.startsWith('zerolog.')) {
+      await prefs.remove(key);
+    }
+  }
+
+  try {
+    final documents = await getApplicationDocumentsDirectory();
+    final zeroLogDir = Directory('${documents.path}/ZeroLog');
+    if (await zeroLogDir.exists()) {
+      await zeroLogDir.delete(recursive: true);
+    }
+
+    final receivedDir = Directory('${documents.path}/received_files');
+    if (await receivedDir.exists()) {
+      await receivedDir.delete(recursive: true);
+    }
+  } catch (e) {
+    zeroLog('LOCAL_DATA_CLEANUP failed: $e');
+  }
+}
+
 // ============================================================
 // WEBSOCKET SERVICE
 // ============================================================
@@ -61,6 +88,12 @@ class WsClient {
 
   final Set<String> _onlineUsers = <String>{};
   final Set<String> _knownUsers = <String>{};
+  final Set<String> _blockedUsers = <String>{};
+
+  List<String> get blockedUsers => List.unmodifiable(_blockedUsers);
+
+  bool isBlocked(String username) =>
+      _blockedUsers.contains(username.trim().toLowerCase());
 
   final Map<String, Map<String, dynamic>> _userProfiles =
       <String, Map<String, dynamic>>{};
@@ -265,7 +298,7 @@ class WsClient {
     try {
       _channel!.sink.add(jsonEncode({'type': 'appState', 'state': normalized}));
 
-      debugPrint('[PRESENCE] appState=$normalized sent');
+      zeroLog('[PRESENCE] appState=$normalized sent');
     } catch (_) {
       _handleConnectionLost();
     }
@@ -301,6 +334,29 @@ class WsClient {
     } catch (_) {
       _handleConnectionLost();
     }
+  }
+
+  void blockUser(String username) {
+    final target = username.trim();
+    if (target.isEmpty) return;
+    send({'type': 'blockUser', 'username': target});
+  }
+
+  void unblockUser(String username) {
+    final target = username.trim();
+    if (target.isEmpty) return;
+    send({'type': 'unblockUser', 'username': target});
+  }
+
+  void reportUser(String username, String reason) {
+    final target = username.trim();
+    final cleanReason = reason.trim();
+    if (target.isEmpty || cleanReason.isEmpty) return;
+    send({
+      'type': 'reportUser',
+      'username': target,
+      'reason': cleanReason,
+    });
   }
 
   void requestPrivacySettings() {
@@ -438,14 +494,14 @@ class WsClient {
 
         if (token != null && token.trim().isNotEmpty) {
           ZeroLogPushService.setCurrentToken(token.trim());
-          debugPrint(
+          zeroLog(
             '[FCM] login-time token acquired length=${token.trim().length}',
           );
         } else {
-          debugPrint('[FCM] login-time token is empty');
+          zeroLog('[FCM] login-time token is empty');
         }
       } catch (e) {
-        debugPrint('[FCM] login-time getToken failed: $e');
+        zeroLog('[FCM] login-time getToken failed: $e');
       }
     }
 
@@ -491,7 +547,7 @@ class WsClient {
               final data = Map<String, dynamic>.from(decoded);
 
               if (data['type'] == 'fileTransferAccept') {
-                debugPrint(
+                zeroLog(
                   '[FILE_TRANSFER_NET] RAW_ACCEPT_RECEIVED '
                   'transfer=${data['transferId']} '
                   'from=${data['from']} '
@@ -528,6 +584,14 @@ class WsClient {
 
                 username = authenticatedName;
                 nickname = authenticatedName;
+                final rawBlocked = data['blockedUsers'];
+                _blockedUsers.clear();
+                if (rawBlocked is List) {
+                  for (final value in rawBlocked) {
+                    final blocked = value.toString().trim().toLowerCase();
+                    if (blocked.isNotEmpty) _blockedUsers.add(blocked);
+                  }
+                }
                 connected = true;
 
                 // Yeni WebSocket bağlantısı varsayılan olarak foreground
@@ -756,6 +820,16 @@ class WsClient {
                 }
               }
 
+              if (data['type'] == 'userBlocked') {
+                final target =
+                    (data['target'] ?? '').toString().trim().toLowerCase();
+                if (target.isNotEmpty) _blockedUsers.add(target);
+              } else if (data['type'] == 'userUnblocked') {
+                final target =
+                    (data['target'] ?? '').toString().trim().toLowerCase();
+                if (target.isNotEmpty) _blockedUsers.remove(target);
+              }
+
               if (data['type'] == 'authError') {
                 connected = false;
                 _lastConnectErrorCode =
@@ -774,7 +848,7 @@ class WsClient {
               _events.add(data);
             }
           } catch (error, stack) {
-            debugPrint(
+            zeroLog(
               '[WS] EVENT_PARSE_ERROR error=$error stack=$stack',
             );
           }
@@ -998,7 +1072,7 @@ class WsClient {
     );
 
     final seq = data.getUint32(7 + idLength);
-    final payload = Uint8List.fromList(frame.sublist(headerLength));
+    final payload = Uint8List.sublistView(frame, headerLength);
 
     if (payload.isEmpty || transferId.trim().isEmpty) {
       return null;

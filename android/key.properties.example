@@ -1,0 +1,6 @@
+# Production upload signing properties
+# This file is a template only. Do not commit real credentials.
+storeFile=../upload-keystore.jks
+storePassword=REPLACE_ME
+keyAlias=REPLACE_ME
+keyPassword=REPLACE_ME

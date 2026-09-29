@@ -46,3 +46,8 @@ app.*.map.json
 
 # Local backup files
 *.bak-*
+
+# Local Android release signing credentials
+android/key.properties
+android/upload-keystore.jks
+/android/app/upload-keystore.jks

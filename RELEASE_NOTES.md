@@ -1,3 +1,48 @@
+## V31.4
+
+- Security hardening: CSRF-protected web account deletion, transfer failure cleanup, socket cleanup, HTTP security headers, public-room moderation, and release validation fixes.
+
+# V31.3 — Final security/session hardening
+
+- Fixed case-insensitive socket-map cleanup during account deletion.
+- Account deletion now sends `callEnded` to active call peers and falls back to call-status push when needed.
+- Account-deletion file transfers now use the existing durable terminal-failure path, including transfer-specific background sockets and persisted failure events.
+- Added production HTTP security headers.
+- Added single-use, expiring CSRF protection to the web account-deletion form.
+
+## V31.2 — Play Store final hardening (2026-09-28)
+
+- Fixed the release-build `zeroLog()` library-scope compile error in `file_transfer.dart`.
+- Added block/report actions to public community-room messages.
+- Added protected moderation report review/action endpoints.
+- Added rate limiting to the public web account-deletion form.
+- Account deletion now removes room messages, block-list references, active calls, live sockets and reliable file-transfer sessions.
+- Added Terms of Use covering prohibited user-generated content and moderation.
+- Expanded the public privacy policy to document networking, moderation, IP/rate-limit and call-related data.
+- Added the Terms page to the static legal-site CI validation.
+- Kept the V30 reliable file-transfer ACK retransmission and zero-copy payload path unchanged.
+
+## V31.1 — Final Play Store / web hardening (2026-09-28)
+
+- Corrected the GitHub Actions signing path so the CI-created upload keystore is resolved from the Android project root by the app Gradle module.
+- Removed the public Flutter Web chat build/deployment path; the web surface is now a static information/legal site with no WebSocket client.
+- Added static privacy and account/data deletion pages under `web/`; the existing server deletion endpoint remains the form target.
+- Kept V30 reliable file-transfer ACK retransmission and V31 zero-copy payload decoding unchanged.
+
+## V31 — Play Store release hardening (2026-09-28)
+
+- Added production upload-keystore based release signing configuration; debug signing is no longer used for release builds.
+- GitHub Actions now builds and uploads a signed Android App Bundle (AAB) for Play Store release, plus an APK smoke artifact.
+- Pinned the production target SDK to API 36 and verified the CI target configuration.
+- Added public HTTPS privacy policy and web account/data deletion endpoints.
+- Added in-app user blocking and user reporting with server-side enforcement for private messages, calls, and file transfers.
+- Added local account-data cleanup on account deletion, including ZeroLog file storage and app preferences.
+- Disabled Android backup/data extraction for the production app.
+- Made camera and microphone device features optional so devices without those features can install the app.
+- Unified the notification channel ID and added a dedicated monochrome notification icon.
+- Gated diagnostic logging behind kDebugMode.
+- Restored zero-copy file-transfer payload slicing with Uint8List.sublistView without changing V30 ACK retransmission reliability logic.
+
 ## V30 — Reliable ACK retransmission / 26% stall repair (2026-09-27)
 
 - Re-audited the complete reliable file-transfer path after the 128 KiB / 26% stall shown in the device test.

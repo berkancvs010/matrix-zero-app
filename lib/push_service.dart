@@ -114,9 +114,9 @@ class ZeroLogPushService {
     try {
       await _systemChannel.invokeMethod('requestStartupPermissions');
 
-      debugPrint('[PERMISSIONS] startup permission flow completed');
+      zeroLog('[PERMISSIONS] startup permission flow completed');
     } catch (e) {
-      debugPrint('[PERMISSIONS] startup permission flow failed: $e');
+      zeroLog('[PERMISSIONS] startup permission flow failed: $e');
     }
   }
 
@@ -126,9 +126,9 @@ class ZeroLogPushService {
         'requestMiuiCallPermissionSetup',
       );
 
-      debugPrint('[PERMISSIONS] MIUI call permission setup result=$result');
+      zeroLog('[PERMISSIONS] MIUI call permission setup result=$result');
     } catch (e) {
-      debugPrint('[PERMISSIONS] MIUI call permission setup failed: $e');
+      zeroLog('[PERMISSIONS] MIUI call permission setup failed: $e');
     }
   }
 
@@ -138,9 +138,9 @@ class ZeroLogPushService {
         'requestFullScreenIntentPermission',
       );
 
-      debugPrint('[PERMISSIONS] full-screen intent granted=$granted');
+      zeroLog('[PERMISSIONS] full-screen intent granted=$granted');
     } catch (e) {
-      debugPrint('[PERMISSIONS] full-screen intent permission failed: $e');
+      zeroLog('[PERMISSIONS] full-screen intent permission failed: $e');
     }
   }
 
@@ -150,11 +150,11 @@ class ZeroLogPushService {
         'requestCallPermissions',
       );
 
-      debugPrint('[PERMISSIONS] call microphone granted=$granted');
+      zeroLog('[PERMISSIONS] call microphone granted=$granted');
 
       return granted == true;
     } catch (e) {
-      debugPrint('[PERMISSIONS] call permission failed: $e');
+      zeroLog('[PERMISSIONS] call permission failed: $e');
       return false;
     }
   }
@@ -163,7 +163,7 @@ class ZeroLogPushService {
     try {
       await _systemChannel.invokeMethod('startOutgoingCallTone');
     } catch (e) {
-      debugPrint('[CALL] outgoing tone start failed: $e');
+      zeroLog('[CALL] outgoing tone start failed: $e');
     }
   }
 
@@ -171,7 +171,7 @@ class ZeroLogPushService {
     try {
       await _systemChannel.invokeMethod('clearCallLockScreen');
     } catch (e) {
-      debugPrint('[CALL] clear lock-screen state failed: $e');
+      zeroLog('[CALL] clear lock-screen state failed: $e');
     }
   }
 
@@ -179,7 +179,7 @@ class ZeroLogPushService {
     try {
       await _systemChannel.invokeMethod('stopOutgoingCallTone');
     } catch (e) {
-      debugPrint('[CALL] outgoing tone stop failed: $e');
+      zeroLog('[CALL] outgoing tone stop failed: $e');
     }
   }
 
@@ -276,9 +276,9 @@ class ZeroLogPushService {
           return token.trim();
         }
 
-        debugPrint('[FCM] getToken attempt $attempt returned empty');
+        zeroLog('[FCM] getToken attempt $attempt returned empty');
       } catch (e) {
-        debugPrint('[FCM] getToken attempt $attempt failed: $e');
+        zeroLog('[FCM] getToken attempt $attempt failed: $e');
       }
 
       if (attempt < 5) {
@@ -329,14 +329,14 @@ class ZeroLogPushService {
               await handler(normalized);
             }
 
-            debugPrint(
+            zeroLog(
               '[FCM][native-intent] incoming call forwarded '
               'to Flutter callId=$callId',
             );
           }
         }
       } catch (e) {
-        debugPrint('[FCM][native-intent] incoming call callback failed: $e');
+        zeroLog('[FCM][native-intent] incoming call callback failed: $e');
       }
 
       return null;
@@ -375,14 +375,14 @@ class ZeroLogPushService {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(pendingCallKey, jsonEncode(normalized));
 
-          debugPrint(
+          zeroLog(
             '[FCM][native-intent] pending incoming call stored '
             'callId=${normalized['callId']}',
           );
         }
       }
     } catch (e) {
-      debugPrint('[FCM][native-intent] bridge failed: $e');
+      zeroLog('[FCM][native-intent] bridge failed: $e');
     }
 
     // Native Android message PendingIntent -> Flutter pending notification
@@ -397,7 +397,7 @@ class ZeroLogPushService {
           data['type'] == 'privateFileMessage') {
         await storeNotificationPayload(jsonEncode(data));
 
-        debugPrint(
+        zeroLog(
           '[FCM][native-message] pending notification stored '
           'type=${data['type']}',
         );
@@ -413,34 +413,34 @@ class ZeroLogPushService {
       provisional: false,
     );
 
-    debugPrint('[FCM] permission=${settings.authorizationStatus}');
+    zeroLog('[FCM] permission=${settings.authorizationStatus}');
 
     final token = await _getFcmTokenWithRetry();
 
     _currentToken = token;
 
     if (token == null || token.isEmpty) {
-      debugPrint('[FCM] ERROR: registration token could not be obtained');
+      zeroLog('[FCM] ERROR: registration token could not be obtained');
     } else {
-      debugPrint('[FCM] token acquired length=${token.length}');
+      zeroLog('[FCM] token acquired length=${token.length}');
     }
 
     _messaging.onTokenRefresh
         .listen((newToken) {
           _currentToken = newToken;
 
-          debugPrint('[FCM] token_refresh length=${newToken.length}');
+          zeroLog('[FCM] token_refresh length=${newToken.length}');
 
           WsClient.instance.updateFcmToken(newToken);
         })
         .onError((error) {
-          debugPrint('[FCM] token refresh error: $error');
+          zeroLog('[FCM] token refresh error: $error');
         });
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       final type = message.data['type'];
 
-      debugPrint(
+      zeroLog(
         '[FCM][foreground] '
         'messageId=${message.messageId} '
         'type=$type',
@@ -461,18 +461,18 @@ class ZeroLogPushService {
         // Private message notifications have a single authority: the native
         // FirebaseMessagingService. This prevents duplicate notifications
         // when a data-only FCM arrives while Flutter is foregrounded.
-        debugPrint('[FCM] private message notification handled by native service');
+        zeroLog('[FCM] private message notification handled by native service');
       } else if (type == 'privateFileMessage') {
         // File-transfer notifications have a single authority: the native
         // FirebaseMessagingService. It runs for foreground/background/terminated
         // delivery and uses the same stable notification id as completion.
         // Do not create a second Dart notification here.
-        debugPrint('[FCM] private file notification handled by native service');
+        zeroLog('[FCM] private file notification handled by native service');
       }
     });
 
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-      debugPrint(
+      zeroLog(
         '[FCM][opened] '
         'messageId=${message.messageId} '
         'type=${message.data['type']}',
@@ -492,7 +492,7 @@ class ZeroLogPushService {
     final initialMessage = await _messaging.getInitialMessage();
 
     if (initialMessage != null) {
-      debugPrint(
+      zeroLog(
         '[FCM][initial] '
         'messageId=${initialMessage.messageId} '
         'type=${initialMessage.data['type']}',
@@ -648,7 +648,7 @@ class ZeroLogPushService {
         payload: payload,
       );
     } catch (e) {
-      debugPrint('[FCM] private file notification failed: $e');
+      zeroLog('[FCM] private file notification failed: $e');
     }
   }
 
@@ -674,7 +674,7 @@ class ZeroLogPushService {
       if (activePeer != null &&
           activePeer.trim().isNotEmpty &&
           activePeer.trim().toLowerCase() == from.toLowerCase()) {
-        debugPrint(
+        zeroLog(
           "[FCM] private message notification suppressed: active chat with $from",
         );
         return;
@@ -736,7 +736,7 @@ class ZeroLogPushService {
         payload: payload,
       );
     } catch (e) {
-      debugPrint('[FCM] private message notification failed: $e');
+      zeroLog('[FCM] private message notification failed: $e');
     }
   }
 
@@ -755,7 +755,7 @@ class ZeroLogPushService {
     try {
       await _systemChannel.invokeMethod('startIncomingCallTone');
     } catch (e) {
-      debugPrint('[CALL] native incoming tone start failed: $e');
+      zeroLog('[CALL] native incoming tone start failed: $e');
     }
   }
 
@@ -768,7 +768,7 @@ class ZeroLogPushService {
     try {
       await _systemChannel.invokeMethod('stopIncomingCallTone');
     } catch (e) {
-      debugPrint('[CALL] native incoming tone stop failed: $e');
+      zeroLog('[CALL] native incoming tone stop failed: $e');
     }
   }
 
@@ -820,7 +820,7 @@ class ZeroLogPushService {
         }
       }
     } catch (e) {
-      debugPrint('[FCM][native-message] pull failed: $e');
+      zeroLog('[FCM][native-message] pull failed: $e');
     }
   }
 

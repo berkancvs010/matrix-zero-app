@@ -478,7 +478,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             this,
             CALL_CHANNEL_ID
         )
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_zerolog)
             .setContentTitle("Gelen çağrı")
             .setContentText("$caller sizi arıyor")
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -971,7 +971,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             this,
             MESSAGE_CHANNEL_ID
         )
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_zerolog)
             .setContentTitle(sender)
             .setContentText(notificationText)
             .setStyle(

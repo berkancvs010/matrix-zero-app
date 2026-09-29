@@ -181,6 +181,119 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+
+  Future<void> _showUserActions(String username) async {
+    final target = username.trim();
+    if (target.isEmpty ||
+        target.toLowerCase() == widget.nickname.trim().toLowerCase()) {
+      return;
+    }
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.block_outlined),
+                title: const Text('Kullanıcıyı engelle'),
+                onTap: () => Navigator.pop(sheetContext, 'block'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.flag_outlined),
+                title: const Text('Kullanıcıyı şikayet et'),
+                onTap: () => Navigator.pop(sheetContext, 'report'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) return;
+
+    if (action == 'block') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('$target engellensin mi?'),
+          content: const Text(
+            'Bu kullanıcıdan gelen özel iletişim ve çağrılar engellenir.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('İptal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Engelle'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        WsClient.instance.send({
+          'type': 'blockUser',
+          'username': target,
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$target engellendi.')),
+          );
+        }
+      }
+      return;
+    }
+
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('$target şikayet et'),
+        content: TextField(
+          controller: reasonController,
+          maxLines: 4,
+          maxLength: 500,
+          decoration: const InputDecoration(
+            hintText: 'Şikayet nedeninizi yazın',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('İptal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              reasonController.text.trim(),
+            ),
+            child: const Text('Gönder'),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+
+    if (!mounted || reason == null || reason.trim().isEmpty) return;
+
+    WsClient.instance.send({
+      'type': 'reportUser',
+      'username': target,
+      'reason': reason.trim(),
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Şikayetiniz alındı.')),
+      );
+    }
+  }
+
   void _send() {
     final text = _controller.text.trim();
 
@@ -309,8 +422,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         alignment: mine
                             ? Alignment.centerRight
                             : Alignment.centerLeft,
-                        child: Container(
-                          constraints: const BoxConstraints(maxWidth: 330),
+                        child: GestureDetector(
+                          onLongPress: mine
+                              ? null
+                              : () => _showUserActions(message.sender),
+                          child: Container(
+                            constraints: const BoxConstraints(maxWidth: 330),
                           margin: const EdgeInsets.only(bottom: 8),
                           padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
                           decoration: BoxDecoration(
@@ -326,12 +443,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               if (!mine) ...[
-                                Text(
-                                  message.sender,
-                                  style: TextStyle(
-                                    color: theme.primary,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800,
+                                GestureDetector(
+                                  onTap: () => _showUserActions(message.sender),
+                                  onLongPress: () => _showUserActions(message.sender),
+                                  child: Text(
+                                    message.sender,
+                                    style: TextStyle(
+                                      color: theme.primary,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w800,
+                                      decoration: TextDecoration.underline,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: 3),
@@ -347,6 +469,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             ],
                           ),
                         ),
+                          ),
                       );
                     },
                   ),

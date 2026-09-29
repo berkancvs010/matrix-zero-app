@@ -3,6 +3,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+
+  test('file transfer has a release-safe diagnostic logger', () {
+    expect(transferSource, contains("import 'package:flutter/foundation.dart';"));
+    expect(transferSource, contains('void zeroLog(String message)'));
+    expect(transferSource, contains('if (kDebugMode)'));
+  });
+
   final serverSource = File('server/server.js').readAsStringSync();
   final transferSource = File('lib/file_transfer.dart').readAsStringSync();
 
@@ -140,7 +147,7 @@ void main() {
 
   test('release build version is bumped for V28', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.9+25'));
+    expect(pubspec, contains('version: 1.0.10+26'));
   });
 
   test('outgoing/in-app-accepted transfers keep the process foreground-priority', () {
@@ -390,4 +397,102 @@ test('invalid notification SHA cleans the partially initialized transfer state',
   expect(serviceSource, contains('return START_NOT_STICKY'));
 });
 
+  test('Play release uses production signing and API 36', () {
+    final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+    expect(gradle, contains('targetSdk = 36'));
+    expect(gradle, contains('create("release")'));
+    expect(gradle, isNot(contains('signingConfigs.getByName("debug")')));
+  });
+
+  test('Play workflow builds a release AAB and uses upload keystore secrets', () {
+    final workflow = File('.github/workflows/build.yml').readAsStringSync();
+    expect(workflow, contains('flutter build appbundle --release'));
+    expect(workflow, contains('ZEROLOG_UPLOAD_KEYSTORE_B64'));
+    expect(workflow, contains('storeFile=../upload-keystore.jks'));
+    expect(workflow, contains('test -s android/upload-keystore.jks'));
+    expect(workflow, contains('build/app/outputs/bundle/release/app-release.aab'));
+  });
+
+  test('production manifest disables backup and uses optional camera/microphone features', () {
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    expect(manifest, contains('android:allowBackup="false"'));
+    expect(manifest, contains('android:dataExtractionRules="@xml/data_extraction_rules"'));
+    expect(manifest, contains('android.hardware.microphone'));
+    expect(manifest, contains('android.hardware.camera'));
+    expect(manifest, contains('android:required="false"'));
+    expect(manifest, contains('zerolog_messages_v5'));
+    expect(manifest, isNot(contains('firebase_analytics_collection_enabled')));
+  });
+
+  test('public privacy and deletion routes and moderation controls exist', () {
+    expect(serverSource, contains("req.url==='/privacy'"));
+    expect(serverSource, contains("req.url==='/delete-account'"));
+    expect(serverSource, contains("case 'blockUser'"));
+    expect(serverSource, contains("case 'reportUser'"));
+    expect(serverSource, contains("isUserBlocked(to,me)"));
+  });
+
+  test('file transfer payload decoding uses zero-copy sublist view', () {
+    final networking = File('lib/networking.dart').readAsStringSync();
+    expect(
+      networking,
+      contains('Uint8List.sublistView(frame, headerLength)'),
+    );
+    expect(
+      networking,
+      isNot(contains('Uint8List.fromList(frame.sublist(headerLength))')),
+    );
+  });
+
+  test('public web surface is static legal content, not a WebSocket chat client', () {
+    final webIndex = File('web/index.html').readAsStringSync();
+    expect(webIndex, contains('/privacy'));
+    expect(webIndex, contains('/delete-account'));
+    expect(webIndex, isNot(contains('wss://zerolog.giize.com:8443/ws')));
+    expect(File('web/privacy/index.html').existsSync(), isTrue);
+    expect(File('web/delete-account/index.html').existsSync(), isTrue);
+    expect(File('web/terms/index.html').existsSync(), isTrue);
+    expect(File('lib/main_web.dart').existsSync(), isFalse);
+  });
+
+  test('release diagnostics and moderation paths are present', () {
+    final chatRoomSource = File('lib/chat_room.dart').readAsStringSync();
+    expect(chatRoomSource, contains("'type': 'blockUser'"));
+  });
+
+  test('server web account deletion is rate limited and cleans sessions', () {
+    expect(serverSource, contains("loginRateCheck(req,username)"));
+    expect(serverSource, contains('cleanupUserSessions(username)'));
+    expect(serverSource, contains('removeUserFromAllBlockLists(username)'));
+  });
+
+  test('server exposes protected moderation review actions', () {
+    expect(serverSource, contains("req.url==='/admin/reports'"));
+    expect(serverSource, contains("req.url==='/admin/reports/action'"));
+    expect(serverSource, contains('ZEROLOG_MODERATION_TOKEN'));
+  });
+
+  test('public room UI exposes block and report actions', () {
+    final roomSource = File('lib/chat_room.dart').readAsStringSync();
+    expect(roomSource, contains("type': 'blockUser'"));
+    expect(roomSource, contains("type': 'reportUser'"));
+    expect(roomSource, contains('onLongPress'));
+  });
+
+
+
+
+  test('V31.3 security hardening is present', () {
+    final server = File('server/server.js');
+    final source = server.readAsStringSync();
+
+    expect(source, contains('sockets.delete(nick)'));
+    expect(source, contains('failReliableFileTransfer'));
+    expect(source, contains("type:'callEnded'"));
+    expect(source, contains('Strict-Transport-Security'));
+    expect(source, contains('Content-Security-Policy'));
+    expect(source, contains('csrfToken'));
+    expect(source, contains('consumeDeleteCsrfToken'));
+  });
 }

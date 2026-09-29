@@ -101,7 +101,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           return encodedGif;
         }
 
-        debugPrint('[PROFILE] GIF profile image is too large');
+        zeroLog('[PROFILE] GIF profile image is too large');
         return null;
       }
 
@@ -143,7 +143,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
       return null;
     } catch (e) {
-      debugPrint('[PROFILE] photo encode failed: $e');
+      zeroLog('[PROFILE] photo encode failed: $e');
       return null;
     }
   }
@@ -369,7 +369,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } catch (e) {
       _profileImageVersionByUser.remove(key);
       _profileImageByUser.remove(key);
-      debugPrint('[PROFILE] cached photo decode failed: $e');
+      zeroLog('[PROFILE] cached photo decode failed: $e');
       return null;
     }
   }
@@ -395,7 +395,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } catch (e) {
       _ownProfileImageSource = '';
       _ownProfileImage = null;
-      debugPrint('[PROFILE] own photo decode failed: $e');
+      zeroLog('[PROFILE] own photo decode failed: $e');
       return null;
     }
   }
@@ -885,17 +885,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       await transfer.handleExternalEvent(Map<String, dynamic>.from(data));
 
       if (transfer.currentTransferId != transferId) {
-        debugPrint(
+        zeroLog(
           '[FILE_TRANSFER] BACKGROUND_ACCEPT_SKIPPED transfer=$transferId '
           'current=${transfer.currentTransferId}',
         );
         return;
       }
 
-      debugPrint('[FILE_TRANSFER] BACKGROUND_ACCEPT_REQUEST transfer=$transferId');
+      zeroLog('[FILE_TRANSFER] BACKGROUND_ACCEPT_REQUEST transfer=$transferId');
       await transfer.acceptIncoming(transferId);
     } catch (e) {
-      debugPrint('[FILE_TRANSFER] background auto-accept failed: $e');
+      zeroLog('[FILE_TRANSFER] background auto-accept failed: $e');
     }
   }
 
@@ -1039,6 +1039,44 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
     }
 
+    if (type == 'userBlocked') {
+      final target = data['target']?.toString() ?? '';
+      if (target.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$target engellendi.')),
+        );
+      }
+      return;
+    }
+
+    if (type == 'userUnblocked') {
+      final target = data['target']?.toString() ?? '';
+      if (target.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$target için engel kaldırıldı.')),
+        );
+      }
+      return;
+    }
+
+    if (type == 'reportSubmitted') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Şikayetiniz alındı.')),
+        );
+      }
+      return;
+    }
+
+    if (type == 'reportRejected') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Şikayet gönderilemedi.')),
+        );
+      }
+      return;
+    }
+
     if (type == 'accountDeleted') {
       await _profileController.clear();
       final prefs = await SharedPreferences.getInstance();
@@ -1052,7 +1090,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _profileController.about = '';
       });
 
-      await SecureSession.clear();
+      await clearLocalUserData();
       await WsClient.instance.disconnect();
 
       if (!mounted) return;
@@ -1782,7 +1820,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (activePeer != null &&
         activePeer.trim().isNotEmpty &&
         activePeer.trim().toLowerCase() == from.toLowerCase()) {
-      debugPrint(
+      zeroLog(
         '[FCM] pending notification open suppressed: '
         'active chat with $from',
       );
@@ -1799,7 +1837,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           : int.tryParse(rawFileSize?.toString() ?? '') ?? 0;
 
       if (fileId.isEmpty || fileName.isEmpty || fileSize <= 0) {
-        debugPrint(
+        zeroLog(
           '[FCM] invalid pending file notification '
           'fileId=$fileId fileName=$fileName fileSize=$fileSize',
         );
@@ -1887,7 +1925,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final message = allData
         ? 'Hesabınız, özel mesajlarınız ve odalarda gönderdiğiniz mesajlar kalıcı olarak silinecek. Bu işlem geri alınamaz.'
-        : 'Hesabınız ve özel mesaj geçmişiniz kalıcı olarak silinecek. Bu işlem geri alınamaz.';
+        : 'Hesabınız, özel mesajlarınız ve odalarda gönderdiğiniz mesajlar kalıcı olarak silinecek. Bu işlem geri alınamaz.';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -4185,7 +4223,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         directory = current.trim();
       }
     } catch (e) {
-      debugPrint('[FILE_STORAGE] read directory failed: $e');
+      zeroLog('[FILE_STORAGE] read directory failed: $e');
     }
 
     if (!mounted) return;
@@ -4248,7 +4286,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       : selected.trim(),
                 );
               } catch (e) {
-                debugPrint('[FILE_STORAGE] reset directory failed: $e');
+                zeroLog('[FILE_STORAGE] reset directory failed: $e');
               }
             }
 

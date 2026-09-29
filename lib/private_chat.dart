@@ -1809,7 +1809,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
       }
       return target.path;
     } catch (e) {
-      debugPrint('[FILE_TRANSFER] persistent file copy failed: $e');
+      zeroLog('[FILE_TRANSFER] persistent file copy failed: $e');
       return sourcePath;
     }
   }
@@ -2034,6 +2034,87 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
     });
   }
 
+
+  Future<void> _blockOrUnblockUser() async {
+    final target = widget.targetNick.trim();
+    final alreadyBlocked = WsClient.instance.isBlocked(target);
+
+    if (alreadyBlocked) {
+      WsClient.instance.unblockUser(target);
+      return;
+    }
+
+    final theme = ThemeController.instance.data;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: theme.surface,
+        title: const Text('Kullanıcıyı engelle?'),
+        content: Text(
+          '$target sizi mesaj, arama ve dosya aktarımı yoluyla rahatsız edemesin mi?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('İptal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Engelle'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      WsClient.instance.blockUser(target);
+    }
+  }
+
+  Future<void> _reportUser() async {
+    final theme = ThemeController.instance.data;
+    final controller = TextEditingController();
+
+    try {
+      final reason = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: theme.surface,
+          title: Text('${widget.targetNick} kişisini şikayet et'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 4,
+            maxLength: 500,
+            decoration: const InputDecoration(
+              hintText: 'Şikayet nedenini yazın',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('İptal'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isNotEmpty) Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Gönder'),
+            ),
+          ],
+        ),
+      );
+
+      if (reason != null && reason.trim().isNotEmpty) {
+        WsClient.instance.reportUser(widget.targetNick, reason);
+      }
+    } finally {
+      controller.dispose();
+    }
+  }
+
   @override
   void dispose() {
     if (WsClient.instance.activePrivateChatPeer?.toLowerCase() ==
@@ -2141,6 +2222,30 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
               );
             },
             icon: Icon(Icons.call_rounded, color: theme.primary),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Kullanıcı seçenekleri',
+            icon: Icon(Icons.more_vert_rounded, color: theme.text),
+            onSelected: (value) {
+              if (value == 'block') {
+                unawaited(_blockOrUnblockUser());
+              } else if (value == 'report') {
+                unawaited(_reportUser());
+              }
+            },
+            itemBuilder: (_) {
+              final blocked = WsClient.instance.isBlocked(widget.targetNick);
+              return [
+                PopupMenuItem(
+                  value: 'block',
+                  child: Text(blocked ? 'Engeli kaldır' : 'Kullanıcıyı engelle'),
+                ),
+                const PopupMenuItem(
+                  value: 'report',
+                  child: Text('Kullanıcıyı şikayet et'),
+                ),
+              ];
+            },
           ),
           const SizedBox(width: 4),
         ],

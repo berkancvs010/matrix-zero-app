@@ -1,11 +1,11 @@
 {
-    "name": "matrix_zero",
-    "short_name": "matrix_zero",
+    "name": "ZeroLog",
+    "short_name": "ZeroLog",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "ZeroLog legal and account management pages.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

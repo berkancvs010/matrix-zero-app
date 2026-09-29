@@ -81,7 +81,12 @@ const MESSAGE_RATE_MAX=20;
 const messageRates=new Map();
 
 function clientAddress(ws){
-  const address=String(ws && ws._remoteAddress || '').trim();
+  const address=String(
+    (ws && ws._remoteAddress) ||
+    (ws && ws.socket && ws.socket.remoteAddress) ||
+    (ws && ws.req && ws.req.socket && ws.req.socket.remoteAddress) ||
+    ''
+  ).trim();
   return address || 'unknown';
 }
 
@@ -895,6 +900,28 @@ async function handleReliableFileEvent(ws,d,me){
         type:'fileTransferFailed',
         transferId,
         reason:'Dosya kendinize gönderilemez.',
+      });
+      return true;
+    }
+
+    if(isUserBlocked(to,me)){
+      send(ws,{
+        type:'privateMessageRejected',
+        to,
+        clientMessageId,
+        reason:'BLOCKED',
+        message:'Bu kullanıcı sizi engelledi.',
+      });
+      return true;
+    }
+
+    if(isUserBlocked(me,to)){
+      send(ws,{
+        type:'privateMessageRejected',
+        to,
+        clientMessageId,
+        reason:'BLOCKED_BY_YOU',
+        message:'Bu kullanıcıyı engellediniz.',
       });
       return true;
     }
@@ -2255,6 +2282,88 @@ function cleanFcmToken(v){
   return token.slice(0,4096);
 }
 
+const reportsFile=path.join(DATA,'user-reports.json');
+
+function blockedUsersFor(username){
+  refreshAccounts();
+  const account=accounts[normalizeUsername(username)];
+  if(!account)return [];
+  return Array.isArray(account.blockedUsers)
+    ? account.blockedUsers.map(v=>normalizeUsername(v)).filter(Boolean)
+    : [];
+}
+
+function isUserBlocked(blocker,target){
+  const blockerKey=normalizeUsername(blocker);
+  const targetKey=normalizeUsername(target);
+  if(!blockerKey || !targetKey || blockerKey===targetKey)return false;
+  return blockedUsersFor(blockerKey).includes(targetKey);
+}
+
+function addBlockedUser(blocker,target){
+  refreshAccounts();
+  const blockerKey=normalizeUsername(blocker);
+  const targetKey=normalizeUsername(target);
+  if(!blockerKey || !targetKey || blockerKey===targetKey)return false;
+
+  const account=accounts[blockerKey];
+  if(!account || !accounts[targetKey])return false;
+
+  const current=blockedUsersFor(blockerKey);
+  if(!current.includes(targetKey)){
+    current.push(targetKey);
+    account.blockedUsers=current;
+    accounts[blockerKey]=account;
+    saveAccounts();
+  }
+  return true;
+}
+
+function removeBlockedUser(blocker,target){
+  refreshAccounts();
+  const blockerKey=normalizeUsername(blocker);
+  const targetKey=normalizeUsername(target);
+  if(!blockerKey || !targetKey)return false;
+
+  const account=accounts[blockerKey];
+  if(!account)return false;
+
+  account.blockedUsers=blockedUsersFor(blockerKey)
+    .filter(key=>key!==targetKey);
+  accounts[blockerKey]=account;
+  saveAccounts();
+  return true;
+}
+
+function recordUserReport(reporter,target,reason){
+  const cleanReporter=safeNick(reporter);
+  const cleanTarget=safeNick(target);
+  const cleanReason=String(reason||'').trim().slice(0,1000);
+
+  if(
+    !cleanReporter ||
+    !cleanTarget ||
+    normalizeUsername(cleanReporter)===normalizeUsername(cleanTarget) ||
+    !cleanReason
+  ){
+    return false;
+  }
+
+  const reports=load('user-reports.json',[]);
+  reports.push({
+    id:crypto.randomBytes(12).toString('hex'),
+    reporter:cleanReporter,
+    target:cleanTarget,
+    reason:cleanReason,
+    createdAt:Date.now(),
+  });
+
+  // Keep moderation storage bounded while preserving recent reports.
+  const trimmed=reports.slice(-5000);
+  save('user-reports.json',trimmed);
+  return true;
+}
+
 async function sendFcmPush(username, message){
   if(!fcmMessaging)return false;
 
@@ -3107,6 +3216,124 @@ function pendingPrivateMessages(username){
   );
 }
 
+
+function removeUserFromAllBlockLists(username){
+  const target=normalizeUsername(username);
+  if(!target)return;
+
+  refreshAccounts();
+  let changed=false;
+
+  for(const account of Object.values(accounts)){
+    if(!account || !Array.isArray(account.blockedUsers))continue;
+
+    const filtered=account.blockedUsers.filter(
+      value=>normalizeUsername(value)!==target
+    );
+
+    if(filtered.length!==account.blockedUsers.length){
+      account.blockedUsers=filtered;
+      changed=true;
+    }
+  }
+
+  if(changed)saveAccounts();
+}
+
+function cleanupUserSessions(username){
+  const target=normalizeUsername(username);
+  if(!target)return;
+
+  // Stop active calls involving the deleted account and explicitly notify
+  // every peer. This prevents the peer UI from waiting for a timeout.
+  for(const [callId,call] of activeCalls){
+    if(!isCallParty(call,target))continue;
+
+    const peerKey=call.callerKey===target
+      ? call.calleeKey
+      : call.callerKey;
+
+    const peer=call.callerKey===target
+      ? call.callee
+      : call.caller;
+
+    endActiveCall(callId);
+
+    if(peer){
+      const event={
+        type:'callEnded',
+        from:safeNick(username),
+        to:peer,
+        callId,
+      };
+
+      const peerSocket=socketFor(peer);
+      const delivered=send(peerSocket,event);
+
+      // If the peer has no live socket, use the existing call-status
+      // notification path so the remote UI is not left ringing.
+      if(!delivered){
+        void sendCallStatusPushIfOffline(
+          peer,
+          callId,
+          'Çağrı sonlandırıldı',
+          `${safeNick(username)} hesabını sildi ve çağrı sonlandırıldı.`,
+        );
+      }
+    }
+  }
+
+  // A deleted account's reliable transfer must become a durable terminal
+  // failure, not simply disappear. failReliableFileTransfer()
+  // persists the failure for up to 10 minutes and retries delivery through
+  // the transfer-specific background socket when available.
+  for(const [transferId,session] of reliableFileTransfers){
+    if(
+      normalizeUsername(session && session.fromKey)===target ||
+      normalizeUsername(session && session.toKey)===target
+    ){
+      failReliableFileTransfer(
+        session,
+        'ACCOUNT_DELETED',
+      );
+    }
+  }
+
+  // Remove headless/background transfer sockets for the deleted account.
+  const background=backgroundSockets.get(target);
+  if(background){
+    for(const entry of background.values()){
+      try{entry.ws.close(1000,'account deleted');}catch{}
+      backgroundSocketByWs.delete(entry.ws);
+    }
+    backgroundSockets.delete(target);
+  }
+
+  // sockets is keyed by the original account username. Do not assume the
+  // normalized key is identical to that original spelling.
+  for(const [nick,ws] of sockets){
+    if(normalizeUsername(nick)!==target)continue;
+    try{ws.close(1000,'account deleted');}catch{}
+    sockets.delete(nick);
+  }
+
+  // Close every authenticated WebSocket belonging to the deleted account.
+  for(const [ws,nick] of users){
+    if(normalizeUsername(nick)!==target)continue;
+    try{
+      send(ws,{type:'accountDeleted',mode:'all'});
+    }catch{}
+    try{ws.close(1000,'account deleted');}catch{}
+    users.delete(ws);
+  }
+
+  appStates.delete(target);
+  appStateUpdatedAt.delete(target);
+  loginFailures.forEach((_,key)=>{
+    if(key.endsWith(`|${target}`))loginFailures.delete(key);
+  });
+  messageRates.delete(target);
+}
 function deletePrivateDataForUser(username){
   const target=normalizeUsername(username);
 
@@ -3258,8 +3485,306 @@ function disconnect(ws){
   broadcastUserOffline(nick);
   updatePresence();
 }
-const server=http.createServer((req,res)=>{
+
+function htmlEscape(value){
+  return String(value||'')
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'","&#39;");
+}
+
+function publicPage(title,body){
+  return `<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${htmlEscape(title)} · ZeroLog</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:760px;margin:0 auto;padding:28px;line-height:1.55;color:#202124}
+h1{line-height:1.2}main{padding:8px 0}input,textarea{width:100%;box-sizing:border-box;padding:10px;margin:6px 0 14px;border:1px solid #bbb;border-radius:8px}
+button{padding:10px 16px;border:0;border-radius:8px;background:#222;color:#fff;cursor:pointer}
+.notice{padding:14px;border-radius:10px;background:#f2f2f2}
+</style>
+</head><body><main>${body}</main></body></html>`;
+}
+
+function sendHtml(res,status,html){
+  res.writeHead(status,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
+  res.end(html);
+}
+
+function readRequestBody(req,maxBytes=16384){
+  return new Promise(resolve=>{
+    let body='';
+    let tooLarge=false;
+    req.on('data',chunk=>{
+      if(Buffer.byteLength(body)+chunk.length>maxBytes){
+        tooLarge=true;
+        return;
+      }
+      body+=chunk.toString();
+    });
+    req.on('end',()=>resolve(tooLarge?null:body));
+    req.on('error',()=>resolve(null));
+  });
+}
+
+const deleteCsrfTokens=new Map();
+const DELETE_CSRF_TTL_MS=10*60*1000;
+const DELETE_CSRF_MAX=5000;
+
+function issueDeleteCsrfToken(){
+  const token=crypto.randomBytes(32).toString('hex');
+  deleteCsrfTokens.set(token,Date.now()+DELETE_CSRF_TTL_MS);
+
+  if(deleteCsrfTokens.size>DELETE_CSRF_MAX){
+    const now=Date.now();
+    for(const [key,expiresAt] of deleteCsrfTokens){
+      if(expiresAt<=now || deleteCsrfTokens.size>DELETE_CSRF_MAX){
+        deleteCsrfTokens.delete(key);
+      }
+    }
+  }
+
+  return token;
+}
+
+function consumeDeleteCsrfToken(token){
+  const key=String(token||'').trim();
+  if(!/^[a-f0-9]{64}$/.test(key))return false;
+
+  const expiresAt=deleteCsrfTokens.get(key);
+  deleteCsrfTokens.delete(key);
+
+  return Number(expiresAt)>Date.now();
+}
+
+const server=http.createServer(async (req,res)=>{
   res.setHeader('Access-Control-Allow-Origin','*');
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('Referrer-Policy','no-referrer');
+  res.setHeader('X-Frame-Options','DENY');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  );
+  // Production is served over HTTPS. Keep HSTS opt-out explicit for local
+  // HTTP development environments.
+  if(String(process.env.ZEROLOG_DISABLE_HSTS||'')!=='1'){
+    res.setHeader(
+      'Strict-Transport-Security',
+      'max-age=31536000; includeSubDomains',
+    );
+  }
+
+
+  if(req.method==='GET' && req.url==='/privacy'){
+    sendHtml(res,200,publicPage('Gizlilik Politikası',`
+      <h1>ZeroLog Gizlilik Politikası</h1>
+      <p>Son güncelleme: 28 Eylül 2026</p>
+      <p>ZeroLog, kullanıcıların metin mesajları, dosya aktarımı ve sesli arama
+      özelliklerini kullanabildiği bir iletişim uygulamasıdır.</p>
+      <h2>Toplanan bilgiler</h2>
+      <ul>
+        <li>Hesap oluşturmak için kullanıcı adı ve şifre gerekir. Şifre sunucuda düz metin olarak tutulmaz; scrypt tabanlı parola özeti tutulur.</li>
+        <li>Profil bilgileri, hakkında metni ve isteğe bağlı profil fotoğrafı hesap çalışması için saklanabilir.</li>
+        <li>Bildirimler etkinleştirildiğinde cihazın Firebase Cloud Messaging tokenı bildirim gönderimi için tutulabilir.</li>
+        <li>Özel mesajlar sunucuda geçici olarak tutulur ve mesajın gönderiminden itibaren 24 saat sonra otomatik olarak temizlenir.</li>
+        <li>Dosya içeriği sunucuda kalıcı olarak depolanmaz. Güvenilir aktarım için geçici oturum/metaveri tutulabilir ve süreli olarak temizlenir.</li>
+        <li>Engellediğiniz kullanıcıların hesap kimlikleri engelleme tercihinizi uygulamak için tutulabilir.</li>
+        <li>Şikayet gönderdiğinizde şikayet eden kullanıcı, hedef kullanıcı, açıklama ve zaman bilgisi moderasyon amacıyla tutulabilir.</li>
+      </ul>
+      <h2>Şifreleme</h2>
+      <p>İletişim WSS/TLS üzerinden taşınır. ZeroLog bu sürümde gerçek uçtan uca şifreleme (E2EE) sunduğunu iddia etmez.</p>
+      <h2>Paylaşım</h2>
+      <p>Bildirim gönderimi için Firebase Cloud Messaging kullanılabilir. Veriler reklam amacıyla satılmaz.</p>
+      <h2>Hesap ve veri silme</h2>
+      <p>Hesabınızı uygulama içinden silebilir veya <a href="/delete-account">web hesap ve veri silme sayfasını</a> kullanabilirsiniz.</p>
+      <h2>İletişim</h2>
+      <p>Gizlilik ve veri silme talepleri için web üzerindeki hesap silme formunu kullanabilirsiniz.</p>
+    `));
+    return;
+  }
+
+  if(req.method==='GET' && req.url==='/delete-account'){
+    sendHtml(res,200,publicPage('Hesap ve veri silme',`
+      <h1>ZeroLog hesap ve veri silme</h1>
+      <p>Hesabınızı ve sunucuda hesabınızla ilişkilendirilen verileri silmek için
+      kullanıcı adınızı ve mevcut şifrenizi girin. İşlem geri alınamaz.</p>
+      <form method="post" action="/delete-account">
+        <input type="hidden" name="csrfToken" value="${issueDeleteCsrfToken()}">
+        <label>Kullanıcı adı</label>
+        <input name="username" autocomplete="username" required maxlength="24">
+        <label>Şifre</label>
+        <input name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Hesabı ve verileri sil</button>
+      </form>
+      <p class="notice">Özel mesajlar 24 saatlik yaşam süresine sahiptir. Dosya içerikleri sunucuda kalıcı olarak saklanmaz.</p>
+    `));
+    return;
+  }
+
+  if(req.method==='GET' && req.url==='/delete-account/csrf'){
+    const origin=String(req.headers.origin||'');
+    if(origin!=='https://zerolog.giize.com'){
+      res.writeHead(403,{'Content-Type':'application/json; charset=utf-8'});
+      res.end(JSON.stringify({error:'origin_not_allowed'}));
+      return;
+    }
+    const token=issueDeleteCsrfToken();
+    res.writeHead(200,{
+      'Content-Type':'application/json; charset=utf-8',
+      'Cache-Control':'no-store',
+      'Access-Control-Allow-Origin':'https://zerolog.giize.com',
+      'Vary':'Origin',
+    });
+    res.end(JSON.stringify({csrfToken:token}));
+    return;
+  }
+
+  if(req.method==='POST' && req.url==='/delete-account'){
+    const raw=await readRequestBody(req);
+    if(raw===null){
+      sendHtml(res,413,publicPage('İstek çok büyük','<h1>İstek reddedildi</h1><p>İstek çok büyük.</p>'));
+      return;
+    }
+
+    const form=new URLSearchParams(raw);
+    const username=safeNick(form.get('username')||'');
+    const password=String(form.get('password')||'');
+    const csrfToken=String(form.get('csrfToken')||'');
+
+    if(!consumeDeleteCsrfToken(csrfToken)){
+      sendHtml(res,403,publicPage('İstek reddedildi',
+        '<h1>İstek reddedildi</h1><p>Silme formu geçersiz veya süresi dolmuş.</p>'));
+      return;
+    }
+
+    const rate=loginRateCheck(req,username);
+    if(!rate.allowed){
+      const seconds=Math.max(1,Math.ceil((rate.retryAfterMs||1000)/1000));
+      res.writeHead(429,{'Retry-After':String(seconds)});
+      sendHtml(res,429,publicPage('Çok fazla deneme',
+        `<h1>Çok fazla deneme</h1><p>Lütfen ${seconds} saniye sonra tekrar deneyin.</p>`));
+      return;
+    }
+
+    refreshAccounts();
+    const key=normalizeUsername(username);
+    const account=accounts[key];
+
+    // Do not disclose whether the account exists.
+    if(!account || !verifyPassword(password,account.passwordHash)){
+      loginRateFailure(rate.key);
+      sendHtml(res,403,publicPage('Silme işlemi başarısız',
+        '<h1>Silme işlemi gerçekleştirilemedi</h1><p>Kullanıcı adı veya şifre hatalı.</p>'));
+      return;
+    }
+
+    loginRateSuccess(rate.key);
+    deletePrivateDataForUser(username);
+    deleteRoomMessagesForUser(username);
+    removeUserFromAllBlockLists(username);
+    cleanupUserSessions(username);
+    delete accounts[key];
+    saveAccounts();
+
+    sendHtml(res,200,publicPage('Hesap silindi',
+      '<h1>Hesap ve veriler silindi</h1><p>ZeroLog hesabınız ve sunucuda hesabınızla ilişkilendirilen veriler silindi.</p>'));
+    return;
+  }
+
+
+  if(req.method==='GET' && req.url==='/admin/reports'){
+    const token=String(process.env.ZEROLOG_MODERATION_TOKEN||'').trim();
+    const provided=String(req.headers['x-zerolog-moderation-token']||'').trim();
+
+    if(!token || !provided ||
+       Buffer.byteLength(provided)!==Buffer.byteLength(token) ||
+       !crypto.timingSafeEqual(Buffer.from(provided),Buffer.from(token))){
+      res.writeHead(403,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false,error:'forbidden'}));
+      return;
+    }
+
+    const reports=load('user-reports.json',[]);
+    res.writeHead(200,{
+      'Content-Type':'application/json; charset=utf-8',
+      'Cache-Control':'no-store',
+    });
+    res.end(JSON.stringify({
+      ok:true,
+      reports:reports.slice(-5000),
+    }));
+    return;
+  }
+
+  if(req.method==='POST' && req.url==='/admin/reports/action'){
+    const token=String(process.env.ZEROLOG_MODERATION_TOKEN||'').trim();
+    const provided=String(req.headers['x-zerolog-moderation-token']||'').trim();
+
+    if(!token || !provided ||
+       Buffer.byteLength(provided)!==Buffer.byteLength(token) ||
+       !crypto.timingSafeEqual(Buffer.from(provided),Buffer.from(token))){
+      res.writeHead(403,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false,error:'forbidden'}));
+      return;
+    }
+
+    const raw=await readRequestBody(req);
+    if(raw===null){
+      res.writeHead(413,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false,error:'payload_too_large'}));
+      return;
+    }
+
+    let body;
+    try{body=JSON.parse(raw||'{}');}catch{
+      res.writeHead(400,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false,error:'invalid_json'}));
+      return;
+    }
+
+    const reportId=String(body.reportId||'').trim();
+    const action=String(body.action||'').trim().toLowerCase();
+
+    if(!reportId || !['reviewed','dismissed','delete_account'].includes(action)){
+      res.writeHead(400,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false,error:'invalid_action'}));
+      return;
+    }
+
+    const reports=load('user-reports.json',[]);
+    const report=reports.find(item=>String(item && item.id||'')===reportId);
+
+    if(!report){
+      res.writeHead(404,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false,error:'report_not_found'}));
+      return;
+    }
+
+    const target=safeNick(report.target||'');
+    if(action==='delete_account' && target){
+      const targetKey=normalizeUsername(target);
+      deletePrivateDataForUser(target);
+      deleteRoomMessagesForUser(target);
+      removeUserFromAllBlockLists(target);
+      cleanupUserSessions(target);
+      delete accounts[targetKey];
+      saveAccounts();
+    }
+
+    report.status=action;
+    report.reviewedAt=Date.now();
+    save('user-reports.json',reports.slice(-5000));
+
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ok:true,report}));
+    return;
+  }
 
   if(req.url==='/health'){
     res.writeHead(200,{'Content-Type':'application/json'});
@@ -3439,7 +3964,8 @@ wss.on('connection',(ws,req)=>{
       avatarId:null,
       about:'',
       photoData:'',
-      profileRevision:1
+      profileRevision:1,
+      blockedUsers:[],
     };
     saveAccounts();
 
@@ -3688,7 +4214,7 @@ wss.on('connection',(ws,req)=>{
       saveAccounts();
     }
 
-    send(ws,{type:'authenticated',username:account.username});
+    send(ws,{type:'authenticated',username:account.username,blockedUsers:blockedUsersFor(account.username)});
 
     // WebRTC file transfer için TURN bilgilerini client'a gönder.
     // Credential kaynak kodda tutulmaz; process environment'dan alınır.
@@ -3767,6 +4293,75 @@ wss.on('connection',(ws,req)=>{
     break;
   }
 
+  case 'blockUser':{
+    if(!me)break;
+    const target=safeNick(d.username||d.target);
+    if(!target || normalizeUsername(target)===normalizeUsername(me))break;
+
+    if(!addBlockedUser(me,target)){
+      send(ws,{
+        type:'userActionRejected',
+        action:'block',
+        target,
+        reason:'USER_NOT_FOUND',
+      });
+      break;
+    }
+
+    send(ws,{type:'userBlocked',target});
+    break;
+  }
+
+  case 'unblockUser':{
+    if(!me)break;
+    const target=safeNick(d.username||d.target);
+    if(!target)break;
+
+    removeBlockedUser(me,target);
+    send(ws,{type:'userUnblocked',target});
+    break;
+  }
+
+  case 'reportUser':{
+    if(!me)break;
+    const target=safeNick(d.username||d.target);
+    const reason=String(d.reason||'').trim();
+
+    if(!target || !reason){
+      send(ws,{
+        type:'reportRejected',
+        target,
+        reason:'INVALID_REPORT',
+      });
+      break;
+    }
+
+    if(!accounts[normalizeUsername(target)]){
+      send(ws,{
+        type:'reportRejected',
+        target,
+        reason:'USER_NOT_FOUND',
+      });
+      break;
+    }
+
+    if(!recordUserReport(me,target,reason)){
+      send(ws,{
+        type:'reportRejected',
+        target,
+        reason:'INVALID_REPORT',
+      });
+      break;
+    }
+
+    console.log(
+      `[MODERATION] user report reporter=${me} target=${target}`
+    );
+
+    send(ws,{type:'reportSubmitted',target});
+    break;
+  }
+
   case 'deleteAccount':{
     if(!me){
       send(ws,{type:'authError',code:'LOGIN_REQUIRED',message:'Oturum gerekli.'});
@@ -3776,13 +4371,16 @@ wss.on('connection',(ws,req)=>{
     const key=normalizeUsername(me);
 
     deletePrivateDataForUser(me);
+    deleteRoomMessagesForUser(me);
+    removeUserFromAllBlockLists(me);
+    cleanupUserSessions(me);
 
     if(accounts[key]){
       delete accounts[key];
       saveAccounts();
     }
 
-    send(ws,{type:'accountDeleted',mode:'account'});
+    send(ws,{type:'accountDeleted',mode:'all'});
     disconnect(ws);
     try{ws.close();}catch{}
     break;
@@ -3798,6 +4396,8 @@ wss.on('connection',(ws,req)=>{
 
     deletePrivateDataForUser(me);
     deleteRoomMessagesForUser(me);
+    removeUserFromAllBlockLists(me);
+    cleanupUserSessions(me);
 
     if(accounts[key]){
       delete accounts[key];
@@ -4231,13 +4831,27 @@ wss.on('connection',(ws,req)=>{
       retryAfterMs:rate.retryAfterMs,
       scope:'roomMessage',
       room:id,
-    });break;}purgeExpiredRoomMessages();const ts=Date.now();const msg={id:makeMessageId(),type:'roomMessage',room:id,from:me,text,ts,expiresAt:ts+PRIVATE_MESSAGE_TTL_MS};const arr=roomMessages.get(id)||[];arr.push(msg);roomMessages.set(id,arr);save(`room-${id}.json`,arr);for(const [peer] of users){if(isBackgroundSocket(peer))continue;if((peer._rooms && peer._rooms.has(id)))send(peer,msg);}break;}
+    });break;}purgeExpiredRoomMessages();const ts=Date.now();const msg={id:makeMessageId(),type:'roomMessage',room:id,from:me,text,ts,expiresAt:ts+PRIVATE_MESSAGE_TTL_MS};const arr=roomMessages.get(id)||[];arr.push(msg);roomMessages.set(id,arr);save(`room-${id}.json`,arr);for(const [peer] of users){
+      if(isBackgroundSocket(peer))continue;
+      const recipient=users.get(peer);
+      if(recipient && isUserBlocked(recipient,me))continue;
+      if((peer._rooms && peer._rooms.has(id)))send(peer,msg);
+    }break;}
   case 'privateHistory':{if(!me)break;const peer=safeNick(d.peer);const messages=purgeExpiredPrivateMessages(me,peer);send(ws,{type:'privateHistory',peer,messages});break;}
   case 'privateFileMessage':{
     if(!me)break;
 
     const to=safeNick(d.to);
     const fileId=String(d.fileId||'').trim();
+
+    if(isUserBlocked(to,me) || isUserBlocked(me,to)){
+      send(ws,{
+        type:'privateFileMessageRejected',
+        to,
+        reason:'BLOCKED',
+      });
+      break;
+    }
     const fileName=String(d.fileName||'').trim().slice(0,512);
     const fileSize=Number(d.fileSize||0);
     const clientMessageId=String(d.clientMessageId||'').trim();
@@ -4339,6 +4953,28 @@ wss.on('connection',(ws,req)=>{
     const clientMessageId=String(d.clientMessageId||'').trim();
 
     if(!to||!text)break;
+
+    if(isUserBlocked(to,me)){
+      send(ws,{
+        type:'privateMessageRejected',
+        to,
+        clientMessageId,
+        reason:'BLOCKED',
+        message:'Bu kullanıcı sizi engelledi.',
+      });
+      break;
+    }
+
+    if(isUserBlocked(me,to)){
+      send(ws,{
+        type:'privateMessageRejected',
+        to,
+        clientMessageId,
+        reason:'BLOCKED_BY_YOU',
+        message:'Bu kullanıcıyı engellediniz.',
+      });
+      break;
+    }
 
     const rate=messageRateCheck(me);
     if(!rate.allowed){
@@ -4541,6 +5177,17 @@ wss.on('connection',(ws,req)=>{
     const callId=String(d.callId||'').trim();
 
     if(!to||!callId)break;
+
+    if(isUserBlocked(to,me) || isUserBlocked(me,to)){
+      send(ws,{
+        type:'callRejected',
+        from:to,
+        to:me,
+        callId,
+        reason:'blocked',
+      });
+      break;
+    }
 
     const callerKey=normalizeUsername(me);
     const calleeKey=normalizeUsername(to);
@@ -4830,6 +5477,19 @@ wss.on('connection',(ws,req)=>{
     const transferId=String(d.transferId||'').trim();
 
     if(!to||!transferId)break;
+
+    if(isUserBlocked(to,me) || isUserBlocked(me,to)){
+      if(d.type==='fileTransferOffer'){
+        send(ws,{
+          type:'fileTransferReject',
+          from:me,
+          to,
+          transferId,
+          reason:'blocked',
+        });
+      }
+      break;
+    }
 
     if(d.type==='fileTransferAcceptReceived'){
       console.log(

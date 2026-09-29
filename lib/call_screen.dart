@@ -347,7 +347,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _startOutgoingOffer() async {
     if (_closing) return;
 
-    debugPrint(
+    zeroLog(
       '[CALL][OFFER] _startOutgoingOffer entered '
       'from=${widget.myNick} to=${widget.targetNick} '
       'callId=${widget.callId}',
@@ -388,7 +388,7 @@ class _CallScreenState extends State<CallScreen> {
         await _initProximitySensor();
       }
     } catch (e) {
-      debugPrint('[CALL][OFFER] failed: $e');
+      zeroLog('[CALL][OFFER] failed: $e');
       if (mounted && !_closing) {
         _showError('Arama başlatılamadı.');
       }
@@ -415,7 +415,7 @@ class _CallScreenState extends State<CallScreen> {
 
     try {
       if (incomingOffer == null || incomingOffer.isEmpty) {
-        debugPrint(
+        zeroLog(
           '[CALL][ACCEPT] sending callAccept '
           'from=${widget.myNick} to=${widget.targetNick} '
           'callId=${widget.callId}',
@@ -446,7 +446,7 @@ class _CallScreenState extends State<CallScreen> {
 
       await _handleIncomingOffer(incomingOffer);
     } catch (e) {
-      debugPrint('[CALL][ACCEPT] failed: $e');
+      zeroLog('[CALL][ACCEPT] failed: $e');
       if (mounted && !_closing) {
         _showError('Arama kabul edilemedi.');
       }
@@ -504,7 +504,7 @@ class _CallScreenState extends State<CallScreen> {
 
       await ZeroLogPushService.cancelIncomingCallNotification();
     } catch (e) {
-      debugPrint('[CALL][ANSWER] failed: $e');
+      zeroLog('[CALL][ANSWER] failed: $e');
       if (mounted && !_closing) {
         _showError('Arama bağlantısı kurulamadı.');
       }
@@ -558,7 +558,7 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     if (type == 'callAccepted') {
-      debugPrint(
+      zeroLog(
         '[CALL][ACCEPTED] received '
         'from=$from to=$to callId=$eventCallId '
         'outgoing=${widget.outgoing}',
@@ -573,7 +573,7 @@ class _CallScreenState extends State<CallScreen> {
 
         await ZeroLogPushService.stopOutgoingCallTone();
 
-        debugPrint(
+        zeroLog(
           '[CALL][ACCEPTED] starting outgoing offer '
           'callId=${widget.callId}',
         );
@@ -649,7 +649,7 @@ class _CallScreenState extends State<CallScreen> {
       _remoteDescriptionSet = true;
       await _flushPendingIceCandidates();
     } catch (e) {
-      debugPrint('[CALL][ANSWER] remote description failed: $e');
+      zeroLog('[CALL][ANSWER] remote description failed: $e');
       if (mounted && !_closing) {
         _showError('Arama bağlantı cevabı işlenemedi.');
         await _finish(sendSignal: false);
@@ -680,7 +680,7 @@ class _CallScreenState extends State<CallScreen> {
     try {
       await peer.addCandidate(ice);
     } catch (e) {
-      debugPrint('[CALL][ICE] add candidate failed: $e');
+      zeroLog('[CALL][ICE] add candidate failed: $e');
       _pendingIceCandidates.add(ice);
     }
   }
@@ -702,7 +702,7 @@ class _CallScreenState extends State<CallScreen> {
       try {
         await peer.addCandidate(candidate);
       } catch (e) {
-        debugPrint('[CALL][ICE] pending candidate failed: $e');
+        zeroLog('[CALL][ICE] pending candidate failed: $e');
         _pendingIceCandidates.add(candidate);
       }
     }
@@ -923,7 +923,7 @@ class _CallScreenState extends State<CallScreen> {
     try {
       return MemoryImage(base64Decode(source));
     } catch (e) {
-      debugPrint('[CALL] profile photo decode failed: $e');
+      zeroLog('[CALL] profile photo decode failed: $e');
       return null;
     }
   }

@@ -11,8 +11,8 @@ Future<void> main() async {
   try {
     await ZeroLogPushService.initialize();
   } catch (e, stack) {
-    debugPrint('[FCM] initialization failed: $e');
-    debugPrint('$stack');
+    zeroLog('[FCM] initialization failed: $e');
+    zeroLog('$stack');
   }
 
   runApp(const MatrixZeroApp());
@@ -47,7 +47,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     // oluşturuluyor. Burada tekrar bildirim üretme.
   }
 
-  debugPrint(
+  zeroLog(
     '[FCM][background] '
     'messageId=${message.messageId} '
     'type=${message.data['type']}',

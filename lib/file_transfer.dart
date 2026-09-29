@@ -6,8 +6,16 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+
+void zeroLog(String message) {
+  if (kDebugMode) {
+    // ignore: avoid_print
+    print(message);
+  }
+}
 
 /// ZeroLog reliable file transport.
 ///
@@ -178,7 +186,7 @@ class FileTransfer {
 
   void _diag(String value) {
     // ignore: avoid_print
-    print('[FILE_TRANSFER] $value');
+    zeroLog('[FILE_TRANSFER] $value');
   }
 
   // Keeps the Android process foreground-priority for the lifetime of an

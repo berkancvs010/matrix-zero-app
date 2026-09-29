@@ -20,6 +20,12 @@ import 'file_transfer.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+void zeroLog(Object? message) {
+  if (kDebugMode) {
+    debugPrint(message?.toString() ?? '');
+  }
+}
+
 part 'app_bootstrap.dart';
 part 'push_service.dart';
 part 'theme.dart';
@@ -246,7 +252,7 @@ Future<void> zerologBackgroundTransferMain() async {
               },
             );
           } catch (e) {
-            debugPrint(
+            zeroLog(
               '[BG_TRANSFER] received file registration failed: $e',
             );
           }
@@ -263,8 +269,8 @@ Future<void> zerologBackgroundTransferMain() async {
         }
       } catch (e, stack) {
         retryLater = true;
-        debugPrint('[BG_TRANSFER] transfer=$transferId error: $e');
-        debugPrint('$stack');
+        zeroLog('[BG_TRANSFER] transfer=$transferId error: $e');
+        zeroLog('$stack');
 
         // Do not discard a queued transfer on a transport/process exception.
         // The server-side reliable session remains the source of truth.
@@ -292,8 +298,8 @@ Future<void> zerologBackgroundTransferMain() async {
 
     await channel.invokeMethod<void>('stopService');
   } catch (e, stack) {
-    debugPrint('[BG_TRANSFER] $e');
-    debugPrint('$stack');
+    zeroLog('[BG_TRANSFER] $e');
+    zeroLog('$stack');
 
     try {
       await channel.invokeMethod<dynamic>('stopService');
