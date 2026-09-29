@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
@@ -20,12 +21,6 @@ import 'file_transfer.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
-void zeroLog(Object? message) {
-  if (kDebugMode) {
-    debugPrint(message?.toString() ?? '');
-  }
-}
-
 part 'app_bootstrap.dart';
 part 'push_service.dart';
 part 'theme.dart';
@@ -41,6 +36,14 @@ part 'call_screen.dart';
 part 'message_input.dart';
 part 'models.dart';
 part 'profile_controller.dart';
+
+
+void zeroLog(Object? message) {
+  if (kDebugMode) {
+    debugPrint(message?.toString() ?? '');
+  }
+}
+
 
 @pragma('vm:entry-point')
 Future<void> zerologBackgroundTransferMain() async {

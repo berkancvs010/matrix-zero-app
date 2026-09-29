@@ -3633,7 +3633,11 @@ const server=http.createServer(async (req,res)=>{
 
   if(req.method==='GET' && req.url==='/delete-account/csrf'){
     const origin=String(req.headers.origin||'');
-    if(origin!=='https://zerolog.giize.com'){
+    const allowedOrigins=new Set([
+      'https://zerolog.giize.com',
+      'https://zerolog.giize.com:8443',
+    ]);
+    if(!allowedOrigins.has(origin)){
       res.writeHead(403,{'Content-Type':'application/json; charset=utf-8'});
       res.end(JSON.stringify({error:'origin_not_allowed'}));
       return;
@@ -3642,7 +3646,8 @@ const server=http.createServer(async (req,res)=>{
     res.writeHead(200,{
       'Content-Type':'application/json; charset=utf-8',
       'Cache-Control':'no-store',
-      'Access-Control-Allow-Origin':'https://zerolog.giize.com',
+      'Access-Control-Allow-Origin':origin,
+      'Access-Control-Allow-Credentials':'true',
       'Vary':'Origin',
     });
     res.end(JSON.stringify({csrfToken:token}));

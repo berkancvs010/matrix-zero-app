@@ -32,6 +32,9 @@ jobs:
       - name: Dart analyze
         run: flutter analyze
 
+      - name: Node server syntax
+        run: node --check server/server.js
+
       - name: Flutter tests
         run: flutter test
 
@@ -65,6 +68,20 @@ jobs:
 
       - name: Flutter dependencies
         run: flutter pub get
+
+      - name: Prepare Gradle wrapper
+        run: |
+          set -euo pipefail
+          test -n "${FLUTTER_ROOT:-}" || { echo "FLUTTER_ROOT is not set"; exit 1; }
+          printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > android/local.properties
+          (
+            cd android
+            gradle wrapper --gradle-version 9.3.1 --distribution-type all
+          )
+          test -x android/gradlew
+          test -s android/gradle/wrapper/gradle-wrapper.jar
+          grep -q 'gradle-9.3.1-all.zip' android/gradle/wrapper/gradle-wrapper.properties
+          chmod +x android/gradlew
 
       - name: Prepare production upload keystore
         env:
@@ -128,6 +145,8 @@ jobs:
           test -f web/delete-account/index.html
           test -f web/terms/index.html
           ! grep -Rqs "wss://zerolog.giize.com:8443/ws" web
+          grep -q 'https://zerolog.giize.com:8443/delete-account/csrf' web/delete-account/index.html
+          grep -q 'https://zerolog.giize.com:8443/delete-account"' web/delete-account/index.html
           echo "STATIC LEGAL WEB OK"
 
       - name: Upload static legal site

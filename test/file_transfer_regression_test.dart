@@ -3,15 +3,14 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  final serverSource = File('server/server.js').readAsStringSync();
+  final transferSource = File('lib/file_transfer.dart').readAsStringSync();
 
   test('file transfer has a release-safe diagnostic logger', () {
     expect(transferSource, contains("import 'package:flutter/foundation.dart';"));
     expect(transferSource, contains('void zeroLog(String message)'));
     expect(transferSource, contains('if (kDebugMode)'));
   });
-
-  final serverSource = File('server/server.js').readAsStringSync();
-  final transferSource = File('lib/file_transfer.dart').readAsStringSync();
 
   test('outgoing transfer uses a single in-flight chunk for Android stability', () {
     expect(

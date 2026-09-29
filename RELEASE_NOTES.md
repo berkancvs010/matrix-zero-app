@@ -1,5 +1,9 @@
 ## V31.4
 
+- Fixed Dart library directive ordering in `lib/main.dart` so all `part` directives precede declarations.
+- Fixed the CI Android release path by generating and validating the Gradle 9.3.1 wrapper before Flutter release builds.
+- Kept account-deletion CSRF origin validation exact while accepting both canonical HTTPS and the temporary :8443 deployment origin; static deletion page explicitly submits to the current public :8443 API endpoint.
+
 - Security hardening: CSRF-protected web account deletion, transfer failure cleanup, socket cleanup, HTTP security headers, public-room moderation, and release validation fixes.
 
 # V31.3 — Final security/session hardening
