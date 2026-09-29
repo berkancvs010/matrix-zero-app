@@ -110,7 +110,7 @@ jobs:
             keytool -genkeypair -v \
               -keystore android/ci-smoke-keystore.jks \
               -storepass zerolog-ci-store \
-              -keypass zerolog-ci-key \
+              -keypass zerolog-ci-store \
               -alias zerolog-ci \
               -keyalg RSA \
               -keysize 2048 \
@@ -121,7 +121,7 @@ jobs:
           storeFile=../ci-smoke-keystore.jks
           storePassword=zerolog-ci-store
           keyAlias=zerolog-ci
-          keyPassword=zerolog-ci-key
+          keyPassword=zerolog-ci-store
           EOF
           fi
           test -s android/key.properties
