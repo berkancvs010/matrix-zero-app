@@ -83,7 +83,7 @@ jobs:
           grep -q 'gradle-9.3.1-all.zip' android/gradle/wrapper/gradle-wrapper.properties
           chmod +x android/gradlew
 
-      - name: Prepare production upload keystore
+      - name: Prepare release signing keystore
         env:
           ZEROLOG_UPLOAD_KEYSTORE_B64: ${{ secrets.ZEROLOG_UPLOAD_KEYSTORE_B64 }}
           ZEROLOG_UPLOAD_STORE_PASSWORD: ${{ secrets.ZEROLOG_UPLOAD_STORE_PASSWORD }}
@@ -91,22 +91,48 @@ jobs:
           ZEROLOG_UPLOAD_KEY_PASSWORD: ${{ secrets.ZEROLOG_UPLOAD_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$ZEROLOG_UPLOAD_KEYSTORE_B64" || { echo "Missing GitHub secret ZEROLOG_UPLOAD_KEYSTORE_B64"; exit 1; }
-          test -n "$ZEROLOG_UPLOAD_STORE_PASSWORD" || { echo "Missing GitHub secret ZEROLOG_UPLOAD_STORE_PASSWORD"; exit 1; }
-          test -n "$ZEROLOG_UPLOAD_KEY_ALIAS" || { echo "Missing GitHub secret ZEROLOG_UPLOAD_KEY_ALIAS"; exit 1; }
-          test -n "$ZEROLOG_UPLOAD_KEY_PASSWORD" || { echo "Missing GitHub secret ZEROLOG_UPLOAD_KEY_PASSWORD"; exit 1; }
-          printf '%s' "$ZEROLOG_UPLOAD_KEYSTORE_B64" | base64 --decode > android/upload-keystore.jks
-          test -s android/upload-keystore.jks
-          cat > android/key.properties <<EOF
+          if [ -n "${ZEROLOG_UPLOAD_KEYSTORE_B64:-}" ] &&
+             [ -n "${ZEROLOG_UPLOAD_STORE_PASSWORD:-}" ] &&
+             [ -n "${ZEROLOG_UPLOAD_KEY_ALIAS:-}" ] &&
+             [ -n "${ZEROLOG_UPLOAD_KEY_PASSWORD:-}" ]; then
+            echo "Using configured production upload keystore."
+            printf '%s' "$ZEROLOG_UPLOAD_KEYSTORE_B64" | base64 --decode > android/upload-keystore.jks
+            test -s android/upload-keystore.jks
+            cat > android/key.properties <<EOF
           storeFile=../upload-keystore.jks
           storePassword=$ZEROLOG_UPLOAD_STORE_PASSWORD
           keyAlias=$ZEROLOG_UPLOAD_KEY_ALIAS
           keyPassword=$ZEROLOG_UPLOAD_KEY_PASSWORD
           EOF
+          else
+            echo "::warning::Production signing secrets are not configured; generating an ephemeral CI signing key for release smoke builds."
+            rm -f android/ci-smoke-keystore.jks
+            keytool -genkeypair -v \
+              -keystore android/ci-smoke-keystore.jks \
+              -storepass zerolog-ci-store \
+              -keypass zerolog-ci-key \
+              -alias zerolog-ci \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 3650 \
+              -dname "CN=ZeroLog CI, O=ZeroLog"
+            test -s android/ci-smoke-keystore.jks
+            cat > android/key.properties <<EOF
+          storeFile=../ci-smoke-keystore.jks
+          storePassword=zerolog-ci-store
+          keyAlias=zerolog-ci
+          keyPassword=zerolog-ci-key
+          EOF
+          fi
+          test -s android/key.properties
 
-      - name: Verify production target
+      - name: Verify release target and signing
         run: |
+          set -euo pipefail
           grep -q 'targetSdk = 36' android/app/build.gradle.kts
+          test -s android/key.properties
+          SIGNING_FILE="$(grep '^storeFile=' android/key.properties | cut -d= -f2-)"
+          test -s "android/${SIGNING_FILE#../}"
 
       - name: Build release AAB
         run: flutter build appbundle --release
