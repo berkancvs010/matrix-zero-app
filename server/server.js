@@ -3511,8 +3511,12 @@ button{padding:10px 16px;border:0;border-radius:8px;background:#222;color:#fff;c
 </head><body><main>${body}</main></body></html>`;
 }
 
-function sendHtml(res,status,html){
-  res.writeHead(status,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
+function sendHtml(res,status,html,extraHeaders={}){
+  res.writeHead(status,{
+    'Content-Type':'text/html; charset=utf-8',
+    'Cache-Control':'no-store',
+    ...extraHeaders
+  });
   res.end(html);
 }
 
@@ -3666,9 +3670,9 @@ const server=http.createServer(async (req,res)=>{
     const rate=loginRateCheck(req,username);
     if(!rate.allowed){
       const seconds=Math.max(1,Math.ceil((rate.retryAfterMs||1000)/1000));
-      res.writeHead(429,{'Retry-After':String(seconds)});
       sendHtml(res,429,publicPage('Çok fazla deneme',
-        `<h1>Çok fazla deneme</h1><p>Lütfen ${seconds} saniye sonra tekrar deneyin.</p>`));
+        `<h1>Çok fazla deneme</h1><p>Lütfen ${seconds} saniye sonra tekrar deneyin.</p>`),
+        {'Retry-After':String(seconds)});
       return;
     }
 
