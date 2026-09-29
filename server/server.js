@@ -3635,7 +3635,7 @@ const server=http.createServer(async (req,res)=>{
     const origin=String(req.headers.origin||'');
     const allowedOrigins=new Set([
       'https://zerolog.giize.com',
-      'https://zerolog.giize.com:8443',
+
     ]);
     if(!allowedOrigins.has(origin)){
       res.writeHead(403,{'Content-Type':'application/json; charset=utf-8'});

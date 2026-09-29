@@ -310,7 +310,7 @@ Future<void> zerologBackgroundTransferMain() async {
   }
 }
 
-const String wsUrl = 'wss://zerolog.giize.com:8443/ws';
+const String wsUrl = 'wss://zerolog.giize.com/ws';
 final GlobalKey<NavigatorState> zeroLogNavigatorKey =
     GlobalKey<NavigatorState>();
 

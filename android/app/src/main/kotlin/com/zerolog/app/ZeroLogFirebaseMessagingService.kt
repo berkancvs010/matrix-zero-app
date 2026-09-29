@@ -615,7 +615,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
 
             try {
                 val url = URL(
-                    "https://zerolog.giize.com:8443/delivery"
+                    "https://zerolog.giize.com/delivery"
                 )
 
                 connection =
