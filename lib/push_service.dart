@@ -144,18 +144,38 @@ class ZeroLogPushService {
     }
   }
 
-  static Future<bool> requestCallPermissions() async {
+  static Future<bool> requestCallPermissions({bool video = false}) async {
     try {
       final granted = await _systemChannel.invokeMethod<bool>(
         'requestCallPermissions',
+        <String, dynamic>{'video': video},
       );
 
-      zeroLog('[PERMISSIONS] call microphone granted=$granted');
+      zeroLog('[PERMISSIONS] call permissions granted=$granted video=$video');
 
       return granted == true;
     } catch (e) {
       zeroLog('[PERMISSIONS] call permission failed: $e');
       return false;
+    }
+  }
+
+  static Future<void> startCallForegroundService({bool video = false}) async {
+    try {
+      await _systemChannel.invokeMethod(
+        'startCallForegroundService',
+        <String, dynamic>{'video': video},
+      );
+    } catch (e) {
+      zeroLog('[CALL] foreground service start failed: $e');
+    }
+  }
+
+  static Future<void> stopCallForegroundService() async {
+    try {
+      await _systemChannel.invokeMethod('stopCallForegroundService');
+    } catch (e) {
+      zeroLog('[CALL] foreground service stop failed: $e');
     }
   }
 
@@ -293,8 +313,16 @@ class ZeroLogPushService {
     final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
     final to = (data['to'] ?? data['callee'] ?? '').toString().trim();
     final callId = (data['callId'] ?? '').toString().trim();
+    final video = data['video'] == true ||
+        data['video']?.toString().toLowerCase() == 'true';
 
-    return {'type': 'callInvite', 'from': from, 'to': to, 'callId': callId};
+    return {
+      'type': 'callInvite',
+      'from': from,
+      'to': to,
+      'callId': callId,
+      'video': video,
+    };
   }
 
   static Future<void> initialize() async {
@@ -518,6 +546,8 @@ class ZeroLogPushService {
     final from = (data['from'] ?? data['caller'] ?? '').toString().trim();
     final to = (data['to'] ?? data['callee'] ?? '').toString().trim();
     final callId = (data['callId'] ?? '').toString().trim();
+    final video = data['video'] == true ||
+        data['video']?.toString().toLowerCase() == 'true';
 
     if (from.isEmpty || to.isEmpty || callId.isEmpty) {
       return;
@@ -544,11 +574,12 @@ class ZeroLogPushService {
       'from': from,
       'to': to,
       'callId': callId,
+      'video': video,
     });
 
     await _notifications.show(
       id: callNotificationId,
-      title: 'Gelen ZeroLog çağrısı',
+      title: video ? 'Gelen ZeroLog görüntülü çağrısı' : 'Gelen ZeroLog sesli çağrısı',
       body: '$from sizi arıyor',
       notificationDetails: const NotificationDetails(android: androidDetails),
       payload: payload,

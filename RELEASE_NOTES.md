@@ -1,8 +1,29 @@
+# ZeroLog 1.0.10+26 — Görüntülü görüşme ve profesyonel arayüz (2026-09-30)
+
+- WebRTC tabanlı gerçek görüntülü görüşme eklendi.
+- Sesli ve görüntülü çağrı aynı çağrı sinyalleşme altyapısını kullanır; görüntülü çağrı türü davet, FCM, kabul ve SDP/ICE akışında korunur.
+- Ön ve arka kamera arasında geçiş, kamera aç/kapat, mikrofon ve hoparlör kontrolleri eklendi.
+- Uzak görüntü tam ekran, yerel kamera küçük önizleme olarak gösterilir.
+- Android kamera + mikrofon izinleri görüntülü çağrı başlatıldığında istenir.
+- Aktif görüşmeler için Android foreground service eklendi; Android 14+ kamera/mikrofon foreground-service gereksinimleri desteklendi.
+- Tema önizlemeleri, Gizlilik Merkezi/PIN-biyometri kilidi ve profesyonel web ana sayfa yenilemesi korunmuştur.
+- `/download/` indirme sayfası ve 443 canonical web bağlantıları doğrulandı.
+
+## ZeroLog 1.0.10 — Privacy / UI / Web refresh
+
+- Unified the visible in-app version to 1.0.10.
+- Added professional live chat previews to the theme selector.
+- Protected the Privacy Center with device-local PIN and optional biometric authentication.
+- Added persistent PIN brute-force protection with progressive temporary lockouts after repeated failures.
+- Refreshed the public ZeroLog website with a new premium landing page, animated network background and “Why ZeroLog exists” section.
+- Added a dedicated Android download page and canonical APK download target.
+- Removed public website references to the retired HTTPS :8443 endpoint; production web/API traffic uses standard HTTPS 443.
+
 ## V31.4
 
 - Fixed Dart library directive ordering in `lib/main.dart` so all `part` directives precede declarations.
 - Fixed the CI Android release path by generating and validating the Gradle 9.3.1 wrapper before Flutter release builds.
-- Kept account-deletion CSRF origin validation exact while accepting both canonical HTTPS and the temporary :8443 deployment origin; static deletion page explicitly submits to the current public :8443 API endpoint.
+- Canonicalized the public web/API endpoints to HTTPS 443; removed the temporary :8443 deployment references from the static site.
 - Removed the unused `lib/main_web.dart` WebSocket client so the static legal web surface matches the release regression test.
 
 - Security hardening: CSRF-protected web account deletion, transfer failure cleanup, socket cleanup, HTTP security headers, public-room moderation, and release validation fixes.

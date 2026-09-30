@@ -6,6 +6,7 @@ class CallScreen extends StatefulWidget {
   final bool outgoing;
   final String? callId;
   final String? incomingOffer;
+  final bool videoCall;
 
   const CallScreen({
     super.key,
@@ -14,6 +15,7 @@ class CallScreen extends StatefulWidget {
     required this.outgoing,
     this.callId,
     this.incomingOffer,
+    this.videoCall = false,
   });
 
   @override
@@ -23,6 +25,9 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
+  MediaStream? _remoteStream;
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
   late final StreamSubscription<Map<String, dynamic>> _subscription;
 
@@ -35,6 +40,9 @@ class _CallScreenState extends State<CallScreen> {
   bool _speakerOn = false;
   bool _closing = false;
   bool _remoteDescriptionSet = false;
+  bool _videoEnabled = false;
+  bool _cameraEnabled = true;
+  bool _frontCamera = true;
 
   Timer? _outgoingTimeoutTimer;
   Timer? _callDurationTimer;
@@ -113,6 +121,9 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void initState() {
     super.initState();
+
+    _videoEnabled = widget.videoCall ||
+        (widget.incomingOffer?.contains('m=video') ?? false);
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -205,6 +216,13 @@ class _CallScreenState extends State<CallScreen> {
         }
       };
 
+      peer.onTrack = (RTCTrackEvent event) {
+        if (_closing || !_videoEnabled || event.streams.isEmpty) return;
+        _remoteStream = event.streams.first;
+        _remoteRenderer.srcObject = _remoteStream;
+        if (mounted) setState(() {});
+      };
+
       peer.onConnectionState = (RTCPeerConnectionState state) {
         if (!mounted || _closing) return;
 
@@ -224,14 +242,25 @@ class _CallScreenState extends State<CallScreen> {
         }
       };
 
-      // Audio only. No camera is requested.
+      if (_videoEnabled) {
+        await _localRenderer.initialize();
+        await _remoteRenderer.initialize();
+      }
+
       final stream = await navigator.mediaDevices.getUserMedia({
         'audio': {
           'echoCancellation': true,
           'noiseSuppression': true,
           'autoGainControl': true,
         },
-        'video': false,
+        'video': _videoEnabled
+            ? {
+                'facingMode': _frontCamera ? 'user' : 'environment',
+                'width': {'ideal': 1280},
+                'height': {'ideal': 720},
+                'frameRate': {'ideal': 24, 'max': 30},
+              }
+            : false,
       });
 
       if (_closing) {
@@ -248,9 +277,24 @@ class _CallScreenState extends State<CallScreen> {
 
       _localStream = stream;
 
+      await ZeroLogPushService.startCallForegroundService(
+        video: _videoEnabled,
+      );
+
+      if (_videoEnabled) {
+        _localRenderer.srcObject = stream;
+      }
+
       for (final track in stream.getAudioTracks()) {
         if (_closing) break;
         await peer.addTrack(track, stream);
+      }
+
+      if (_videoEnabled) {
+        for (final track in stream.getVideoTracks()) {
+          if (_closing) break;
+          await peer.addTrack(track, stream);
+        }
       }
 
       if (_closing) return;
@@ -284,7 +328,7 @@ class _CallScreenState extends State<CallScreen> {
 
     // Mikrofon iznini ve proximity sensörünü çağrı tuşuna
     // basıldığı anda hazırla. Karşı tarafın cevap vermesini bekleme.
-    final microphoneGranted = await ZeroLogPushService.requestCallPermissions();
+    final microphoneGranted = await ZeroLogPushService.requestCallPermissions(video: _videoEnabled);
 
     if (!microphoneGranted) {
       if (mounted && !_closing) {
@@ -361,7 +405,7 @@ class _CallScreenState extends State<CallScreen> {
 
       final offer = await peer.createOffer({
         'offerToReceiveAudio': 1,
-        'offerToReceiveVideo': 0,
+        'offerToReceiveVideo': _videoEnabled ? 1 : 0,
       });
 
       await peer.setLocalDescription(offer);
@@ -401,7 +445,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _acceptIncoming() async {
     if (_closing) return;
 
-    final granted = await ZeroLogPushService.requestCallPermissions();
+    final granted = await ZeroLogPushService.requestCallPermissions(video: _videoEnabled);
 
     if (!granted) {
       if (mounted) {
@@ -475,7 +519,7 @@ class _CallScreenState extends State<CallScreen> {
 
       final answer = await peer.createAnswer({
         'offerToReceiveAudio': 1,
-        'offerToReceiveVideo': 0,
+        'offerToReceiveVideo': _videoEnabled ? 1 : 0,
       });
 
       await peer.setLocalDescription(answer);
@@ -487,6 +531,7 @@ class _CallScreenState extends State<CallScreen> {
         'from': widget.myNick,
         'to': widget.targetNick,
         'callId': widget.callId,
+        'video': _videoEnabled,
         'sdp': answer.sdp,
       });
 
@@ -558,6 +603,9 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     if (type == 'callAccepted') {
+      if (data['video'] == true || data['video']?.toString() == 'true') {
+        _videoEnabled = true;
+      }
       zeroLog(
         '[CALL][ACCEPTED] received '
         'from=$from to=$to callId=$eventCallId '
@@ -608,6 +656,12 @@ class _CallScreenState extends State<CallScreen> {
     } else if (type == 'callOffer') {
       if (!widget.outgoing && _accepted) {
         final sdp = data['sdp']?.toString();
+
+        if (data['video'] == true || data['video']?.toString() == 'true') {
+          _videoEnabled = true;
+        } else if (sdp?.contains('m=video') == true) {
+          _videoEnabled = true;
+        }
 
         if (sdp != null && sdp.isNotEmpty) {
           _handleIncomingOffer(sdp);
@@ -738,6 +792,45 @@ class _CallScreenState extends State<CallScreen> {
         '${seconds.toString().padLeft(2, '0')}';
   }
 
+  void _toggleCamera() {
+    if (!_videoEnabled || _localStream == null || _closing) return;
+
+    final tracks = _localStream!.getVideoTracks();
+    if (tracks.isEmpty) return;
+
+    final nextEnabled = !_cameraEnabled;
+    for (final track in tracks) {
+      track.enabled = nextEnabled;
+    }
+
+    if (mounted) {
+      setState(() {
+        _cameraEnabled = nextEnabled;
+      });
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    if (!_videoEnabled || _localStream == null || _closing) return;
+
+    final tracks = _localStream!.getVideoTracks();
+    if (tracks.isEmpty) return;
+
+    try {
+      await Helper.switchCamera(tracks.first);
+      if (mounted) {
+        setState(() {
+          _frontCamera = !_frontCamera;
+        });
+      }
+    } catch (e) {
+      zeroLog('[CALL][VIDEO] camera switch failed: $e');
+      if (mounted) {
+        _showError('Kamera değiştirilemedi.');
+      }
+    }
+  }
+
   void _toggleMute() {
     final stream = _localStream;
     if (stream == null) return;
@@ -800,6 +893,7 @@ class _CallScreenState extends State<CallScreen> {
     _callDurationTimer = null;
 
     await ZeroLogPushService.stopOutgoingCallTone();
+    await ZeroLogPushService.stopCallForegroundService();
     await ZeroLogPushService.cancelIncomingCallNotification();
     await ZeroLogPushService.clearCallLockScreen();
 
@@ -843,6 +937,10 @@ class _CallScreenState extends State<CallScreen> {
       } catch (_) {}
     }
 
+    _localRenderer.srcObject = null;
+    _remoteRenderer.srcObject = null;
+    _remoteStream = null;
+
     final peer = _peerConnection;
     _peerConnection = null;
 
@@ -876,6 +974,7 @@ class _CallScreenState extends State<CallScreen> {
     _callDurationTimer = null;
 
     ZeroLogPushService.stopOutgoingCallTone();
+    ZeroLogPushService.stopCallForegroundService();
     ZeroLogPushService.clearCallLockScreen();
 
     _subscription.cancel();
@@ -909,6 +1008,9 @@ class _CallScreenState extends State<CallScreen> {
         peer.close();
       } catch (_) {}
     }
+
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
 
     super.dispose();
   }
@@ -986,7 +1088,7 @@ class _CallScreenState extends State<CallScreen> {
           automaticallyImplyLeading: false,
           centerTitle: true,
           title: Text(
-            'Şifreli Bağlantı',
+            _videoEnabled ? 'Görüntülü Bağlantı' : 'Şifreli Bağlantı',
             style: TextStyle(
               color: theme.text,
               fontSize: 17,
@@ -999,69 +1101,145 @@ class _CallScreenState extends State<CallScreen> {
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
             child: Column(
               children: [
-                const Spacer(),
-
-                Container(
-                  width: 116,
-                  height: 116,
-                  decoration: BoxDecoration(
-                    color: theme.primary.withValues(alpha: 0.10),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: theme.primary.withValues(alpha: 0.18),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: _callAvatar(theme),
-                ),
-
-                const SizedBox(height: 24),
-
-                Text(
-                  widget.targetNick,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: theme.text,
-                    fontSize: 25,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-
-                const SizedBox(height: 9),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: _connected
-                            ? theme.primary
-                            : theme.text.withValues(alpha: 0.30),
-                        shape: BoxShape.circle,
+                if (_videoEnabled && !waitingIncoming && _localStream != null)
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Container(color: Colors.black),
+                          if (_remoteStream != null)
+                            RTCVideoView(
+                              _remoteRenderer,
+                              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                              mirror: false,
+                            )
+                          else
+                            Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.videocam_rounded,
+                                    color: Colors.white.withValues(alpha: 0.45),
+                                    size: 42,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Karşı taraf bekleniyor…',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.55),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          Positioned(
+                            top: 14,
+                            left: 14,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.48),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 7,
+                                ),
+                                child: Text(
+                                  _connected ? 'Görüntülü görüşme' : 'Bağlanıyor…',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            right: 14,
+                            top: 14,
+                            width: 112,
+                            height: 158,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: Container(
+                                color: Colors.black87,
+                                child: RTCVideoView(
+                                  _localRenderer,
+                                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                                  mirror: _frontCamera,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 7),
-                    Text(
-                      _connected
-                          ? '$status • ${_formatCallDuration(_callDuration)}'
-                          : status,
-                      style: TextStyle(
-                        color: _connected
-                            ? theme.primary
-                            : theme.text.withValues(alpha: 0.52),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                  )
+                else ...[
+                  const Spacer(),
+                  Container(
+                    width: 116,
+                    height: 116,
+                    decoration: BoxDecoration(
+                      color: theme.primary.withValues(alpha: 0.10),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: theme.primary.withValues(alpha: 0.18),
+                        width: 1.5,
                       ),
                     ),
-                  ],
-                ),
-
-                const SizedBox(height: 38),
+                    child: _callAvatar(theme),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    widget.targetNick,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 25,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _connected
+                              ? theme.primary
+                              : theme.text.withValues(alpha: 0.30),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        _connected
+                            ? '$status • ${_formatCallDuration(_callDuration)}'
+                            : status,
+                        style: TextStyle(
+                          color: _connected
+                              ? theme.primary
+                              : theme.text.withValues(alpha: 0.52),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 38),
+                ],
 
                 if (waitingIncoming)
                   Row(
@@ -1071,10 +1249,14 @@ class _CallScreenState extends State<CallScreen> {
                           height: 56,
                           child: FilledButton.icon(
                             onPressed: _acceptIncoming,
-                            icon: const Icon(Icons.call_rounded),
-                            label: const Text(
-                              'Kabul Et',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                            icon: Icon(
+                              _videoEnabled
+                                  ? Icons.videocam_rounded
+                                  : Icons.call_rounded,
+                            ),
+                            label: Text(
+                              _videoEnabled ? 'Görüntülü kabul et' : 'Kabul Et',
+                              style: const TextStyle(fontWeight: FontWeight.w700),
                             ),
                             style: FilledButton.styleFrom(
                               shape: RoundedRectangleBorder(
@@ -1106,19 +1288,35 @@ class _CallScreenState extends State<CallScreen> {
                     ],
                   )
                 else
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 10,
                     children: [
                       _callControl(
                         theme,
-                        icon: _muted
-                            ? Icons.mic_off_rounded
-                            : Icons.mic_rounded,
+                        icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
                         label: _muted ? 'Sessiz' : 'Mikrofon',
                         active: _muted,
                         onTap: _toggleMute,
                       ),
-                      const SizedBox(width: 16),
+                      if (_videoEnabled)
+                        _callControl(
+                          theme,
+                          icon: _cameraEnabled
+                              ? Icons.videocam_rounded
+                              : Icons.videocam_off_rounded,
+                          label: _cameraEnabled ? 'Kamera' : 'Kapalı',
+                          active: !_cameraEnabled,
+                          onTap: _toggleCamera,
+                        ),
+                      if (_videoEnabled)
+                        _callControl(
+                          theme,
+                          icon: Icons.flip_camera_ios_rounded,
+                          label: 'Değiştir',
+                          onTap: _switchCamera,
+                        ),
                       _callControl(
                         theme,
                         icon: _speakerOn
@@ -1128,7 +1326,6 @@ class _CallScreenState extends State<CallScreen> {
                         active: _speakerOn,
                         onTap: _toggleSpeaker,
                       ),
-                      const SizedBox(width: 16),
                       _callControl(
                         theme,
                         icon: Icons.call_end_rounded,
@@ -1139,7 +1336,7 @@ class _CallScreenState extends State<CallScreen> {
                     ],
                   ),
 
-                const Spacer(),
+                const SizedBox(height: 14),
 
                 if (!waitingIncoming)
                   Text(

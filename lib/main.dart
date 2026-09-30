@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
@@ -36,6 +38,7 @@ part 'call_screen.dart';
 part 'message_input.dart';
 part 'models.dart';
 part 'profile_controller.dart';
+part 'privacy_lock.dart';
 
 
 void zeroLog(Object? message) {

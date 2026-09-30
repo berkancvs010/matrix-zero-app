@@ -23,11 +23,11 @@ import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import java.util.Locale
 import kotlin.math.roundToInt
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
 
     private val channelName = "zerolog/system"
     private val lifecyclePrefsName = "zerolog_lifecycle"
@@ -1459,7 +1459,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun requestCallPermissions(
-        result: io.flutter.plugin.common.MethodChannel.Result
+        result: io.flutter.plugin.common.MethodChannel.Result,
+        video: Boolean = false
     ) {
         callPermissionResult = result
 
@@ -1470,6 +1471,14 @@ class MainActivity : FlutterActivity() {
                 PackageManager.PERMISSION_GRANTED
         ) {
             permissions.add(Manifest.permission.RECORD_AUDIO)
+        }
+
+        if (
+            video &&
+            checkSelfPermission(Manifest.permission.CAMERA) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            permissions.add(Manifest.permission.CAMERA)
         }
 
         if (
@@ -1490,6 +1499,49 @@ class MainActivity : FlutterActivity() {
             permissions.toTypedArray(),
             callPermissionRequestCode
         )
+    }
+
+    private fun startCallForegroundService(video: Boolean) {
+        try {
+            val intent = Intent(
+                this,
+                CallForegroundService::class.java
+            ).apply {
+                action = CallForegroundService.ACTION_START
+                putExtra(CallForegroundService.EXTRA_VIDEO, video)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to start call foreground service",
+                e
+            )
+        }
+    }
+
+    private fun stopCallForegroundService() {
+        try {
+            val intent = Intent(
+                this,
+                CallForegroundService::class.java
+            ).apply {
+                action = CallForegroundService.ACTION_STOP
+            }
+
+            startService(intent)
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to stop call foreground service",
+                e
+            )
+        }
     }
 
     private fun startOutgoingCallTone() {
@@ -1756,6 +1808,7 @@ class MainActivity : FlutterActivity() {
             val from = intent.getStringExtra("from")?.trim().orEmpty()
             val to = intent.getStringExtra("to")?.trim().orEmpty()
             val callId = intent.getStringExtra("callId")?.trim().orEmpty()
+            val videoCall = intent.getBooleanExtra("video", false)
 
             if (from.isNotEmpty() && to.isNotEmpty() && callId.isNotEmpty()) {
                 try {
@@ -1767,6 +1820,7 @@ class MainActivity : FlutterActivity() {
                                 "from" to from,
                                 "to" to to,
                                 "callId" to callId,
+                                "video" to videoCall,
                             ),
                         )
                     }
@@ -2203,7 +2257,23 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "requestCallPermissions" -> {
-                    requestCallPermissions(result)
+                    val video =
+                        (call.arguments as? Map<*, *>)?.get("video") as? Boolean
+                            ?: false
+                    requestCallPermissions(result, video)
+                }
+
+                "startCallForegroundService" -> {
+                    val video =
+                        (call.arguments as? Map<*, *>)?.get("video") as? Boolean
+                            ?: false
+                    startCallForegroundService(video)
+                    result.success(true)
+                }
+
+                "stopCallForegroundService" -> {
+                    stopCallForegroundService()
+                    result.success(true)
                 }
 
                 "startOutgoingCallTone" -> {

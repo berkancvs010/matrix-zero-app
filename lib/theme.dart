@@ -127,6 +127,115 @@ const Map<ZeroLogTheme, ZeroLogThemeData> zeroLogThemes = {
   ),
 };
 
+
+class ZeroLogThemePreview extends StatelessWidget {
+  final ZeroLogThemeData theme;
+
+  const ZeroLogThemePreview({super.key, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = ThemeData.estimateBrightnessForColor(theme.background) == Brightness.dark;
+    final muted = theme.text.withValues(alpha: dark ? 0.42 : 0.48);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.background,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.text.withValues(alpha: 0.09)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Container(
+            height: 24,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            color: theme.surface,
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(color: theme.primary, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'ZeroLog',
+                    maxLines: 1,
+                    style: TextStyle(color: theme.text, fontSize: 8, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                Icon(Icons.more_horiz_rounded, size: 12, color: muted),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 7),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 105),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: theme.bubbleOther,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(9),
+                          topRight: Radius.circular(9),
+                          bottomRight: Radius.circular(9),
+                        ),
+                      ),
+                      child: Text('ZeroLog hazır.', style: TextStyle(color: theme.text, fontSize: 7.2)),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 105),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: theme.bubbleMine,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(9),
+                          topRight: Radius.circular(9),
+                          bottomLeft: Radius.circular(9),
+                        ),
+                      ),
+                      child: Text('Bağlantı kuruldu ✓', style: TextStyle(color: theme.text, fontSize: 7.2)),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    height: 15,
+                    decoration: BoxDecoration(
+                      color: theme.surface,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 6),
+                        Expanded(child: Container(height: 4, decoration: BoxDecoration(color: muted, borderRadius: BorderRadius.circular(3)))),
+                        const SizedBox(width: 5),
+                        Icon(Icons.send_rounded, size: 9, color: theme.primary),
+                        const SizedBox(width: 5),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ZeroLogPrivacyIntro {
   static const String _shownKey = 'zerolog.privacy_intro.v2';
 

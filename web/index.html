@@ -1,29 +1,43 @@
 <!doctype html>
 <html lang="tr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="ZeroLog gizlilik, hesap ve veri silme bilgileri">
-  <title>ZeroLog</title>
-  <style>
-    body{font-family:system-ui,-apple-system,sans-serif;max-width:760px;margin:0 auto;padding:32px;line-height:1.6;color:#202124}
-    a{color:#0b57d0} main{padding:12px 0} .card{padding:20px;border:1px solid #ddd;border-radius:14px;margin-top:18px}
-  </style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZeroLog — Özel iletişim</title>
+<meta name="description" content="ZeroLog — rumuz tabanlı, sade ve özel iletişim için tasarlanmış modern Android uygulaması.">
+<meta name="theme-color" content="#050914">
+<style>
+:root{--bg:#04070d;--panel:rgba(10,17,29,.72);--panel2:rgba(14,24,40,.72);--line:rgba(178,208,237,.13);--text:#f3f7fc;--muted:#94a4b8;--a:#62d8c8;--b:#6c9cff;--max:1180px}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-x:hidden}
+body:before{content:"";position:fixed;inset:0;background:radial-gradient(circle at 12% 0,rgba(48,126,166,.20),transparent 28%),radial-gradient(circle at 90% 18%,rgba(79,100,190,.16),transparent 30%);pointer-events:none;z-index:-2}
+#network{position:fixed;inset:0;width:100%;height:100%;z-index:-1;opacity:.7}.noise{position:fixed;inset:0;opacity:.025;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");z-index:5}
+a{color:inherit}header{width:min(var(--max),calc(100% - 40px));margin:auto;height:76px;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:10}.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:950;font-size:19px;letter-spacing:-.04em}.mark{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),var(--b));color:#061018;box-shadow:0 8px 28px rgba(86,213,199,.2)}nav{display:flex;gap:25px}nav a{font-size:12px;color:#94a5ba;text-decoration:none}nav a:hover{color:#fff}
+main{width:min(var(--max),calc(100% - 40px));margin:auto}.hero{min-height:calc(100vh - 76px);display:grid;grid-template-columns:1.03fr .97fr;align-items:center;gap:40px;padding:70px 0 95px}.eyebrow{display:inline-flex;align-items:center;gap:9px;padding:8px 11px;border:1px solid var(--line);background:rgba(10,18,31,.58);border-radius:999px;color:#a7b7ca;font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;backdrop-filter:blur(14px)}.dot{width:7px;height:7px;border-radius:50%;background:var(--a);box-shadow:0 0 18px var(--a);animation:blink 2.4s ease-in-out infinite}
+h1{font-size:clamp(50px,7.3vw,94px);line-height:.9;letter-spacing:-.075em;margin:24px 0 24px;max-width:780px}h1 span{background:linear-gradient(100deg,#fff 5%,#92c9d5 48%,#718ed2);-webkit-background-clip:text;background-clip:text;color:transparent}.lead{font-size:17px;line-height:1.75;color:var(--muted);max-width:690px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 19px;border-radius:14px;text-decoration:none;font-size:12px;font-weight:900;border:1px solid var(--line);transition:.25s transform,.25s border-color,.25s background}.btn:hover{transform:translateY(-3px);border-color:rgba(170,210,240,.3)}.primary{background:linear-gradient(135deg,var(--a),#54b9d6);color:#061018;border:0;box-shadow:0 18px 45px rgba(67,206,191,.18)}.secondary{background:rgba(11,19,32,.62);backdrop-filter:blur(14px)}
+.visual{min-height:600px;display:grid;place-items:center;position:relative}.halo{position:absolute;width:430px;height:430px;border-radius:50%;background:radial-gradient(circle,rgba(83,190,193,.18),rgba(75,110,184,.08) 38%,transparent 70%);filter:blur(5px);animation:halo 6s ease-in-out infinite}.phone{width:min(330px,75vw);height:590px;padding:10px;border-radius:42px;background:linear-gradient(145deg,rgba(213,235,255,.18),rgba(255,255,255,.025));border:1px solid rgba(206,230,250,.2);box-shadow:0 55px 110px rgba(0,0,0,.65),inset 0 0 0 1px rgba(255,255,255,.04);transform:rotate(4deg);backdrop-filter:blur(16px);position:relative}.screen{height:100%;border-radius:34px;overflow:hidden;background:linear-gradient(180deg,#091523,#04080f);border:1px solid rgba(255,255,255,.06)}.top{height:82px;padding:24px 18px 12px;display:flex;align-items:center;gap:11px;border-bottom:1px solid rgba(255,255,255,.06)}.avatar{width:36px;height:36px;border-radius:12px;background:linear-gradient(135deg,var(--a),var(--b));display:grid;place-items:center;color:#071018;font-weight:950}.status{font-size:9px;color:#728299;margin-top:3px}.chat{padding:24px 15px;display:flex;flex-direction:column;gap:11px}.bubble{max-width:79%;padding:11px 13px;border-radius:16px;font-size:10px;line-height:1.5;border:1px solid rgba(255,255,255,.04)}.other{background:#101d2d;color:#dbe6f3;border-top-left-radius:6px}.mine{align-self:flex-end;background:#123b42;color:#dffbf7;border-top-right-radius:6px}.secure{margin:18px 15px;padding:13px;border:1px solid rgba(98,216,200,.18);background:rgba(98,216,200,.055);border-radius:15px;font-size:9px;color:#9fe5dc;display:flex;gap:9px;align-items:center}.secure b{font-size:10px}
+section{padding:120px 0}.kicker{color:var(--a);font-size:10px;font-weight:950;letter-spacing:.16em;text-transform:uppercase}.section-title{font-size:clamp(37px,5vw,64px);line-height:.98;letter-spacing:-.065em;margin:13px 0 18px}.section-copy{color:var(--muted);line-height:1.8;max-width:720px;font-size:15px}.why-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;margin-top:42px}.big-card,.small-card{border:1px solid var(--line);background:linear-gradient(145deg,rgba(14,27,46,.78),rgba(7,13,23,.68));border-radius:28px;padding:30px;backdrop-filter:blur(18px);box-shadow:0 24px 80px rgba(0,0,0,.2)}.big-card{min-height:350px;display:flex;flex-direction:column;justify-content:space-between}.big-quote{font-size:clamp(27px,3.5vw,44px);line-height:1.08;letter-spacing:-.05em;max-width:750px}.small-stack{display:grid;gap:18px}.small-card{min-height:166px}.small-icon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:rgba(98,216,200,.08);color:var(--a);border:1px solid rgba(98,216,200,.14);font-weight:950}.small-card h3{margin:17px 0 7px;font-size:17px}.small-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.7}.download{border:1px solid rgba(98,216,200,.17);border-radius:30px;padding:42px;display:flex;align-items:center;justify-content:space-between;gap:30px;background:radial-gradient(circle at 85% 0,rgba(100,150,255,.14),transparent 35%),linear-gradient(135deg,rgba(12,31,45,.88),rgba(6,13,23,.88));box-shadow:0 25px 80px rgba(0,0,0,.25)}.download h2{font-size:34px;letter-spacing:-.05em;margin:8px 0}.download p{margin:0;color:var(--muted);font-size:13px}
+footer{border-top:1px solid var(--line);padding:34px 0 45px;color:#68788f;font-size:11px;display:flex;justify-content:space-between;gap:20px}footer .links{display:flex;gap:20px}footer a{text-decoration:none}footer a:hover{color:#fff}
+@keyframes blink{0%,100%{opacity:.55}50%{opacity:1}}@keyframes halo{0%,100%{transform:scale(.94);opacity:.72}50%{transform:scale(1.08);opacity:1}}
+@media(max-width:850px){nav{display:none}.hero{grid-template-columns:1fr;padding-top:55px}.visual{min-height:540px}.phone{transform:rotate(2deg)}.why-grid{grid-template-columns:1fr}.download{flex-direction:column;align-items:flex-start}.download .btn{width:100%}section{padding:90px 0}}
+@media(prefers-reduced-motion:reduce){.dot,.halo{animation:none}.btn{transition:none}html{scroll-behavior:auto}}
+</style>
 </head>
-<body><main>
-  <h1>ZeroLog</h1>
-  <p>ZeroLog iletişim uygulamasının resmi bilgi sayfasıdır.</p>
-  <div class="card">
-    <h2>Gizlilik</h2>
-    <p><a href="/privacy">Gizlilik Politikası</a></p>
-  </div>
-  <div class="card">
-    <h2>Hesap ve veri silme</h2>
-    <p><a href="/delete-account">Hesap ve verilerimi sil</a></p>
-  </div>
-  <div class="card">
-    <h2>Kullanım</h2>
-    <p><a href="/terms">Kullanım Koşulları ve topluluk kuralları</a></p>
-  </div>
-</main></body>
-</html>
+<body>
+<canvas id="network" aria-hidden="true"></canvas><div class="noise"></div>
+<header><a class="brand" href="/"><span class="mark">Z</span>ZeroLog</a><nav><a href="#neden">Neden ZeroLog?</a><a href="/privacy/">Gizlilik</a><a href="/terms/">Koşullar</a><a href="/delete-account/">Hesap silme</a></nav></header>
+<main>
+<section class="hero">
+<div><div class="eyebrow"><span class="dot"></span> Özel iletişim için tasarlandı</div>
+<h1>İletişim.<br><span>Daha az veri. Daha fazla kontrol.</span></h1>
+<p class="lead">Mesajlaşın, dosya gönderin ve özel sesli veya görüntülü görüşmeler yapın. ZeroLog, günlük özel iletişim için tasarlanmış modern bir iletişim uygulamasıdır. E-posta adresine ihtiyaç duymadan bir rumuz oluşturun ve bağlantınızı kurun.</p>
+<div class="actions"><a class="btn primary" href="/download/">ZeroLog'u indir →</a><a class="btn secondary" href="#neden">ZeroLog neden var?</a></div></div>
+<div class="visual" aria-hidden="true"><div class="halo"></div><div class="phone"><div class="screen"><div class="top"><div class="avatar">Z</div><div><strong style="font-size:12px">ZeroLog</strong><div class="status">özel bağlantı · aktif</div></div></div><div class="chat"><div class="bubble other">Hazır mısın?</div><div class="bubble mine">Bağlantı kuruldu. ✓</div><div class="bubble other">Dosya gönderimi hazır.</div><div class="bubble mine">Gönderiyorum.</div></div><div class="secure">◉ <span><b>Özel iletişim</b><br>Rumuz tabanlı bağlantı</span></div></div></div></div>
+</section>
+<section id="neden"><div><div class="kicker">ZeroLog neden var?</div><h2 class="section-title">Özel iletişim bir özellik değil,<br>ürünün temel yaklaşımıdır.</h2><p class="section-copy">ZeroLog, iletişim kurarken gereksiz kimlik bilgilerini merkeze koymayan, rumuz tabanlı bağlantıyı ve kullanıcı kontrolünü öne çıkaran sade bir iletişim deneyimi için geliştiriliyor.</p></div>
+<div class="why-grid"><div class="big-card"><div class="kicker">01 / YAKLAŞIM</div><div><div class="big-quote">Daha az kimlik bilgisi.<br>Daha fazla kontrol.<br>Daha sade iletişim.</div><p class="section-copy" style="margin-top:22px;font-size:13px">ZeroLog'un amacı, günlük iletişimi mümkün olduğunca sade tutmak ve kullanıcının kendi iletişim kimliğini rumuzuyla yönetmesini sağlamaktır.</p></div></div><div class="small-stack"><div class="small-card"><div class="small-icon">@</div><h3>Rumuzla bağlantı</h3><p>E-posta adresi gerektirmeden rumuzunuzu oluşturup iletişim kurabilirsiniz.</p></div><div class="small-card"><div class="small-icon">↗</div><h3>Tek uygulamada iletişim</h3><p>Mesajlaşma, dosya gönderimi ve sesli/görüntülü görüşme aynı deneyimde.</p></div></div></div></section>
+<section><div class="download"><div><div class="kicker">Android · 1.0.10</div><h2>ZeroLog'u deneyin.</h2><p>Güncel Android sürümünü doğrudan resmi ZeroLog indirme sayfasından alın.</p></div><a class="btn primary" href="/download/">Android'i indir →</a></div></section>
+</main>
+<footer><div>© 2026 ZeroLog</div><div class="links"><a href="/privacy/">Gizlilik</a><a href="/terms/">Koşullar</a><a href="/delete-account/">Hesap silme</a></div></footer>
+<script>
+(()=>{const c=document.getElementById('network'),x=c.getContext('2d'),reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;let w,h,d=1,p=[],raf;const m={x:-9999,y:-9999};function resize(){d=Math.min(devicePixelRatio||1,2);w=innerWidth;h=innerHeight;c.width=w*d;c.height=h*d;x.setTransform(d,0,0,d,0,0);const n=Math.min(76,Math.max(34,Math.floor(w*h/20000)));p=Array.from({length:n},()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-.5)*.15,vy:(Math.random()-.5)*.15,r:.5+Math.random()*1.4}));}function draw(){x.clearRect(0,0,w,h);for(const a of p){if(!reduce){a.x+=a.vx;a.y+=a.vy;if(a.x<0||a.x>w)a.vx*=-1;if(a.y<0||a.y>h)a.vy*=-1}let dx=a.x-m.x,dy=a.y-m.y,dist=Math.hypot(dx,dy);if(dist<170&&dist>0){a.x+=dx/dist*.06;a.y+=dy/dist*.06}x.beginPath();x.arc(a.x,a.y,a.r,0,Math.PI*2);x.fillStyle='rgba(112,204,210,.55)';x.fill()}for(let i=0;i<p.length;i++)for(let j=i+1;j<p.length;j++){let a=p[i],b=p[j],dist=Math.hypot(a.x-b.x,a.y-b.y);if(dist<135){x.beginPath();x.moveTo(a.x,a.y);x.lineTo(b.x,b.y);x.strokeStyle='rgba(88,146,190,'+(1-dist/135)*.12+')';x.stroke()}}if(!reduce)raf=requestAnimationFrame(draw)}addEventListener('resize',resize);addEventListener('pointermove',e=>{m.x=e.clientX;m.y=e.clientY});resize();draw()})()
+</script>
+</body></html>

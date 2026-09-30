@@ -1510,6 +1510,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             'from': from,
             'to': to,
             'callId': callId,
+            'video': data['video'] == true ||
+                data['video']?.toString() == 'true',
           }),
         );
         return;
@@ -1528,6 +1530,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             targetNick: from,
             outgoing: false,
             callId: callId,
+            videoCall: data['video'] == true ||
+                data['video']?.toString() == 'true',
           ),
         ),
       );
@@ -1565,6 +1569,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             outgoing: false,
             callId: callId.isEmpty ? null : callId,
             incomingOffer: data['sdp']?.toString(),
+            videoCall: data['video'] == true ||
+                data['video']?.toString() == 'true' ||
+                data['sdp']?.toString().contains('m=video') == true,
           ),
         ),
       );
@@ -1791,6 +1798,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _videoCall(String target) {
+    final callId =
+        '${DateTime.now().millisecondsSinceEpoch}-${widget.nickname}-video';
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          myNick: widget.nickname,
+          targetNick: target,
+          outgoing: true,
+          callId: callId,
+          videoCall: true,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openPendingPrivateMessage() async {
     final data = await ZeroLogPushService.takePendingNotification();
 
@@ -1907,6 +1931,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           targetNick: from,
           outgoing: false,
           callId: callId,
+          videoCall: data['video'] == true ||
+              data['video']?.toString() == 'true',
         ),
       ),
     );
@@ -2373,6 +2399,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             size: 20,
                           ),
                         ),
+                        IconButton(
+                          tooltip: 'Görüntülü ara',
+                          onPressed: () => _videoCall(user),
+                          icon: Icon(
+                            Icons.videocam_rounded,
+                            color: theme.primary,
+                            size: 20,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2734,6 +2769,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 },
               ),
               ListTile(
+                leading: Icon(Icons.videocam_outlined, color: theme.primary),
+                title: const Text('Görüntülü ara'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _videoCall(user);
+                },
+              ),
+              ListTile(
                 leading: Icon(
                   Icons.chat_bubble_outline_rounded,
                   color: theme.primary,
@@ -2946,6 +2989,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         label: const Text('Ara'),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _videoCall(user);
+                        },
+                        icon: const Icon(Icons.videocam_outlined),
+                        label: const Text('Video'),
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -3036,6 +3090,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   onPressed: () => _call(user),
                   icon: Icon(
                     Icons.call_rounded,
+                    color: theme.primary,
+                    size: 20,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Görüntülü ara',
+                  onPressed: () => _videoCall(user),
+                  icon: Icon(
+                    Icons.videocam_rounded,
                     color: theme.primary,
                     size: 20,
                   ),
@@ -3295,10 +3358,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       fontSize: 12,
                     ),
                   ),
-                  trailing: IconButton(
-                    tooltip: 'Ara',
-                    onPressed: () => _call(user),
-                    icon: Icon(Icons.call_outlined, color: theme.primary),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Ara',
+                        onPressed: () => _call(user),
+                        icon: Icon(Icons.call_outlined, color: theme.primary),
+                      ),
+                      IconButton(
+                        tooltip: 'Görüntülü ara',
+                        onPressed: () => _videoCall(user),
+                        icon: Icon(Icons.videocam_outlined, color: theme.primary),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -3545,84 +3618,121 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             await showModalBottomSheet<void>(
               context: context,
               backgroundColor: theme.surface,
+              isScrollControlled: true,
               showDragHandle: true,
               builder: (sheetContext) {
                 return SafeArea(
-                  child: ListView(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                    children: [
-                      Text(
-                        'Tema seç',
-                        style: TextStyle(
-                          color: theme.text,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ...ZeroLogTheme.values.map((value) {
-                        final selected =
-                            ThemeController.instance.current == value;
-
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                          ),
-                          leading: value == ZeroLogTheme.mivi
-                              ? Container(
-                                  width: 48,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(9),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.08,
-                                        ),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: CustomPaint(
-                                    painter: _MiviFlagPainter(),
-                                  ),
-                                )
-                              : Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: BoxDecoration(
-                                    color: zeroLogThemes[value]!.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                          title: Text(
-                            zeroLogThemes[value]!.name,
+                  child: SizedBox(
+                    height: MediaQuery.sizeOf(sheetContext).height * 0.78,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Tema seç',
                             style: TextStyle(
                               color: theme.text,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
-                          trailing: selected
-                              ? Icon(
-                                  Icons.check_circle_rounded,
-                                  color: theme.primary,
-                                )
-                              : null,
-                          onTap: () async {
-                            await ThemeController.instance.setTheme(value);
-                            if (sheetContext.mounted) {
-                              Navigator.pop(sheetContext);
-                            }
-                            if (mounted) {
-                              setState(() {});
-                            }
-                          },
-                        );
-                      }),
-                    ],
+                          const SizedBox(height: 5),
+                          Text(
+                            'Değişikliği kaydetmeden önce sohbet görünümünü canlı önizlemede görün.',
+                            style: TextStyle(
+                              color: theme.text.withValues(alpha: 0.48),
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Expanded(
+                            child: GridView.builder(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                crossAxisSpacing: 12,
+                                mainAxisSpacing: 12,
+                                childAspectRatio: 0.92,
+                              ),
+                              itemCount: ZeroLogTheme.values.length,
+                              itemBuilder: (context, index) {
+                                final value = ZeroLogTheme.values[index];
+                                final data = zeroLogThemes[value]!;
+                                final selected = ThemeController.instance.current == value;
+
+                                return Material(
+                                  color: theme.background,
+                                  borderRadius: BorderRadius.circular(20),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: InkWell(
+                                    onTap: () async {
+                                      await ThemeController.instance.setTheme(value);
+                                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                                      if (mounted) setState(() {});
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          Expanded(
+                                            child: Stack(
+                                              children: [
+                                                Positioned.fill(child: ZeroLogThemePreview(theme: data)),
+                                                if (selected)
+                                                  Positioned(
+                                                    top: 8,
+                                                    right: 8,
+                                                    child: Container(
+                                                      width: 28,
+                                                      height: 28,
+                                                      decoration: BoxDecoration(
+                                                        color: data.primary,
+                                                        shape: BoxShape.circle,
+                                                        boxShadow: [
+                                                          BoxShadow(
+                                                            color: Colors.black.withValues(alpha: 0.22),
+                                                            blurRadius: 8,
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      child: const Icon(Icons.check_rounded, color: Colors.white, size: 18),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 9),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  data.name,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: TextStyle(color: theme.text, fontSize: 13, fontWeight: FontWeight.w800),
+                                                ),
+                                              ),
+                                              Container(
+                                                width: 9,
+                                                height: 9,
+                                                decoration: BoxDecoration(color: data.primary, shape: BoxShape.circle),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 );
               },
@@ -3824,7 +3934,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             showLicensePage(
               context: context,
               applicationName: 'ZeroLog',
-              applicationVersion: '1.0.8',
+              applicationVersion: '1.0.10',
               applicationLegalese:
                   'Bu program BerkanCVS tarafından hazırlanmıştır.',
             );
@@ -3949,7 +4059,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     subtitle: Text(
-                      'ZeroLog 1.0.8',
+                      'ZeroLog 1.0.10',
                       style: TextStyle(
                         color: theme.text.withValues(alpha: 0.48),
                       ),
@@ -3986,7 +4096,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       showLicensePage(
                         context: context,
                         applicationName: 'ZeroLog',
-                        applicationVersion: '1.0.8',
+                        applicationVersion: '1.0.10',
                         applicationLegalese:
                             'Bu program BerkanCVS tarafından hazırlanmıştır.',
                       );
@@ -4491,7 +4601,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WsClient.instance.requestNotificationSettings();
   }
 
-  void _openPrivacySettings() {
+  Future<void> _openPrivacySettings() async {
+    final unlocked = await ZeroLogPrivacyLock.authenticate(context);
+    if (!unlocked || !mounted) return;
+
     final theme = ThemeController.instance.data;
 
     var presenceVisible = _presenceVisible;
@@ -4530,6 +4643,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   const SizedBox(height: 20),
+
+                  FutureBuilder<String>(
+                    future: ZeroLogPrivacyLock.statusLabel(),
+                    builder: (context, snapshot) {
+                      final status = snapshot.data ?? 'Gizlilik kilidi kontrol ediliyor…';
+                      return _settingsInfoCard(
+                        icon: Icons.verified_user_outlined,
+                        title: 'Gizlilik kilidi',
+                        text: '$status. Bu bölüm yalnızca cihaz doğrulaması sonrası açılır.',
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 10),
 
                   _settingsSectionCard(
                     icon: Icons.visibility_outlined,

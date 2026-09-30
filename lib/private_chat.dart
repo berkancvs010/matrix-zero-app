@@ -2223,6 +2223,26 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
             },
             icon: Icon(Icons.call_rounded, color: theme.primary),
           ),
+          IconButton(
+            tooltip: 'Görüntülü ara',
+            onPressed: () {
+              final callId =
+                  '${DateTime.now().millisecondsSinceEpoch}-${widget.myNick}-video';
+
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => CallScreen(
+                    myNick: widget.myNick,
+                    targetNick: widget.targetNick,
+                    outgoing: true,
+                    callId: callId,
+                    videoCall: true,
+                  ),
+                ),
+              );
+            },
+            icon: Icon(Icons.videocam_rounded, color: theme.primary),
+          ),
           PopupMenuButton<String>(
             tooltip: 'Kullanıcı seçenekleri',
             icon: Icon(Icons.more_vert_rounded, color: theme.text),

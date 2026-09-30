@@ -170,9 +170,9 @@ jobs:
           test -f web/privacy/index.html
           test -f web/delete-account/index.html
           test -f web/terms/index.html
-          ! grep -Rqs "wss://zerolog.giize.com:8443/ws" web
-          grep -q 'https://zerolog.giize.com:8443/delete-account/csrf' web/delete-account/index.html
-          grep -q 'https://zerolog.giize.com:8443/delete-account"' web/delete-account/index.html
+          grep -q 'https://zerolog.giize.com/delete-account/csrf' web/delete-account/index.html
+          grep -q 'https://zerolog.giize.com/delete-account"' web/delete-account/index.html
+          ! grep -Rqs "zerolog.giize.com:" web
           echo "STATIC LEGAL WEB OK"
 
       - name: Upload static legal site

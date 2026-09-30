@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ZeroLog Hesap ve Veri Silme</title></head>
-<body style="font-family:system-ui;max-width:760px;margin:auto;padding:28px;line-height:1.6"><h1>ZeroLog hesap ve veri silme</h1><p>Hesabınızı ve sunucuda hesabınızla ilişkilendirilen verileri silmek için kullanıcı adı ve mevcut şifrenizi girin. İşlem geri alınamaz.</p><form method="post" action="https://zerolog.giize.com:8443/delete-account"><label>Kullanıcı adı<br><input name="username" autocomplete="username" required maxlength="24"></label><br><br><label>Şifre<br><input name="password" type="password" autocomplete="current-password" required></label><br><br><input type="hidden" name="csrfToken" id="csrfToken" value="">
+<body style="font-family:system-ui;max-width:760px;margin:auto;padding:28px;line-height:1.6"><h1>ZeroLog hesap ve veri silme</h1><p>Hesabınızı ve sunucuda hesabınızla ilişkilendirilen verileri silmek için kullanıcı adı ve mevcut şifrenizi girin. İşlem geri alınamaz.</p><form method="post" action="https://zerolog.giize.com/delete-account"><label>Kullanıcı adı<br><input name="username" autocomplete="username" required maxlength="24"></label><br><br><label>Şifre<br><input name="password" type="password" autocomplete="current-password" required></label><br><br><input type="hidden" name="csrfToken" id="csrfToken" value="">
 <button type="submit">Hesabı ve verileri sil</button></form><p>İletişim WSS/TLS üzerinden taşınır. Dosya içerikleri sunucuda kalıcı olarak saklanmaz.</p>
 <script>
 (async function () {
@@ -9,7 +9,7 @@
   if (!tokenInput) return;
   if (submit) submit.disabled = true;
   try {
-    const response = await fetch('https://zerolog.giize.com:8443/delete-account/csrf', {
+    const response = await fetch('https://zerolog.giize.com/delete-account/csrf', {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store'

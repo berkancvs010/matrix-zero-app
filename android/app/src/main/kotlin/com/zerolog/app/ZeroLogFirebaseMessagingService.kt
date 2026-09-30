@@ -369,6 +369,9 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 ?: ""
         ).trim()
 
+        val videoCall =
+            message.data["video"]?.trim()?.lowercase() == "true"
+
         if (caller.isEmpty() || callId.isEmpty()) return
 
         val callPrefs = getSharedPreferences(
@@ -404,6 +407,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             .put("from", caller)
             .put("to", callee)
             .put("callId", callId)
+            .put("video", videoCall)
             .toString()
 
         getSharedPreferences(
@@ -446,6 +450,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             putExtra("from", caller)
             putExtra("to", callee)
             putExtra("callId", callId)
+            putExtra("video", videoCall)
         }
 
         val pendingIntent = if (
@@ -479,7 +484,9 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             CALL_CHANNEL_ID
         )
             .setSmallIcon(R.drawable.ic_stat_zerolog)
-            .setContentTitle("Gelen çağrı")
+            .setContentTitle(
+                if (videoCall) "Gelen görüntülü çağrı" else "Gelen sesli çağrı"
+            )
             .setContentText("$caller sizi arıyor")
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)

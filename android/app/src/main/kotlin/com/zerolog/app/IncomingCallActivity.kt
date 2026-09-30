@@ -42,6 +42,10 @@ class IncomingCallActivity : Activity() {
                 "callId",
                 intent.getStringExtra("callId").orEmpty()
             )
+            putExtra(
+                "video",
+                intent.getBooleanExtra("video", false)
+            )
         }
 
         startActivity(incoming)

@@ -20,7 +20,7 @@ samples, guidance on mobile development, and a full API reference.
 ## Play Store release
 
 - Privacy policy: https://zerolog.giize.com/privacy
-- Account and data deletion: https://zerolog.giize.com/delete-account (the current static deletion page submits to the public API at https://zerolog.giize.com:8443/delete-account until the API is moved to canonical 443)
+- Account and data deletion: https://zerolog.giize.com/delete-account
 - Production Android target: API 36.
 - Play release artifact: Android App Bundle (`.aab`).
 

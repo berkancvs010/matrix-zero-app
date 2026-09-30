@@ -5248,6 +5248,7 @@ wss.on('connection',(ws,req)=>{
       callee:to,
       callerKey,
       calleeKey,
+      video:d.video===true || String(d.video||'').toLowerCase()==='true',
       state:'ringing',
       createdAt:Date.now(),
     });
@@ -5267,6 +5268,7 @@ wss.on('connection',(ws,req)=>{
         from:me,
         to,
         callId,
+        video:(callStateFor(callId)||{}).video===true,
       });
     }
 
@@ -5277,6 +5279,7 @@ wss.on('connection',(ws,req)=>{
           caller:me,
           callee:to,
           callId,
+          video:(callStateFor(callId)||{}).video===true ? 'true' : 'false',
         },
         android:{
           priority:'high',
@@ -5363,6 +5366,7 @@ wss.on('connection',(ws,req)=>{
         from:me,
         to:call.caller,
         callId,
+        ...(d.type==='callAccept' ? {video:call.video===true} : {}),
       }
     );
 
