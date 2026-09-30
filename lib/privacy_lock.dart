@@ -70,6 +70,7 @@ class ZeroLogPrivacyLock {
 
   static Future<bool> authenticate(BuildContext context) async {
     if (!await isConfigured()) {
+      if (!context.mounted) return false;
       final configured = await _showSetup(context);
       if (!configured) return false;
     }
@@ -91,6 +92,7 @@ class ZeroLogPrivacyLock {
       }
     }
 
+    if (!context.mounted) return false;
     return _showPinPrompt(context);
   }
 
@@ -98,6 +100,7 @@ class ZeroLogPrivacyLock {
     final biometric = await biometricAvailable();
     final controller = TextEditingController();
     final confirmController = TextEditingController();
+    if (!context.mounted) return false;
     var useBiometric = biometric;
     var error = '';
 
@@ -240,6 +243,7 @@ class ZeroLogPrivacyLock {
       await _storage.delete(key: _lockUntilKey);
     }
 
+    if (!context.mounted) return false;
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -313,6 +317,7 @@ class ZeroLogPrivacyLock {
                         if (ok && dialogContext.mounted) {
                           await clearFailures();
                           ticker?.cancel();
+                          if (!dialogContext.mounted) return;
                           Navigator.pop(dialogContext, true);
                           return;
                         }
@@ -351,6 +356,7 @@ class ZeroLogPrivacyLock {
                       if (ok && dialogContext.mounted) {
                         await clearFailures();
                         ticker?.cancel();
+                        if (!dialogContext.mounted) return;
                         Navigator.pop(dialogContext, true);
                         return;
                       }
