@@ -195,6 +195,17 @@ class ZeroLogPushService {
     }
   }
 
+  static Future<void> setVideoCallKeepScreenOn(bool enabled) async {
+    try {
+      await _systemChannel.invokeMethod(
+        'setVideoCallKeepScreenOn',
+        <String, dynamic>{'enabled': enabled},
+      );
+    } catch (e) {
+      zeroLog('[CALL] video keep-screen-on update failed: $e');
+    }
+  }
+
   static Future<void> stopOutgoingCallTone() async {
     try {
       await _systemChannel.invokeMethod('stopOutgoingCallTone');

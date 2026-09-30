@@ -1592,6 +1592,26 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    private fun setVideoCallKeepScreenOn(enabled: Boolean) {
+        try {
+            if (enabled) {
+                window.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                )
+            } else {
+                window.clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to update video call keep-screen-on state",
+                e
+            )
+        }
+    }
+
     private fun clearCallLockScreen() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -2301,6 +2321,14 @@ class MainActivity : FlutterFragmentActivity() {
 
                 "clearCallLockScreen" -> {
                     clearCallLockScreen()
+                    result.success(true)
+                }
+
+                "setVideoCallKeepScreenOn" -> {
+                    val enabled =
+                        (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean
+                            ?: false
+                    setVideoCallKeepScreenOn(enabled)
                     result.success(true)
                 }
 

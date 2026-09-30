@@ -282,6 +282,10 @@ class _CallScreenState extends State<CallScreen> {
       );
 
       if (_videoEnabled) {
+        await ZeroLogPushService.setVideoCallKeepScreenOn(true);
+      }
+
+      if (_videoEnabled) {
         _localRenderer.srcObject = stream;
       }
 
@@ -428,6 +432,10 @@ class _CallScreenState extends State<CallScreen> {
         setState(() {
           _accepted = true;
         });
+
+        if (_videoEnabled) {
+          await ZeroLogPushService.setVideoCallKeepScreenOn(true);
+        }
 
         await _initProximitySensor();
       }
