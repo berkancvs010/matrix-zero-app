@@ -151,9 +151,21 @@ jobs:
           test -s "$AAB"
           test -s "$APK"
 
-          # A malformed or unsigned bundle must never be uploaded as the
-          # Play release artifact.
-          jarsigner -verify -strict -verbose:summary "$AAB"
+          # Verify the AAB's JAR signature. Android upload certificates are
+          # normally self-signed, so -strict is intentionally not used here:
+          # strict PKIX validation would reject a valid Android signing
+          # certificate simply because it is not chained to a public CA.
+          JARSIGNER_OUTPUT="$(mktemp)"
+          if ! jarsigner -verify -verbose:summary "$AAB" >"$JARSIGNER_OUTPUT" 2>&1; then
+            cat "$JARSIGNER_OUTPUT"
+            echo "AAB signature verification failed."
+            rm -f "$JARSIGNER_OUTPUT"
+            exit 1
+          fi
+          cat "$JARSIGNER_OUTPUT"
+          grep -F "jar verified" "$JARSIGNER_OUTPUT"
+          unzip -l "$AAB" | grep -Eq 'META-INF/[^/]+\\.(SF|RSA|DSA|EC)( |$)'
+          rm -f "$JARSIGNER_OUTPUT"
 
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           test -x "$APKSIGNER"
