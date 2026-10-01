@@ -392,4 +392,17 @@ class ZeroLogPrivacyLock {
     }
     return '6 haneli PIN koruması aktif';
   }
+
+  /// Wipes all privacy-lock state (PIN hash/salt, biometric preference,
+  /// lockout counters). Must be called whenever the local account is
+  /// removed from this device (logout / delete account), otherwise a PIN
+  /// configured by the previous account would keep locking out whoever
+  /// uses the app next on the same device.
+  static Future<void> clearAll() async {
+    await _storage.delete(key: _hashKey);
+    await _storage.delete(key: _saltKey);
+    await _storage.delete(key: _biometricKey);
+    await _storage.delete(key: _failedAttemptsKey);
+    await _storage.delete(key: _lockUntilKey);
+  }
 }

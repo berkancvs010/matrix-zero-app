@@ -1592,26 +1592,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun setVideoCallKeepScreenOn(enabled: Boolean) {
-        try {
-            if (enabled) {
-                window.addFlags(
-                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                )
-            } else {
-                window.clearFlags(
-                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                )
-            }
-        } catch (e: Exception) {
-            android.util.Log.e(
-                "ZeroLogCall",
-                "Failed to update video call keep-screen-on state",
-                e
-            )
-        }
-    }
-
+    // Clears the temporary incoming-call window flags, including the
+    // ringing-time KEEP_SCREEN_ON flag. Video calls re-enable KEEP_SCREEN_ON
+    // immediately after call acceptance through setCallScreenAwake(true).
+    // Audio calls therefore retain their normal screen-timeout behavior.
     private fun clearCallLockScreen() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -1634,6 +1618,29 @@ class MainActivity : FlutterFragmentActivity() {
             android.util.Log.e(
                 "ZeroLogCall",
                 "Failed to clear call lock-screen state",
+                e
+            )
+        }
+    }
+
+    // Keeps the screen on only for an active video call, independent of the
+    // temporary incoming-call lock-screen flags above. Dart enables this for
+    // video calls and disables it when the video call screen is disposed.
+    private fun setCallScreenAwake(awake: Boolean) {
+        try {
+            if (awake) {
+                window.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                )
+            } else {
+                window.clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "ZeroLogCall",
+                "Failed to update call screen-awake state",
                 e
             )
         }
@@ -2324,11 +2331,9 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(true)
                 }
 
-                "setVideoCallKeepScreenOn" -> {
-                    val enabled =
-                        (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean
-                            ?: false
-                    setVideoCallKeepScreenOn(enabled)
+                "setCallScreenAwake" -> {
+                    val awake = call.argument<Boolean>("awake") ?: false
+                    setCallScreenAwake(awake)
                     result.success(true)
                 }
 
@@ -2360,6 +2365,8 @@ class MainActivity : FlutterFragmentActivity() {
         if (!incomingCallActive) {
             clearCallLockScreen()
         }
+
+        setCallScreenAwake(false)
 
         super.onDestroy()
     }

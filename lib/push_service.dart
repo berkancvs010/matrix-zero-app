@@ -195,14 +195,40 @@ class ZeroLogPushService {
     }
   }
 
-  static Future<void> setVideoCallKeepScreenOn(bool enabled) async {
+  /// True while an incoming/outgoing CallScreen is on screen. Set by
+  /// CallScreen's initState()/dispose(). Used by the app-wide privacy
+  /// lock gate to avoid throwing a PIN/biometric prompt over an active
+  /// call, which would block the user from using it.
+  static bool callScreenActive = false;
+
+  /// Read-only check for a call that has been signalled (e.g. via the
+  /// native full-screen incoming-call intent) but whose CallScreen has
+  /// not finished mounting yet. Used by the same app-wide lock gate to
+  /// avoid a race where the lock prompt appears for the brief moment
+  /// between the app resuming and the call screen being pushed.
+  static Future<bool> hasPendingCall() async {
     try {
-      await _systemChannel.invokeMethod(
-        'setVideoCallKeepScreenOn',
-        <String, dynamic>{'enabled': enabled},
-      );
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(pendingCallKey);
+      return raw != null && raw.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Keeps the device screen on for the duration of an active call
+  /// (audio or video), independent of the lock-screen bypass flags used
+  /// only for the incoming-call ringing UI. Call with `true` as soon as
+  /// the call screen appears and with `false` once it is disposed, or the
+  /// display will time out mid-call the same way it would on any other
+  /// idle screen.
+  static Future<void> setCallScreenAwake(bool awake) async {
+    try {
+      await _systemChannel.invokeMethod('setCallScreenAwake', {
+        'awake': awake,
+      });
     } catch (e) {
-      zeroLog('[CALL] video keep-screen-on update failed: $e');
+      zeroLog('[CALL] set screen-awake state failed: $e');
     }
   }
 

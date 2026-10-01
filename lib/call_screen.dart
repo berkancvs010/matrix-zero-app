@@ -53,7 +53,8 @@ class _CallScreenState extends State<CallScreen> {
   bool _proximityScreenOffEnabled = false;
 
   Future<void> _initProximitySensor() async {
-    if (_proximitySubscription != null ||
+    if (_videoEnabled ||
+        _proximitySubscription != null ||
         _proximityScreenOffEnabled ||
         _closing ||
         !mounted) {
@@ -61,7 +62,9 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     try {
-      // Proximity ekran kontrolünü yalnızca aktif aramada başlat.
+      // Proximity ekran kontrolünü yalnızca sesli aramada başlat. Görüntülü
+      // aramada ekranın kapanmaması gerekir (kullanıcı görüntüyü izliyor),
+      // bu yüzden video aramalarda bu sensörü hiç etkinleştirmiyoruz.
       await ProximitySensor.setProximityScreenOff(true);
 
       if (!mounted || _closing) {
@@ -87,6 +90,23 @@ class _CallScreenState extends State<CallScreen> {
         }
       });
     } catch (_) {}
+  }
+
+  // Safety net for the rare path where a call is initially treated as
+  // audio-only (proximity screen-off already enabled) and only later
+  // turns out to be a video call once the real SDP offer arrives (see the
+  // 'callOffer' handler below). Video calls must never use proximity-based
+  // screen-off, since the user needs to keep watching the screen.
+  void _disableProximityScreenOffForVideo() {
+    if (!_videoEnabled) return;
+
+    _proximitySubscription?.cancel();
+    _proximitySubscription = null;
+
+    if (_proximityScreenOffEnabled) {
+      ProximitySensor.setProximityScreenOff(false);
+      _proximityScreenOffEnabled = false;
+    }
   }
 
   void _flushPendingOutgoingIce() {
@@ -124,6 +144,14 @@ class _CallScreenState extends State<CallScreen> {
 
     _videoEnabled = widget.videoCall ||
         (widget.incomingOffer?.contains('m=video') ?? false);
+
+    // Only video calls need to stay awake. Audio calls keep their existing
+    // proximity/screen behavior unchanged. Do not put an await here: call
+    // setup must never be blocked by the optional screen-awake bridge.
+    if (_videoEnabled) {
+      ZeroLogPushService.setCallScreenAwake(true);
+    }
+    ZeroLogPushService.callScreenActive = true;
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -282,10 +310,6 @@ class _CallScreenState extends State<CallScreen> {
       );
 
       if (_videoEnabled) {
-        await ZeroLogPushService.setVideoCallKeepScreenOn(true);
-      }
-
-      if (_videoEnabled) {
         _localRenderer.srcObject = stream;
       }
 
@@ -433,10 +457,6 @@ class _CallScreenState extends State<CallScreen> {
           _accepted = true;
         });
 
-        if (_videoEnabled) {
-          await ZeroLogPushService.setVideoCallKeepScreenOn(true);
-        }
-
         await _initProximitySensor();
       }
     } catch (e) {
@@ -552,6 +572,11 @@ class _CallScreenState extends State<CallScreen> {
           _accepted = true;
         });
 
+        ZeroLogPushService.clearCallLockScreen();
+        if (_videoEnabled) {
+          ZeroLogPushService.setCallScreenAwake(true);
+        }
+
         await _initProximitySensor();
       }
 
@@ -613,6 +638,7 @@ class _CallScreenState extends State<CallScreen> {
     if (type == 'callAccepted') {
       if (data['video'] == true || data['video']?.toString() == 'true') {
         _videoEnabled = true;
+        _disableProximityScreenOffForVideo();
       }
       zeroLog(
         '[CALL][ACCEPTED] received '
@@ -623,6 +649,9 @@ class _CallScreenState extends State<CallScreen> {
       ZeroLogPushService.clearPendingCall();
       ZeroLogPushService.cancelIncomingCallNotification();
       ZeroLogPushService.clearCallLockScreen();
+      if (_videoEnabled) {
+        ZeroLogPushService.setCallScreenAwake(true);
+      }
       if (widget.outgoing) {
         _outgoingTimeoutTimer?.cancel();
         _outgoingTimeoutTimer = null;
@@ -670,6 +699,10 @@ class _CallScreenState extends State<CallScreen> {
         } else if (sdp?.contains('m=video') == true) {
           _videoEnabled = true;
         }
+        if (_videoEnabled) {
+          ZeroLogPushService.setCallScreenAwake(true);
+        }
+        _disableProximityScreenOffForVideo();
 
         if (sdp != null && sdp.isNotEmpty) {
           _handleIncomingOffer(sdp);
@@ -984,6 +1017,10 @@ class _CallScreenState extends State<CallScreen> {
     ZeroLogPushService.stopOutgoingCallTone();
     ZeroLogPushService.stopCallForegroundService();
     ZeroLogPushService.clearCallLockScreen();
+    if (_videoEnabled) {
+      ZeroLogPushService.setCallScreenAwake(false);
+    }
+    ZeroLogPushService.callScreenActive = false;
 
     _subscription.cancel();
     _proximitySubscription?.cancel();
