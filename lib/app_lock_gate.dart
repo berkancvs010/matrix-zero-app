@@ -78,6 +78,17 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // local_auth temporarily backgrounds/resumes the Flutter activity while
+    // its system authentication sheet is visible. Do not interpret that
+    // lifecycle transition as a real app background event or launch a
+    // second lock prompt on top of the biometric dialog.
+    if (ZeroLogPrivacyLock.authenticationInProgress) {
+      if (state == AppLifecycleState.resumed) {
+        _wasBackgrounded = false;
+      }
+      return;
+    }
+
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _wasBackgrounded = true;
@@ -91,6 +102,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
   }
 
   Future<void> _onResumedFromBackground() async {
+    if (ZeroLogPrivacyLock.authenticationInProgress) return;
+
     // Never interrupt an active call, or one that is about to open from
     // a native full-screen incoming-call intent, with a lock prompt.
     if (ZeroLogPushService.callScreenActive) return;

@@ -13,6 +13,7 @@ class ZeroLogPrivacyLock {
   static const String _failedAttemptsKey = 'zerolog.privacy_lock.failed_attempts.v1';
   static const String _lockUntilKey = 'zerolog.privacy_lock.lock_until.v1';
   static const int _maxAttemptsBeforeDelay = 3;
+  static bool authenticationInProgress = false;
 
   static Future<bool> isConfigured() async {
     final hash = await _storage.read(key: _hashKey);
@@ -69,31 +70,100 @@ class ZeroLogPrivacyLock {
   }
 
   static Future<bool> authenticate(BuildContext context) async {
-    if (!await isConfigured()) {
-      if (!context.mounted) return false;
-      final configured = await _showSetup(context);
-      if (!configured) return false;
-    }
+    if (authenticationInProgress) return false;
+    authenticationInProgress = true;
 
-    if (await biometricEnabled() && await biometricAvailable()) {
-      try {
-        final ok = await _auth.authenticate(
-          localizedReason: 'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
-          options: const AuthenticationOptions(
-            biometricOnly: true,
-            stickyAuth: true,
-          ),
-        );
-        if (ok) return true;
-      } on PlatformException {
-        // Fall through to PIN. The user always retains a recovery method.
-      } catch (_) {
-        // Fall through to PIN on unexpected platform/plugin errors.
+    try {
+      if (!await isConfigured()) {
+        if (!context.mounted) return false;
+        final configured = await _showSetup(context);
+        if (!configured) return false;
       }
-    }
 
-    if (!context.mounted) return false;
-    return _showPinPrompt(context);
+      final biometricEnabledForLock = await biometricEnabled();
+      final biometricReady =
+          biometricEnabledForLock && await biometricAvailable();
+
+      // A PIN is always stored when the privacy lock is configured. If
+      // biometric authentication is enabled, it is a preferred method, not
+      // the only method: the user can deliberately choose the PIN or use it
+      // as a fallback after an unsuccessful biometric attempt.
+      if (biometricReady) {
+        if (!context.mounted) return false;
+
+        final method = await _showAuthenticationMethodChoice(context);
+        if (method == null) return false;
+
+        if (method == 'pin') {
+          if (!context.mounted) return false;
+          return _showPinPrompt(context);
+        }
+
+        try {
+          final biometricOk = await _auth.authenticate(
+            localizedReason: 'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
+            options: const AuthenticationOptions(
+              biometricOnly: true,
+              stickyAuth: false,
+            ),
+          );
+
+          if (biometricOk) return true;
+
+          // The biometric prompt can be cancelled, rejected, or exhausted
+          // after failed attempts. The PIN remains a deliberate second
+          // authentication method and must stay available.
+          if (!context.mounted) return false;
+          return _showPinPrompt(context);
+        } on PlatformException {
+          if (!context.mounted) return false;
+          return _showPinPrompt(context);
+        } catch (_) {
+          if (!context.mounted) return false;
+          return _showPinPrompt(context);
+        }
+      }
+
+      if (!context.mounted) return false;
+      return _showPinPrompt(context);
+    } finally {
+      authenticationInProgress = false;
+    }
+  }
+
+  static Future<String?> _showAuthenticationMethodChoice(
+    BuildContext context,
+  ) async {
+    if (!context.mounted) return null;
+    final theme = ThemeController.instance.data;
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Gizlilik Merkezi'),
+          content: Text(
+            'Doğrulama yöntemini seçin. PIN, biyometri başarısız olduğunda da kullanılabilir.',
+            style: TextStyle(
+              color: theme.text.withValues(alpha: 0.68),
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 'pin'),
+              child: const Text('PIN ile giriş'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, 'biometric'),
+              icon: const Icon(Icons.fingerprint_rounded),
+              label: const Text('Biyometri ile giriş'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   static Future<bool> _showSetup(BuildContext context) async {
@@ -157,7 +227,9 @@ class ZeroLogPrivacyLock {
                         value: useBiometric,
                         onChanged: (value) => setState(() => useBiometric = value),
                         title: const Text('Parmak izi / biyometri kullan'),
-                        subtitle: const Text('PIN yerine cihaz biyometrisini kullanabilirsiniz.'),
+                        subtitle: const Text(
+                          'Biyometriyi tercih edin; PIN her zaman yedek giriş olarak kullanılabilir.',
+                        ),
                       ),
                     ],
                     if (error.isNotEmpty) ...[
@@ -207,6 +279,7 @@ class ZeroLogPrivacyLock {
 
   static Future<bool> _showPinPrompt(BuildContext context) async {
     final controller = TextEditingController();
+    final pinFocusNode = FocusNode();
     var error = '';
     var attempts = int.tryParse(
           await _storage.read(key: _failedAttemptsKey) ?? '0',
@@ -215,6 +288,7 @@ class ZeroLogPrivacyLock {
     var lockUntilMs =
         int.tryParse(await _storage.read(key: _lockUntilKey) ?? '0') ?? 0;
     Timer? ticker;
+    bool submittingPin = false;
 
     Future<void> persistFailure() async {
       attempts += 1;
@@ -243,11 +317,62 @@ class ZeroLogPrivacyLock {
       await _storage.delete(key: _lockUntilKey);
     }
 
-    if (!context.mounted) return false;
+    Future<void> submitPin(
+      BuildContext dialogContext,
+      void Function(void Function()) setState,
+    ) async {
+      if (submittingPin) return;
+
+      final pin = controller.text.trim();
+      if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
+        if (!dialogContext.mounted) return;
+        setState(() => error = 'PIN tam olarak 6 rakam olmalı.');
+        return;
+      }
+
+      submittingPin = true;
+      if (dialogContext.mounted) {
+        setState(() {});
+      }
+      try {
+        final ok = await _verifyPin(pin);
+        if (ok && dialogContext.mounted) {
+          await clearFailures();
+          ticker?.cancel();
+          if (!dialogContext.mounted) return;
+          Navigator.pop(dialogContext, true);
+          return;
+        }
+
+        await persistFailure();
+        if (!dialogContext.mounted) return;
+        controller.clear();
+        setState(() {
+          error = attempts >= _maxAttemptsBeforeDelay
+              ? 'PIN hatalı. Güvenlik kilidi devreye girdi.'
+              : 'PIN hatalı. Kalan deneme: ${_maxAttemptsBeforeDelay - attempts}.';
+        });
+      } finally {
+        submittingPin = false;
+        if (dialogContext.mounted) {
+          setState(() {});
+        }
+      }
+    }
+
+    if (!context.mounted) {
+      pinFocusNode.dispose();
+      return false;
+    }
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (dialogContext.mounted && !pinFocusNode.hasFocus) {
+            pinFocusNode.requestFocus();
+          }
+        });
         return StatefulBuilder(
           builder: (context, setState) {
             final remaining = lockUntilMs > DateTime.now().millisecondsSinceEpoch
@@ -275,7 +400,13 @@ class ZeroLogPrivacyLock {
                     size: 24,
                   ),
                   const SizedBox(width: 10),
-                  const Expanded(child: Text('Gizlilik Merkezi kilitli')),
+                  Expanded(
+                    child: Text(
+                      locked
+                          ? 'Gizlilik Merkezi geçici olarak kilitli'
+                          : 'PIN ile doğrulama',
+                    ),
+                  ),
                 ],
               ),
               content: Column(
@@ -308,29 +439,19 @@ class ZeroLogPrivacyLock {
                     const SizedBox(height: 18),
                     TextField(
                       controller: controller,
-                      autofocus: true,
+                      focusNode: pinFocusNode,
+                      autofocus: false,
                       keyboardType: TextInputType.number,
                       obscureText: true,
                       maxLength: 6,
-                      onSubmitted: (_) async {
-                        final ok = await _verifyPin(controller.text.trim());
-                        if (ok && dialogContext.mounted) {
-                          await clearFailures();
-                          ticker?.cancel();
-                          if (!dialogContext.mounted) return;
-                          Navigator.pop(dialogContext, true);
-                          return;
-                        }
-
-                        await persistFailure();
-                        if (!dialogContext.mounted) return;
-                        controller.clear();
-                        setState(() {
-                          error = attempts >= _maxAttemptsBeforeDelay
-                              ? 'PIN hatalı. Güvenlik kilidi devreye girdi.'
-                              : 'PIN hatalı. Kalan deneme: ${_maxAttemptsBeforeDelay - attempts}.';
-                        });
+                      textInputAction: TextInputAction.done,
+                      onChanged: (_) {
+                        if (error.isNotEmpty) setState(() => error = '');
+                        setState(() {});
                       },
+                      onSubmitted: (_) => unawaited(
+                        submitPin(dialogContext, setState),
+                      ),
                       decoration: InputDecoration(
                         labelText: 'PIN',
                         prefixIcon: const Icon(Icons.pin_outlined),
@@ -351,27 +472,11 @@ class ZeroLogPrivacyLock {
                 ),
                 if (!locked)
                   FilledButton.icon(
-                    onPressed: () async {
-                      final ok = await _verifyPin(controller.text.trim());
-                      if (ok && dialogContext.mounted) {
-                        await clearFailures();
-                        ticker?.cancel();
-                        if (!dialogContext.mounted) return;
-                        Navigator.pop(dialogContext, true);
-                        return;
-                      }
-
-                      await persistFailure();
-                      if (!dialogContext.mounted) return;
-                      controller.clear();
-                      setState(() {
-                        error = attempts >= _maxAttemptsBeforeDelay
-                            ? 'PIN hatalı. Güvenlik kilidi devreye girdi.'
-                            : 'PIN hatalı. Kalan deneme: ${_maxAttemptsBeforeDelay - attempts}.';
-                      });
-                    },
+                    onPressed: controller.text.trim().length == 6 && !submittingPin
+                        ? () => submitPin(dialogContext, setState)
+                        : null,
                     icon: const Icon(Icons.lock_open_rounded),
-                    label: const Text('Doğrula'),
+                    label: const Text('Giriş yap'),
                   ),
               ],
             );
@@ -381,6 +486,7 @@ class ZeroLogPrivacyLock {
     );
 
     ticker?.cancel();
+    pinFocusNode.dispose();
     controller.dispose();
     return result == true;
   }
@@ -388,7 +494,7 @@ class ZeroLogPrivacyLock {
   static Future<String> statusLabel() async {
     if (!await isConfigured()) return 'İlk kullanımda PIN oluşturulacak';
     if (await biometricEnabled() && await biometricAvailable()) {
-      return 'PIN + biyometrik doğrulama aktif';
+      return 'Biyometri + PIN yedek doğrulaması aktif';
     }
     return '6 haneli PIN koruması aktif';
   }

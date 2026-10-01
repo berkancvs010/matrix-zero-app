@@ -327,11 +327,15 @@ class _CallScreenState extends State<CallScreen> {
 
       if (_closing) return;
 
-      // Start with normal handset audio. Speaker can be enabled
-      // explicitly from the call screen.
+      // Audio-only calls start on the handset. Video calls start on
+      // speaker by default so the user can hear the remote video call
+      // without having to hunt for the speaker control.
       try {
-        await Helper.setSpeakerphoneOn(false);
+        await Helper.setSpeakerphoneOn(_videoEnabled);
       } catch (_) {}
+      if (mounted) {
+        setState(() => _speakerOn = _videoEnabled);
+      }
     } catch (e) {
       // Keep the failure inside the Flutter layer instead of leaving
       // partially initialized WebRTC objects behind.
@@ -384,6 +388,10 @@ class _CallScreenState extends State<CallScreen> {
       'from': widget.myNick,
       'to': widget.targetNick,
       'callId': callId,
+      // Keep the call type in the authoritative signaling state from the
+      // very first invite. The callee may receive the invite before an SDP
+      // offer exists, so it cannot reliably infer video from SDP yet.
+      'video': _videoEnabled,
     });
 
     if (!inviteSent) {
@@ -925,6 +933,11 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _finish({bool sendSignal = true}) async {
     if (_closing) return;
 
+    // Mark the call as closing immediately and send the terminal signal
+    // before doing any potentially slow WebRTC/native cleanup. The old
+    // implementation awaited foreground-service/notification/WebRTC
+    // teardown before popping the route, which could leave the call screen
+    // frozen indefinitely on some Android devices.
     _closing = true;
 
     _outgoingTimeoutTimer?.cancel();
@@ -932,6 +945,22 @@ class _CallScreenState extends State<CallScreen> {
 
     _callDurationTimer?.cancel();
     _callDurationTimer = null;
+
+    if (sendSignal) {
+      WsClient.instance.send({
+        'type': 'callEnd',
+        'from': widget.myNick,
+        'to': widget.targetNick,
+        'callId': widget.callId,
+      });
+    }
+
+    // Leave the call route immediately. dispose() is deliberately allowed
+    // to run before the slower resource cleanup below so the user never
+    // gets trapped on a frozen call screen.
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
 
     await ZeroLogPushService.stopOutgoingCallTone();
     await ZeroLogPushService.stopCallForegroundService();
@@ -949,15 +978,6 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     _pendingOutgoingIceCandidates.clear();
-
-    if (sendSignal) {
-      WsClient.instance.send({
-        'type': 'callEnd',
-        'from': widget.myNick,
-        'to': widget.targetNick,
-        'callId': widget.callId,
-      });
-    }
 
     final stream = _localStream;
     _localStream = null;
@@ -982,6 +1002,16 @@ class _CallScreenState extends State<CallScreen> {
     _remoteRenderer.srcObject = null;
     _remoteStream = null;
 
+    // _finish() owns cleanup after it has popped the route. dispose() skips
+    // these objects when _closing is already true, so explicitly dispose the
+    // renderers here as part of the same ownership path.
+    try {
+      await _localRenderer.dispose();
+    } catch (_) {}
+    try {
+      await _remoteRenderer.dispose();
+    } catch (_) {}
+
     final peer = _peerConnection;
     _peerConnection = null;
 
@@ -994,10 +1024,6 @@ class _CallScreenState extends State<CallScreen> {
         await peer.dispose();
       } catch (_) {}
     }
-
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
   }
 
   void _showError(String text) {
@@ -1008,6 +1034,13 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    // _finish() pops the route before native/WebRTC teardown so a slow
+    // platform call cannot freeze the UI. Flutter invokes dispose() during
+    // that pop; let _finish() retain ownership of the resources in this
+    // path, otherwise tracks/peer/renderers are disposed twice and the later
+    // cleanup can race a native WebRTC shutdown.
+    final finishOwnsResources = _closing;
+
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
 
@@ -1030,32 +1063,34 @@ class _CallScreenState extends State<CallScreen> {
       _proximityScreenOffEnabled = false;
     }
 
-    final stream = _localStream;
-    _localStream = null;
+    if (!finishOwnsResources) {
+      final stream = _localStream;
+      _localStream = null;
 
-    if (stream != null) {
-      for (final track in stream.getTracks()) {
+      if (stream != null) {
+        for (final track in stream.getTracks()) {
+          try {
+            track.stop();
+          } catch (_) {}
+        }
+
         try {
-          track.stop();
+          stream.dispose();
         } catch (_) {}
       }
 
-      try {
-        stream.dispose();
-      } catch (_) {}
+      final peer = _peerConnection;
+      _peerConnection = null;
+
+      if (peer != null) {
+        try {
+          peer.close();
+        } catch (_) {}
+      }
+
+      _localRenderer.dispose();
+      _remoteRenderer.dispose();
     }
-
-    final peer = _peerConnection;
-    _peerConnection = null;
-
-    if (peer != null) {
-      try {
-        peer.close();
-      } catch (_) {}
-    }
-
-    _localRenderer.dispose();
-    _remoteRenderer.dispose();
 
     super.dispose();
   }

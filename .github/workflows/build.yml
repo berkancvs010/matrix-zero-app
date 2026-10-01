@@ -140,6 +140,34 @@ jobs:
       - name: Build release APK smoke artifact
         run: flutter build apk --release
 
+      - name: Verify release artifact version and signatures
+        env:
+          EXPECTED_VERSION: 1.0.10
+          EXPECTED_VERSION_CODE: 26
+        run: |
+          set -euo pipefail
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$AAB"
+          test -s "$APK"
+
+          # A malformed or unsigned bundle must never be uploaded as the
+          # Play release artifact.
+          jarsigner -verify -strict -verbose:summary "$AAB"
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK"
+
+          AAPT2="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -1)"
+          test -x "$AAPT2"
+          BADGING="$($AAPT2 dump badging "$APK")"
+          grep -F "package: name='com.zerolog.app'" <<<"$BADGING"
+          grep -F "versionName='$EXPECTED_VERSION'" <<<"$BADGING"
+          grep -F "versionCode='$EXPECTED_VERSION_CODE'" <<<"$BADGING"
+
+          echo "Release artifact signature and version verification passed."
+
       - name: Upload Play Store AAB
         uses: actions/upload-artifact@v4
         with:
