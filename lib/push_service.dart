@@ -195,6 +195,23 @@ class ZeroLogPushService {
     }
   }
 
+  /// True while an incoming/outgoing CallScreen is on screen.
+  /// Used by the app-wide privacy lock gate to avoid throwing a
+  /// PIN/biometric prompt over an active call.
+  static bool callScreenActive = false;
+
+  /// Read-only check for a call that has been signalled but whose
+  /// CallScreen has not finished mounting yet.
+  static Future<bool> hasPendingCall() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(pendingCallKey);
+      return raw != null && raw.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> stopOutgoingCallTone() async {
     try {
       await _systemChannel.invokeMethod('stopOutgoingCallTone');

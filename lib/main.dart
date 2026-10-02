@@ -39,6 +39,7 @@ part 'message_input.dart';
 part 'models.dart';
 part 'profile_controller.dart';
 part 'privacy_lock.dart';
+part 'app_lock_gate.dart';
 
 
 void zeroLog(Object? message) {
