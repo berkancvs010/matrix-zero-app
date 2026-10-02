@@ -23,6 +23,23 @@ class ZeroLogPushService {
 
   static Future<void> Function(Map<String, dynamic>)? _incomingCallHandler;
 
+  // Serialize Flutter-side pending-call mutations. Without this guard, an
+  // older callStatus can read call A, yield on SharedPreferences, and then
+  // remove the pending record after a newer call B has already replaced it.
+  static Future<void> _pendingCallMutation = Future<void>.value();
+
+  static Future<T> _withPendingCallMutation<T>(
+    Future<T> Function() operation,
+  ) {
+    final previous = _pendingCallMutation;
+    final next = previous.then((_) => operation());
+    _pendingCallMutation = next.then<void>(
+      (_) {},
+      onError: (_, _) {},
+    );
+    return next;
+  }
+
   static String? get currentToken => _currentToken;
 
   static void setIncomingCallHandler(
@@ -42,7 +59,9 @@ class ZeroLogPushService {
       final prefs = await SharedPreferences.getInstance();
 
       if (type == 'callInvite') {
-        return await prefs.setString(pendingCallKey, payload);
+        return await _withPendingCallMutation<bool>(
+          () => prefs.setString(pendingCallKey, payload),
+        );
       }
 
       if (type != 'privateMessage' && type != 'privateFileMessage') {
@@ -301,8 +320,10 @@ class ZeroLogPushService {
       );
 
       if (requestPermissions) {
+        // Notification permission is requested once here. Full-screen call
+        // intent permission is handled by our native bridge below so the
+        // Android 14+ settings flow cannot be triggered twice.
         await android.requestNotificationsPermission();
-        await android.requestFullScreenIntentPermission();
       }
     }
 
@@ -407,11 +428,6 @@ class ZeroLogPushService {
       return null;
     });
 
-    // Android native runtime permissions:
-    // notification + microphone.
-    // This runs immediately when the application starts.
-    await requestStartupPermissions();
-
     // Xiaomi / Android 11 (MIUI) çağrı izin kurulumunu başlangıçta kontrol et.
     await requestMiuiCallPermissionSetup();
 
@@ -437,8 +453,7 @@ class ZeroLogPushService {
         if (normalized['from'].toString().isNotEmpty &&
             normalized['to'].toString().isNotEmpty &&
             normalized['callId'].toString().isNotEmpty) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(pendingCallKey, jsonEncode(normalized));
+          await storeNotificationPayload(jsonEncode(normalized));
 
           zeroLog(
             '[FCM][native-intent] pending incoming call stored '
@@ -520,8 +535,10 @@ class ZeroLogPushService {
       } else if (type == 'callStatus') {
         // Lifecycle/control event only. Stop any local incoming-call state;
         // never create a status notification for call termination.
-        await cancelIncomingCallNotification();
-        await clearPendingCall();
+        await cancelIncomingCallNotification(
+          callId: message.data['callId']?.toString(),
+        );
+        await clearPendingCall(callId: message.data['callId']?.toString());
       } else if (type == 'privateMessage') {
         // Private message notifications have a single authority: the native
         // FirebaseMessagingService. This prevents duplicate notifications
@@ -626,8 +643,10 @@ class ZeroLogPushService {
   static Future<void> showCallStatusNotification(RemoteMessage message) async {
     // Kept as a compatibility wrapper for existing callers.
     // callStatus is a lifecycle/control event, not a user notification.
-    await cancelIncomingCallNotification();
-    await clearPendingCall();
+    await cancelIncomingCallNotification(
+      callId: message.data['callId']?.toString(),
+    );
+    await clearPendingCall(callId: message.data['callId']?.toString());
   }
 
   // Legacy compatibility helper. File-transfer notifications are owned by the
@@ -827,24 +846,41 @@ class ZeroLogPushService {
     }
   }
 
-  static Future<void> cancelIncomingCallNotification() async {
+  static Future<void> cancelIncomingCallNotification({String? callId}) async {
     try {
       await _initializeNotifications(requestPermissions: false);
       await _notifications.cancel(id: callNotificationId);
     } catch (_) {}
 
     try {
-      await _systemChannel.invokeMethod('stopIncomingCallTone');
+      await _systemChannel.invokeMethod(
+        'cancelIncomingCallNotification',
+        <String, dynamic>{'callId': callId?.trim() ?? ''},
+      );
     } catch (e) {
-      zeroLog('[CALL] native incoming tone stop failed: $e');
+      zeroLog('[CALL] native incoming notification stop failed: $e');
     }
   }
 
-  static Future<void> clearPendingCall() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(pendingCallKey);
-    } catch (_) {}
+  /// Clears only the matching pending call. A late status for an older call
+  /// must never remove a newer incoming call waiting on the lock screen.
+  static Future<void> clearPendingCall({String? callId}) async {
+    final expected = callId?.trim() ?? '';
+    if (expected.isEmpty) return;
+
+    await _withPendingCallMutation<void>(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(pendingCallKey);
+        if (raw == null || raw.isEmpty) return;
+
+        final decoded = jsonDecode(raw);
+        if (decoded is Map &&
+            decoded['callId']?.toString().trim() == expected) {
+          await prefs.remove(pendingCallKey);
+        }
+      } catch (_) {}
+    });
   }
 
   static Future<void> pullPendingNativeMessage() async {
@@ -937,11 +973,12 @@ class ZeroLogPushService {
         return null;
       }
 
-      await prefs.remove(pendingCallKey);
-
       final decoded = jsonDecode(raw);
 
       if (decoded is Map) {
+        // Keep the pending record until the CallScreen reaches a terminal
+        // path and clears this exact callId. Consuming it here can race with
+        // a newer callInvite that arrives while the UI is opening.
         return Map<String, dynamic>.from(decoded);
       }
     } catch (_) {}

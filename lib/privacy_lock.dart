@@ -50,11 +50,53 @@ class ZeroLogPrivacyLock {
     final salt = base64UrlEncode(saltBytes);
     final hash = _hashPin(normalized, salt);
 
-    await _storage.write(key: _saltKey, value: salt);
-    await _storage.write(key: _hashKey, value: hash);
-    await _storage.delete(key: _failedAttemptsKey);
-    await _storage.delete(key: _lockUntilKey);
-    await _setBiometricEnabled(biometric);
+    // SecureStorage writes are separate platform operations. Keep a rollback
+    // snapshot so a failed reconfiguration cannot leave a new salt with the
+    // old hash (or otherwise destroy the previously working PIN).
+    final oldSalt = await _storage.read(key: _saltKey);
+    final oldHash = await _storage.read(key: _hashKey);
+    final oldBiometric = await _storage.read(key: _biometricKey);
+    final oldFailedAttempts = await _storage.read(key: _failedAttemptsKey);
+    final oldLockUntil = await _storage.read(key: _lockUntilKey);
+
+    try {
+      await _storage.write(key: _saltKey, value: salt);
+      await _storage.write(key: _hashKey, value: hash);
+      await _storage.delete(key: _failedAttemptsKey);
+      await _storage.delete(key: _lockUntilKey);
+      await _setBiometricEnabled(biometric);
+    } catch (_) {
+      try {
+        if (oldSalt == null) {
+          await _storage.delete(key: _saltKey);
+        } else {
+          await _storage.write(key: _saltKey, value: oldSalt);
+        }
+        if (oldHash == null) {
+          await _storage.delete(key: _hashKey);
+        } else {
+          await _storage.write(key: _hashKey, value: oldHash);
+        }
+        if (oldBiometric == null) {
+          await _storage.delete(key: _biometricKey);
+        } else {
+          await _storage.write(key: _biometricKey, value: oldBiometric);
+        }
+        if (oldFailedAttempts == null) {
+          await _storage.delete(key: _failedAttemptsKey);
+        } else {
+          await _storage.write(key: _failedAttemptsKey, value: oldFailedAttempts);
+        }
+        if (oldLockUntil == null) {
+          await _storage.delete(key: _lockUntilKey);
+        } else {
+          await _storage.write(key: _lockUntilKey, value: oldLockUntil);
+        }
+      } catch (_) {
+        // Preserve the original write error; rollback is best-effort.
+      }
+      rethrow;
+    }
   }
 
   static String _hashPin(String pin, String salt) {
@@ -77,51 +119,10 @@ class ZeroLogPrivacyLock {
       if (!await isConfigured()) {
         if (!context.mounted) return false;
         final configured = await _showSetup(context);
-        if (!configured) return false;
-      }
-
-      final biometricEnabledForLock = await biometricEnabled();
-      final biometricReady =
-          biometricEnabledForLock && await biometricAvailable();
-
-      // A PIN is always stored when the privacy lock is configured. If
-      // biometric authentication is enabled, it is a preferred method, not
-      // the only method: the user can deliberately choose the PIN or use it
-      // as a fallback after an unsuccessful biometric attempt.
-      if (biometricReady) {
-        if (!context.mounted) return false;
-
-        final method = await _showAuthenticationMethodChoice(context);
-        if (method == null) return false;
-
-        if (method == 'pin') {
-          if (!context.mounted) return false;
-          return _showPinPrompt(context);
-        }
-
-        try {
-          final biometricOk = await _auth.authenticate(
-            localizedReason: 'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
-            options: const AuthenticationOptions(
-              biometricOnly: true,
-              stickyAuth: false,
-            ),
-          );
-
-          if (biometricOk) return true;
-
-          // The biometric prompt can be cancelled, rejected, or exhausted
-          // after failed attempts. The PIN remains a deliberate second
-          // authentication method and must stay available.
-          if (!context.mounted) return false;
-          return _showPinPrompt(context);
-        } on PlatformException {
-          if (!context.mounted) return false;
-          return _showPinPrompt(context);
-        } catch (_) {
-          if (!context.mounted) return false;
-          return _showPinPrompt(context);
-        }
+        // Creating the lock is already an explicit local authentication
+        // setup action. Do not immediately open a second authentication
+        // dialog on the same screen.
+        return configured;
       }
 
       if (!context.mounted) return false;
@@ -131,48 +132,30 @@ class ZeroLogPrivacyLock {
     }
   }
 
-  static Future<String?> _showAuthenticationMethodChoice(
-    BuildContext context,
-  ) async {
-    if (!context.mounted) return null;
-    final theme = ThemeController.instance.data;
-
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Gizlilik Merkezi'),
-          content: Text(
-            'Doğrulama yöntemini seçin. PIN, biyometri başarısız olduğunda da kullanılabilir.',
-            style: TextStyle(
-              color: theme.text.withValues(alpha: 0.68),
-              height: 1.4,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, 'pin'),
-              child: const Text('PIN ile giriş'),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, 'biometric'),
-              icon: const Icon(Icons.fingerprint_rounded),
-              label: const Text('Biyometri ile giriş'),
-            ),
-          ],
-        );
-      },
-    );
+  /// Replaces the local PIN and biometric preference after the privacy page
+  /// has already authenticated the user.
+  static Future<bool> reconfigure(BuildContext context) async {
+    if (authenticationInProgress) return false;
+    authenticationInProgress = true;
+    try {
+      return await _showSetup(context, editing: true);
+    } finally {
+      authenticationInProgress = false;
+    }
   }
 
-  static Future<bool> _showSetup(BuildContext context) async {
+  static Future<bool> _showSetup(
+    BuildContext context, {
+    bool editing = false,
+  }) async {
     final biometric = await biometricAvailable();
+    if (!context.mounted) return false;
     final controller = TextEditingController();
     final confirmController = TextEditingController();
-    if (!context.mounted) return false;
-    var useBiometric = biometric;
+    var useBiometric = biometric && await biometricEnabled();
     var error = '';
+
+    if (!context.mounted) return false;
 
     final result = await showDialog<bool>(
       context: context,
@@ -182,14 +165,16 @@ class ZeroLogPrivacyLock {
           builder: (context, setState) {
             final theme = ThemeController.instance.data;
             return AlertDialog(
-              title: const Text('Gizlilik kilidini oluştur'),
+              title: Text(editing ? 'Gizlilik kilidini değiştir' : 'Gizlilik kilidini oluştur'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Gizlilik Merkezi yalnızca sizin doğrulamanızdan sonra açılır. 6 haneli bir PIN belirleyin.',
+                      editing
+                          ? 'Mevcut ayarlarınızın yerine yeni 6 haneli PIN ve doğrulama yöntemini seçin.'
+                          : 'Gizlilik Merkezi yalnızca sizin doğrulamanızdan sonra açılır. 6 haneli bir PIN belirleyin.',
                       style: TextStyle(
                         color: theme.text.withValues(alpha: 0.62),
                         height: 1.4,
@@ -259,11 +244,20 @@ class ZeroLogPrivacyLock {
                       setState(() => error = 'PIN kodları eşleşmiyor.');
                       return;
                     }
-                    await configurePin(pin, biometric: useBiometric);
-                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                    try {
+                      await configurePin(pin, biometric: useBiometric);
+                      if (dialogContext.mounted) {
+                        Navigator.pop(dialogContext, true);
+                      }
+                    } catch (_) {
+                      if (dialogContext.mounted) {
+                        setState(() => error =
+                            'Güvenlik ayarları kaydedilemedi. Mevcut ayarlar korunuyor.');
+                      }
+                    }
                   },
                   icon: const Icon(Icons.lock_outline_rounded),
-                  label: const Text('Kilidi oluştur'),
+                  label: Text(editing ? 'Ayarları kaydet' : 'Kilidi oluştur'),
                 ),
               ],
             );
@@ -287,8 +281,14 @@ class ZeroLogPrivacyLock {
         0;
     var lockUntilMs =
         int.tryParse(await _storage.read(key: _lockUntilKey) ?? '0') ?? 0;
+    // The login screen always offers an explicit biometric action when
+    // the device supports/enrolls biometrics. The privacy setting controls
+    // the preferred method, not whether a user is permanently forbidden from
+    // choosing the other method on this screen.
+    final biometricAvailableOnDevice = await biometricAvailable();
     Timer? ticker;
     bool submittingPin = false;
+    bool authenticatingBiometric = false;
 
     Future<void> persistFailure() async {
       attempts += 1;
@@ -321,7 +321,7 @@ class ZeroLogPrivacyLock {
       BuildContext dialogContext,
       void Function(void Function()) setState,
     ) async {
-      if (submittingPin) return;
+      if (submittingPin || authenticatingBiometric) return;
 
       final pin = controller.text.trim();
       if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
@@ -360,19 +360,84 @@ class ZeroLogPrivacyLock {
       }
     }
 
+    Future<void> authenticateWithBiometric(
+      BuildContext dialogContext,
+      void Function(void Function()) setState,
+    ) async {
+      if (!biometricAvailableOnDevice || submittingPin || authenticatingBiometric) return;
+      if (lockUntilMs > DateTime.now().millisecondsSinceEpoch) return;
+
+      authenticatingBiometric = true;
+      pinFocusNode.unfocus();
+      if (dialogContext.mounted) setState(() {});
+
+      try {
+        final ok = await _auth.authenticate(
+          localizedReason: 'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
+          options: const AuthenticationOptions(
+            biometricOnly: true,
+            stickyAuth: false,
+          ),
+        );
+
+        if (!dialogContext.mounted) return;
+        if (ok) {
+          await clearFailures();
+          ticker?.cancel();
+          if (dialogContext.mounted) {
+            Navigator.pop(dialogContext, true);
+          }
+        } else {
+          setState(() => error = 'Biyometrik doğrulama tamamlanmadı. PIN ile devam edebilirsiniz.');
+        }
+      } on PlatformException catch (e) {
+        if (!dialogContext.mounted) return;
+        final cancelled = e.code == 'auth_canceled' || e.code == 'user_canceled';
+        setState(() {
+          error = cancelled
+              ? 'Biyometrik doğrulama iptal edildi. PIN ile devam edebilirsiniz.'
+              : 'Biyometrik doğrulama kullanılamıyor. PIN ile devam edebilirsiniz.';
+        });
+      } catch (_) {
+        if (dialogContext.mounted) {
+          setState(() => error = 'Biyometrik doğrulama kullanılamıyor. PIN ile devam edebilirsiniz.');
+        }
+      } finally {
+        authenticatingBiometric = false;
+        if (dialogContext.mounted) setState(() {});
+      }
+    }
+
     if (!context.mounted) {
       pinFocusNode.dispose();
+      controller.dispose();
       return false;
     }
+
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (dialogContext.mounted && !pinFocusNode.hasFocus) {
+          if (!dialogContext.mounted) return;
+
+          // Dialogs may implicitly focus the first TextField on some Android
+          // versions. When biometric login is available, explicitly remove
+          // that focus so the keyboard cannot flash open and immediately
+          // close while the biometric button is shown.
+          if (biometricAvailableOnDevice) {
+            pinFocusNode.unfocus();
+            FocusScope.of(dialogContext).unfocus();
+            return;
+          }
+
+          // PIN-only mode intentionally focuses the field once after the
+          // dialog is mounted so the keyboard opens exactly once.
+          if (!pinFocusNode.hasFocus) {
             pinFocusNode.requestFocus();
           }
         });
+
         return StatefulBuilder(
           builder: (context, setState) {
             final remaining = lockUntilMs > DateTime.now().millisecondsSinceEpoch
@@ -385,12 +450,21 @@ class ZeroLogPrivacyLock {
 
             if (locked && ticker == null) {
               ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-                if (!dialogContext.mounted) return;
+                if (!dialogContext.mounted) {
+                  ticker?.cancel();
+                  ticker = null;
+                  return;
+                }
+                if (DateTime.now().millisecondsSinceEpoch >= lockUntilMs) {
+                  ticker?.cancel();
+                  ticker = null;
+                }
                 setState(() {});
               });
             }
 
-            final seconds = remaining.inSeconds + (remaining.inMilliseconds % 1000 == 0 ? 0 : 1);
+            final seconds = remaining.inSeconds +
+                (remaining.inMilliseconds % 1000 == 0 ? 0 : 1);
 
             return AlertDialog(
               title: Row(
@@ -404,7 +478,7 @@ class ZeroLogPrivacyLock {
                     child: Text(
                       locked
                           ? 'Gizlilik Merkezi geçici olarak kilitli'
-                          : 'PIN ile doğrulama',
+                          : 'Gizlilik Merkezi doğrulaması',
                     ),
                   ),
                 ],
@@ -421,14 +495,16 @@ class ZeroLogPrivacyLock {
                   const SizedBox(height: 14),
                   Text(
                     locked
-                        ? 'Çok sayıda hatalı deneme nedeniyle geçici olarak kilitlendi.'
-                        : 'Devam etmek için 6 haneli PIN kodunuzu girin.',
+                        ? 'Çok sayıda hatalı PIN denemesi nedeniyle geçici olarak kilitlendi.'
+                        : biometricAvailableOnDevice
+                            ? 'PIN girin veya aşağıdaki biyometrik doğrulamayı kullanın.'
+                            : 'Devam etmek için 6 haneli PIN kodunuzu girin.',
                     textAlign: TextAlign.center,
                   ),
                   if (locked) ...[
                     const SizedBox(height: 10),
                     Text(
-                      'Tekrar deneyebilmeniz için yaklaşık $seconds saniye kaldı.',
+                      'PIN tekrar denemesi için yaklaşık $seconds saniye kaldı.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
@@ -445,6 +521,7 @@ class ZeroLogPrivacyLock {
                       obscureText: true,
                       maxLength: 6,
                       textInputAction: TextInputAction.done,
+                      enabled: !authenticatingBiometric,
                       onChanged: (_) {
                         if (error.isNotEmpty) setState(() => error = '');
                         setState(() {});
@@ -453,10 +530,30 @@ class ZeroLogPrivacyLock {
                         submitPin(dialogContext, setState),
                       ),
                       decoration: InputDecoration(
-                        labelText: 'PIN',
+                        labelText: '6 haneli PIN',
                         prefixIcon: const Icon(Icons.pin_outlined),
                         errorText: error.isEmpty ? null : error,
                         counterText: '',
+                      ),
+                    ),
+                  ],
+                  if (biometricAvailableOnDevice) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: authenticatingBiometric || locked
+                            ? null
+                            : () => authenticateWithBiometric(
+                                  dialogContext,
+                                  setState,
+                                ),
+                        icon: const Icon(Icons.fingerprint_rounded),
+                        label: Text(
+                          authenticatingBiometric
+                              ? 'Biyometrik doğrulanıyor…'
+                              : 'Parmak izi / biyometri ile giriş',
+                        ),
                       ),
                     ),
                   ],
@@ -464,15 +561,19 @@ class ZeroLogPrivacyLock {
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    ticker?.cancel();
-                    Navigator.pop(dialogContext, false);
-                  },
+                  onPressed: authenticatingBiometric
+                      ? null
+                      : () {
+                          ticker?.cancel();
+                          Navigator.pop(dialogContext, false);
+                        },
                   child: const Text('İptal'),
                 ),
                 if (!locked)
                   FilledButton.icon(
-                    onPressed: controller.text.trim().length == 6 && !submittingPin
+                    onPressed: controller.text.trim().length == 6 &&
+                            !submittingPin &&
+                            !authenticatingBiometric
                         ? () => submitPin(dialogContext, setState)
                         : null,
                     icon: const Icon(Icons.lock_open_rounded),

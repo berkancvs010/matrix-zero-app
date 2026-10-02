@@ -520,7 +520,7 @@ class _CallScreenState extends State<CallScreen> {
           await _initProximitySensor();
         }
 
-        await ZeroLogPushService.cancelIncomingCallNotification();
+        await ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
         return;
       }
 
@@ -588,7 +588,7 @@ class _CallScreenState extends State<CallScreen> {
         await _initProximitySensor();
       }
 
-      await ZeroLogPushService.cancelIncomingCallNotification();
+      await ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
     } catch (e) {
       zeroLog('[CALL][ANSWER] failed: $e');
       if (mounted && !_closing) {
@@ -654,8 +654,8 @@ class _CallScreenState extends State<CallScreen> {
         'outgoing=${widget.outgoing}',
       );
 
-      ZeroLogPushService.clearPendingCall();
-      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearPendingCall(callId: widget.callId);
+      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
       ZeroLogPushService.clearCallLockScreen();
       if (_videoEnabled) {
         ZeroLogPushService.setCallScreenAwake(true);
@@ -674,8 +674,8 @@ class _CallScreenState extends State<CallScreen> {
         await _startOutgoingOffer();
       }
     } else if (type == 'callRejected') {
-      ZeroLogPushService.clearPendingCall();
-      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearPendingCall(callId: widget.callId);
+      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
       ZeroLogPushService.clearCallLockScreen();
       _outgoingTimeoutTimer?.cancel();
       _outgoingTimeoutTimer = null;
@@ -719,8 +719,8 @@ class _CallScreenState extends State<CallScreen> {
     } else if (type == 'callIce') {
       _handleIceCandidate(data);
     } else if (type == 'callTimeout') {
-      ZeroLogPushService.clearPendingCall();
-      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearPendingCall(callId: widget.callId);
+      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
       ZeroLogPushService.clearCallLockScreen();
       _outgoingTimeoutTimer?.cancel();
       _outgoingTimeoutTimer = null;
@@ -731,8 +731,8 @@ class _CallScreenState extends State<CallScreen> {
         _finish(sendSignal: false);
       }
     } else if (type == 'callEnded') {
-      ZeroLogPushService.clearPendingCall();
-      ZeroLogPushService.cancelIncomingCallNotification();
+      ZeroLogPushService.clearPendingCall(callId: widget.callId);
+      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
       ZeroLogPushService.clearCallLockScreen();
       _finish(sendSignal: false);
     }
@@ -940,6 +940,12 @@ class _CallScreenState extends State<CallScreen> {
     // frozen indefinitely on some Android devices.
     _closing = true;
 
+    // Clear only this call's pending record immediately. The callId guard
+    // prevents an older CallScreen from deleting a newer incoming call.
+    unawaited(
+      ZeroLogPushService.clearPendingCall(callId: widget.callId),
+    );
+
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
 
@@ -964,7 +970,7 @@ class _CallScreenState extends State<CallScreen> {
 
     await ZeroLogPushService.stopOutgoingCallTone();
     await ZeroLogPushService.stopCallForegroundService();
-    await ZeroLogPushService.cancelIncomingCallNotification();
+    await ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
     await ZeroLogPushService.clearCallLockScreen();
 
     await _proximitySubscription?.cancel();
