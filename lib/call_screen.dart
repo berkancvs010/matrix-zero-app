@@ -53,8 +53,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _proximityScreenOffEnabled = false;
 
   Future<void> _initProximitySensor() async {
-    if (_videoEnabled ||
-        _proximitySubscription != null ||
+    if (_proximitySubscription != null ||
         _proximityScreenOffEnabled ||
         _closing ||
         !mounted) {
@@ -62,9 +61,7 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     try {
-      // Proximity ekran kontrolünü yalnızca sesli aramada başlat. Görüntülü
-      // aramada ekranın kapanmaması gerekir (kullanıcı görüntüyü izliyor),
-      // bu yüzden video aramalarda bu sensörü hiç etkinleştirmiyoruz.
+      // Proximity ekran kontrolünü yalnızca aktif aramada başlat.
       await ProximitySensor.setProximityScreenOff(true);
 
       if (!mounted || _closing) {
@@ -90,23 +87,6 @@ class _CallScreenState extends State<CallScreen> {
         }
       });
     } catch (_) {}
-  }
-
-  // Safety net for the rare path where a call is initially treated as
-  // audio-only (proximity screen-off already enabled) and only later
-  // turns out to be a video call once the real SDP offer arrives (see the
-  // 'callOffer' handler below). Video calls must never use proximity-based
-  // screen-off, since the user needs to keep watching the screen.
-  void _disableProximityScreenOffForVideo() {
-    if (!_videoEnabled) return;
-
-    _proximitySubscription?.cancel();
-    _proximitySubscription = null;
-
-    if (_proximityScreenOffEnabled) {
-      ProximitySensor.setProximityScreenOff(false);
-      _proximityScreenOffEnabled = false;
-    }
   }
 
   void _flushPendingOutgoingIce() {
@@ -144,14 +124,6 @@ class _CallScreenState extends State<CallScreen> {
 
     _videoEnabled = widget.videoCall ||
         (widget.incomingOffer?.contains('m=video') ?? false);
-
-    // Only video calls need to stay awake. Audio calls keep their existing
-    // proximity/screen behavior unchanged. Do not put an await here: call
-    // setup must never be blocked by the optional screen-awake bridge.
-    if (_videoEnabled) {
-      ZeroLogPushService.setCallScreenAwake(true);
-    }
-    ZeroLogPushService.callScreenActive = true;
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -327,15 +299,11 @@ class _CallScreenState extends State<CallScreen> {
 
       if (_closing) return;
 
-      // Audio-only calls start on the handset. Video calls start on
-      // speaker by default so the user can hear the remote video call
-      // without having to hunt for the speaker control.
+      // Start with normal handset audio. Speaker can be enabled
+      // explicitly from the call screen.
       try {
-        await Helper.setSpeakerphoneOn(_videoEnabled);
+        await Helper.setSpeakerphoneOn(false);
       } catch (_) {}
-      if (mounted) {
-        setState(() => _speakerOn = _videoEnabled);
-      }
     } catch (e) {
       // Keep the failure inside the Flutter layer instead of leaving
       // partially initialized WebRTC objects behind.
@@ -388,10 +356,6 @@ class _CallScreenState extends State<CallScreen> {
       'from': widget.myNick,
       'to': widget.targetNick,
       'callId': callId,
-      // Keep the call type in the authoritative signaling state from the
-      // very first invite. The callee may receive the invite before an SDP
-      // offer exists, so it cannot reliably infer video from SDP yet.
-      'video': _videoEnabled,
     });
 
     if (!inviteSent) {
@@ -520,7 +484,7 @@ class _CallScreenState extends State<CallScreen> {
           await _initProximitySensor();
         }
 
-        await ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
+        await ZeroLogPushService.cancelIncomingCallNotification();
         return;
       }
 
@@ -580,15 +544,10 @@ class _CallScreenState extends State<CallScreen> {
           _accepted = true;
         });
 
-        ZeroLogPushService.clearCallLockScreen();
-        if (_videoEnabled) {
-          ZeroLogPushService.setCallScreenAwake(true);
-        }
-
         await _initProximitySensor();
       }
 
-      await ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
+      await ZeroLogPushService.cancelIncomingCallNotification();
     } catch (e) {
       zeroLog('[CALL][ANSWER] failed: $e');
       if (mounted && !_closing) {
@@ -646,7 +605,6 @@ class _CallScreenState extends State<CallScreen> {
     if (type == 'callAccepted') {
       if (data['video'] == true || data['video']?.toString() == 'true') {
         _videoEnabled = true;
-        _disableProximityScreenOffForVideo();
       }
       zeroLog(
         '[CALL][ACCEPTED] received '
@@ -654,12 +612,9 @@ class _CallScreenState extends State<CallScreen> {
         'outgoing=${widget.outgoing}',
       );
 
-      ZeroLogPushService.clearPendingCall(callId: widget.callId);
-      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
       ZeroLogPushService.clearCallLockScreen();
-      if (_videoEnabled) {
-        ZeroLogPushService.setCallScreenAwake(true);
-      }
       if (widget.outgoing) {
         _outgoingTimeoutTimer?.cancel();
         _outgoingTimeoutTimer = null;
@@ -674,8 +629,8 @@ class _CallScreenState extends State<CallScreen> {
         await _startOutgoingOffer();
       }
     } else if (type == 'callRejected') {
-      ZeroLogPushService.clearPendingCall(callId: widget.callId);
-      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
       ZeroLogPushService.clearCallLockScreen();
       _outgoingTimeoutTimer?.cancel();
       _outgoingTimeoutTimer = null;
@@ -707,10 +662,6 @@ class _CallScreenState extends State<CallScreen> {
         } else if (sdp?.contains('m=video') == true) {
           _videoEnabled = true;
         }
-        if (_videoEnabled) {
-          ZeroLogPushService.setCallScreenAwake(true);
-        }
-        _disableProximityScreenOffForVideo();
 
         if (sdp != null && sdp.isNotEmpty) {
           _handleIncomingOffer(sdp);
@@ -719,8 +670,8 @@ class _CallScreenState extends State<CallScreen> {
     } else if (type == 'callIce') {
       _handleIceCandidate(data);
     } else if (type == 'callTimeout') {
-      ZeroLogPushService.clearPendingCall(callId: widget.callId);
-      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
       ZeroLogPushService.clearCallLockScreen();
       _outgoingTimeoutTimer?.cancel();
       _outgoingTimeoutTimer = null;
@@ -731,8 +682,8 @@ class _CallScreenState extends State<CallScreen> {
         _finish(sendSignal: false);
       }
     } else if (type == 'callEnded') {
-      ZeroLogPushService.clearPendingCall(callId: widget.callId);
-      ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
+      ZeroLogPushService.clearPendingCall();
+      ZeroLogPushService.cancelIncomingCallNotification();
       ZeroLogPushService.clearCallLockScreen();
       _finish(sendSignal: false);
     }
@@ -933,18 +884,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _finish({bool sendSignal = true}) async {
     if (_closing) return;
 
-    // Mark the call as closing immediately and send the terminal signal
-    // before doing any potentially slow WebRTC/native cleanup. The old
-    // implementation awaited foreground-service/notification/WebRTC
-    // teardown before popping the route, which could leave the call screen
-    // frozen indefinitely on some Android devices.
     _closing = true;
-
-    // Clear only this call's pending record immediately. The callId guard
-    // prevents an older CallScreen from deleting a newer incoming call.
-    unawaited(
-      ZeroLogPushService.clearPendingCall(callId: widget.callId),
-    );
 
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
@@ -952,25 +892,9 @@ class _CallScreenState extends State<CallScreen> {
     _callDurationTimer?.cancel();
     _callDurationTimer = null;
 
-    if (sendSignal) {
-      WsClient.instance.send({
-        'type': 'callEnd',
-        'from': widget.myNick,
-        'to': widget.targetNick,
-        'callId': widget.callId,
-      });
-    }
-
-    // Leave the call route immediately. dispose() is deliberately allowed
-    // to run before the slower resource cleanup below so the user never
-    // gets trapped on a frozen call screen.
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-
     await ZeroLogPushService.stopOutgoingCallTone();
     await ZeroLogPushService.stopCallForegroundService();
-    await ZeroLogPushService.cancelIncomingCallNotification(callId: widget.callId);
+    await ZeroLogPushService.cancelIncomingCallNotification();
     await ZeroLogPushService.clearCallLockScreen();
 
     await _proximitySubscription?.cancel();
@@ -984,6 +908,15 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     _pendingOutgoingIceCandidates.clear();
+
+    if (sendSignal) {
+      WsClient.instance.send({
+        'type': 'callEnd',
+        'from': widget.myNick,
+        'to': widget.targetNick,
+        'callId': widget.callId,
+      });
+    }
 
     final stream = _localStream;
     _localStream = null;
@@ -1008,16 +941,6 @@ class _CallScreenState extends State<CallScreen> {
     _remoteRenderer.srcObject = null;
     _remoteStream = null;
 
-    // _finish() owns cleanup after it has popped the route. dispose() skips
-    // these objects when _closing is already true, so explicitly dispose the
-    // renderers here as part of the same ownership path.
-    try {
-      await _localRenderer.dispose();
-    } catch (_) {}
-    try {
-      await _remoteRenderer.dispose();
-    } catch (_) {}
-
     final peer = _peerConnection;
     _peerConnection = null;
 
@@ -1030,6 +953,10 @@ class _CallScreenState extends State<CallScreen> {
         await peer.dispose();
       } catch (_) {}
     }
+
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   void _showError(String text) {
@@ -1040,13 +967,6 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
-    // _finish() pops the route before native/WebRTC teardown so a slow
-    // platform call cannot freeze the UI. Flutter invokes dispose() during
-    // that pop; let _finish() retain ownership of the resources in this
-    // path, otherwise tracks/peer/renderers are disposed twice and the later
-    // cleanup can race a native WebRTC shutdown.
-    final finishOwnsResources = _closing;
-
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
 
@@ -1056,10 +976,6 @@ class _CallScreenState extends State<CallScreen> {
     ZeroLogPushService.stopOutgoingCallTone();
     ZeroLogPushService.stopCallForegroundService();
     ZeroLogPushService.clearCallLockScreen();
-    if (_videoEnabled) {
-      ZeroLogPushService.setCallScreenAwake(false);
-    }
-    ZeroLogPushService.callScreenActive = false;
 
     _subscription.cancel();
     _proximitySubscription?.cancel();
@@ -1069,34 +985,32 @@ class _CallScreenState extends State<CallScreen> {
       _proximityScreenOffEnabled = false;
     }
 
-    if (!finishOwnsResources) {
-      final stream = _localStream;
-      _localStream = null;
+    final stream = _localStream;
+    _localStream = null;
 
-      if (stream != null) {
-        for (final track in stream.getTracks()) {
-          try {
-            track.stop();
-          } catch (_) {}
-        }
-
+    if (stream != null) {
+      for (final track in stream.getTracks()) {
         try {
-          stream.dispose();
+          track.stop();
         } catch (_) {}
       }
 
-      final peer = _peerConnection;
-      _peerConnection = null;
-
-      if (peer != null) {
-        try {
-          peer.close();
-        } catch (_) {}
-      }
-
-      _localRenderer.dispose();
-      _remoteRenderer.dispose();
+      try {
+        stream.dispose();
+      } catch (_) {}
     }
+
+    final peer = _peerConnection;
+    _peerConnection = null;
+
+    if (peer != null) {
+      try {
+        peer.close();
+      } catch (_) {}
+    }
+
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
 
     super.dispose();
   }

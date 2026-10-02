@@ -1,18 +1,3 @@
-## Final audit — PIN + biometric dual authentication (2026-10-01)
-
-- Re-audited the complete privacy-lock authentication flow.
-- PIN remains available as a direct choice whenever biometric authentication is enabled.
-- Failed/cancelled/errored biometric authentication falls back to the existing 6-digit PIN flow.
-- Added a PIN submission guard to prevent duplicate concurrent verification attempts.
-- Invalid PIN input shorter than 6 digits no longer consumes a failed-attempt counter.
-- Existing persistent PIN lockout, biometric-only platform prompt, account cleanup, call-screen bypass and app-lock lifecycle protections remain unchanged.
-
-## Privacy authentication — PIN + biometric
-- When biometric authentication is enabled, the user can now choose **PIN or biometric** on every unlock.
-- If biometric authentication fails, is cancelled, or raises a platform error, the app immediately offers the existing 6-digit PIN flow.
-- PIN lockout rules remain enforced for PIN attempts; successful biometric authentication is not blocked by a PIN lockout.
-- The PIN remains the permanent fallback because it is stored when the privacy lock is configured.
-
 # ZeroLog 1.0.10+26 — Görüntülü görüşme ve profesyonel arayüz (2026-09-30)
 
 - WebRTC tabanlı gerçek görüntülü görüşme eklendi.
@@ -23,9 +8,6 @@
 - Aktif görüşmeler için Android foreground service eklendi; Android 14+ kamera/mikrofon foreground-service gereksinimleri desteklendi.
 - Tema önizlemeleri, Gizlilik Merkezi/PIN-biyometri kilidi ve profesyonel web ana sayfa yenilemesi korunmuştur.
 - `/download/` indirme sayfası ve 443 canonical web bağlantıları doğrulandı.
-- Çağrı sonlandırmada route kapanışı ile WebRTC/native kaynak temizliği arasındaki sahiplik yarışı giderildi; kapanış sonrası renderer temizliği tek sahip üzerinden tamamlanır.
-- Çağrı davetinde `video` alanı ilk sinyale eklendi; karşı taraf SDP gelmeden de doğru çağrı tipini bilir ve görüntülü aramada hoparlör varsayılanı korunur.
-- PIN/biyometri akışında strict authentication mode, lifecycle yarış koruması ve 6 haneli PIN buton doğrulaması korunmuştur.
 
 ## ZeroLog 1.0.10 — Privacy / UI / Web refresh
 

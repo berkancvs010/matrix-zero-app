@@ -3,10 +3,7 @@ description: "ZeroLog özel mesajlaşma, sesli ve görüntülü görüşme"
 publish_to: 'none'
 version: 1.0.10+26
 environment:
-  # Keep the SDK floor aligned with pubspec.lock and the Flutter APIs used by
-  # this release. CI builds with Flutter 3.44.x.
-  sdk: '>=3.12.0 <4.0.0'
-  flutter: '>=3.44.0'
+  sdk: '>=3.10.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -35,3 +32,4 @@ dev_dependencies:
 flutter:
 
   uses-material-design: true
+

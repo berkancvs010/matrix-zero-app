@@ -160,66 +160,28 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             incomingCallVibrator = null
         }
 
-        fun stopIncomingCallToneAndNotification(
-            context: Context,
-            expectedCallId: String? = null,
-        ) {
-            // When an expected callId is supplied, all cleanup is conditional
-            // on that exact call still being active. This prevents an older
-            // callStatus from cancelling the notification/ringtone of a newer
-            // incoming call that arrived between the status check and cleanup.
-            val prefs = context.getSharedPreferences(
-                "FlutterSharedPreferences",
-                Context.MODE_PRIVATE
-            )
-            val expected = expectedCallId?.trim().orEmpty()
+        fun stopIncomingCallToneAndNotification(context: Context) {
+            stopIncomingCallTone()
 
-            synchronized(prefs) {
-                val activeCallId = prefs
-                    .getString(ACTIVE_CALL_ID_KEY, "")
-                    ?.trim()
-                    .orEmpty()
+            try {
+                val notifications = NotificationManagerCompat.from(context)
+                notifications.cancel(CALL_NOTIFICATION_ID)
+                notifications.cancel(CALL_STATUS_NOTIFICATION_ID)
+            } catch (_: Exception) {}
 
-                if (expected.isEmpty()) {
-                    // Never perform destructive call cleanup without a callId.
-                    // A missing/stale lifecycle event must not be able to clear
-                    // a newer incoming call.
-                    android.util.Log.d(
-                        "ZeroLogCall",
-                        "Skipped unscoped incoming-call cleanup"
-                    )
-                    return
-                }
-
-                if (activeCallId != expected) {
-                    android.util.Log.d(
-                        "ZeroLogCall",
-                        "Skipped stale call cleanup expected=$expected " +
-                            "active=$activeCallId"
-                    )
-                    return
-                }
-
-                stopIncomingCallTone()
-
-                try {
-                    val notifications = NotificationManagerCompat.from(context)
-                    notifications.cancel(CALL_NOTIFICATION_ID)
-                    notifications.cancel(CALL_STATUS_NOTIFICATION_ID)
-                } catch (_: Exception) {}
-
-                // Remote call termination can arrive while the app is
-                // backgrounded/locked. Clear only the call that is still
-                // active; a newer call must remain untouched.
-                try {
-                    prefs.edit()
-                        .remove("flutter.zerolog.pending_call")
-                        .remove(ACTIVE_CALL_ID_KEY)
-                        .apply()
-                } catch (_: Exception) {}
-            }
+            // Remote call termination can arrive while the app is
+            // backgrounded/locked. Do not leave a stale pending call.
+            try {
+                context.getSharedPreferences(
+                    "FlutterSharedPreferences",
+                    Context.MODE_PRIVATE
+                )
+                    .edit()
+                    .remove("flutter.zerolog.pending_call")
+                    .remove(ACTIVE_CALL_ID_KEY)
+                    .apply()
+            } catch (_: Exception) {}
         }
-
     }
 
     override fun onNewToken(token: String) {
@@ -417,54 +379,47 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             MODE_PRIVATE
         )
 
-        /*
-         * The active-call check and replacement must use the same monitor as
-         * terminal cleanup. Without one shared critical section, an older
-         * callStatus can read call A, a newer callInvite can install call B,
-         * and the older cleanup can then remove B's notification/pending
-         * record. Keep the state transition and pending-call write atomic
-         * with respect to native call cleanup.
-         */
-        synchronized(callPrefs) {
-            val currentActiveCallId = callPrefs
-                .getString(ACTIVE_CALL_ID_KEY, "")
-                ?.trim()
-                .orEmpty()
+        val activeCallId = callPrefs
+            .getString(ACTIVE_CALL_ID_KEY, "")
+            ?.trim()
+            .orEmpty()
 
-            if (currentActiveCallId == callId) {
-                return
-            }
-
-            if (currentActiveCallId.isNotEmpty()) {
-                stopIncomingCallTone()
-                NotificationManagerCompat.from(this).cancel(
-                    CALL_NOTIFICATION_ID
-                )
-            }
-
-            callPrefs
-                .edit()
-                .putString(ACTIVE_CALL_ID_KEY, callId)
-                .apply()
-
-            startIncomingCallTone(this)
-
-            val pendingCall = JSONObject()
-                .put("type", "callInvite")
-                .put("from", caller)
-                .put("to", callee)
-                .put("callId", callId)
-                .put("video", videoCall)
-                .toString()
-
-            callPrefs
-                .edit()
-                .putString(
-                    "flutter.zerolog.pending_call",
-                    pendingCall
-                )
-                .apply()
+        if (activeCallId == callId) {
+            return
         }
+
+        if (activeCallId.isNotEmpty()) {
+            stopIncomingCallTone()
+            NotificationManagerCompat.from(this).cancel(
+                CALL_NOTIFICATION_ID
+            )
+        }
+
+        callPrefs
+            .edit()
+            .putString(ACTIVE_CALL_ID_KEY, callId)
+            .apply()
+
+        startIncomingCallTone(this)
+
+        val pendingCall = JSONObject()
+            .put("type", "callInvite")
+            .put("from", caller)
+            .put("to", callee)
+            .put("callId", callId)
+            .put("video", videoCall)
+            .toString()
+
+        getSharedPreferences(
+            "FlutterSharedPreferences",
+            MODE_PRIVATE
+        )
+            .edit()
+            .putString(
+                "flutter.zerolog.pending_call",
+                pendingCall
+            )
+            .apply()
 
         // Android 11 / MIUI uyumluluğu:
         // Full-screen intent'i doğrudan MainActivity'ye ver.
@@ -559,7 +514,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 e
             )
 
-            stopIncomingCallToneAndNotification(this, callId)
+            stopIncomingCallToneAndNotification(this)
         } catch (e: Exception) {
             android.util.Log.e(
                 "ZeroLogFCM",
@@ -567,7 +522,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
                 e
             )
 
-            stopIncomingCallToneAndNotification(this, callId)
+            stopIncomingCallToneAndNotification(this)
         }
     }
 
@@ -611,7 +566,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
 
-        stopIncomingCallToneAndNotification(this, callId)
+        stopIncomingCallToneAndNotification(this)
 
         android.util.Log.d(
             "ZeroLogCall",

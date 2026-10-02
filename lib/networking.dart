@@ -39,7 +39,6 @@ class SecureSession {
 
 Future<void> clearLocalUserData() async {
   await SecureSession.clear();
-  await ZeroLogPrivacyLock.clearAll();
 
   final prefs = await SharedPreferences.getInstance();
   final keys = prefs.getKeys().toList(growable: false);

@@ -27,7 +27,6 @@ part 'app_bootstrap.dart';
 part 'push_service.dart';
 part 'theme.dart';
 part 'app_shell.dart';
-part 'app_lock_gate.dart';
 part 'welcome.dart';
 part 'networking.dart';
 part 'login.dart';
