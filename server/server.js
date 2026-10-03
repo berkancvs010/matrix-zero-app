@@ -4261,8 +4261,8 @@ wss.on('connection',(ws,req)=>{
         username:turnUser,
         credential:turnPass,
         urls:[
-          'turn:92.5.38.220:3478?transport=udp',
-          'turn:92.5.38.220:3478?transport=tcp',
+          'turn:45.74.243.101:3478?transport=udp',
+          'turn:45.74.243.101:3478?transport=tcp',
         ],
       });
     }
