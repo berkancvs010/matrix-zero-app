@@ -38,6 +38,45 @@ class ZeroLogPrivacyLock {
     await _storage.write(key: _biometricKey, value: value ? '1' : '0');
   }
 
+  static Future<void> setBiometricEnabled(bool value) async {
+    if (!await isConfigured()) return;
+
+    if (value && !await biometricAvailable()) {
+      throw StateError('Bu cihazda kullanılabilir biyometri yok.');
+    }
+
+    await _setBiometricEnabled(value);
+  }
+
+  static Future<void> removeLock() async {
+    await _storage.delete(key: _hashKey);
+    await _storage.delete(key: _saltKey);
+    await _storage.delete(key: _biometricKey);
+    await _storage.delete(key: _failedAttemptsKey);
+    await _storage.delete(key: _lockUntilKey);
+  }
+
+  static Future<bool> changePin({
+    required String currentPin,
+    required String newPin,
+  }) async {
+    final current = currentPin.trim();
+    final replacement = newPin.trim();
+
+    if (!RegExp(r'^\d{6}$').hasMatch(current)) return false;
+    if (!RegExp(r'^\d{6}$').hasMatch(replacement)) return false;
+
+    if (!await _verifyPin(current)) return false;
+
+    final biometric = await biometricEnabled();
+    await configurePin(replacement, biometric: biometric);
+    return true;
+  }
+
+  static Future<bool> setup(BuildContext context) async {
+    return _showSetup(context);
+  }
+
   static Future<void> configurePin(String pin, {required bool biometric}) async {
     final normalized = pin.trim();
     if (!RegExp(r'^\d{6}$').hasMatch(normalized)) {

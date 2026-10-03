@@ -4225,6 +4225,101 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _changePrivacyPin(BuildContext context) async {
+    final currentController = TextEditingController();
+    final newController = TextEditingController();
+    final confirmController = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('PIN kodunu değiştir'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: currentController,
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 6,
+                decoration: const InputDecoration(
+                  labelText: 'Mevcut PIN',
+                ),
+              ),
+              TextField(
+                controller: newController,
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 6,
+                decoration: const InputDecoration(
+                  labelText: 'Yeni PIN',
+                ),
+              ),
+              TextField(
+                controller: confirmController,
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 6,
+                decoration: const InputDecoration(
+                  labelText: 'Yeni PIN tekrar',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('İptal'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final newPin = newController.text;
+                final confirmation = confirmController.text;
+
+                if (newPin != confirmation) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Yeni PIN kodları eşleşmiyor.'),
+                    ),
+                  );
+                  return;
+                }
+
+                final ok = await ZeroLogPrivacyLock.changePin(
+                  currentPin: currentController.text,
+                  newPin: newPin,
+                );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext, ok);
+                }
+              },
+              child: const Text('Kaydet'),
+            ),
+          ],
+        );
+      },
+    );
+
+    currentController.dispose();
+    newController.dispose();
+    confirmController.dispose();
+
+    if (!context.mounted || result == null) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          result
+              ? 'PIN kodu değiştirildi.'
+              : 'Mevcut PIN hatalı veya yeni PIN geçersiz.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _openChatPreferences() async {
     final theme = ThemeController.instance.data;
     final prefs = await SharedPreferences.getInstance();
@@ -4601,9 +4696,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WsClient.instance.requestNotificationSettings();
   }
 
+  Future<bool> _authenticatePrivacy() async {
+    if (!mounted) return false;
+    final pageContext = context;
+    return ZeroLogPrivacyLock.authenticate(pageContext);
+  }
+
   Future<void> _openPrivacySettings() async {
-    final unlocked = await ZeroLogPrivacyLock.authenticate(context);
-    if (!unlocked || !mounted) return;
+    final configured = await ZeroLogPrivacyLock.isConfigured();
+
+    if (configured) {
+      final unlocked = await _authenticatePrivacy();
+      if (!mounted || !unlocked) return;
+    }
+
+    if (!mounted) return;
 
     final theme = ThemeController.instance.data;
 
@@ -4652,6 +4759,191 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         icon: Icons.verified_user_outlined,
                         title: 'Gizlilik kilidi',
                         text: '$status. Bu bölüm yalnızca cihaz doğrulaması sonrası açılır.',
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  FutureBuilder<bool>(
+                    future: ZeroLogPrivacyLock.isConfigured(),
+                    builder: (context, snapshot) {
+                      final configured = snapshot.data ?? false;
+
+                      return Material(
+                        color: theme.surface,
+                        borderRadius: BorderRadius.circular(20),
+                        child: Column(
+                          children: [
+                            ListTile(
+                              leading: const Icon(
+                                Icons.password_rounded,
+                              ),
+                              title: Text(
+                                'PIN kodunu değiştir',
+                                style: TextStyle(
+                                  color: theme.text,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              subtitle: Text(
+                                configured
+                                    ? 'Gizlilik kilidi PIN kodunu değiştir'
+                                    : 'Önce bir gizlilik kilidi oluştur',
+                                style: TextStyle(
+                                  color: theme.text.withValues(alpha: 0.45),
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                              ),
+                              onTap: configured
+                                  ? () => _changePrivacyPin(context)
+                                  : () async {
+                                      final ok =
+                                          await ZeroLogPrivacyLock.setup(
+                                        context,
+                                      );
+                                      if (context.mounted && ok) {
+                                        setPageState(() {});
+                                      }
+                                    },
+                            ),
+                            if (configured)
+                              FutureBuilder<List<bool>>(
+                                future: Future.wait([
+                                  ZeroLogPrivacyLock.biometricAvailable(),
+                                  ZeroLogPrivacyLock.biometricEnabled(),
+                                ]),
+                                builder: (context, biometricSnapshot) {
+                                  final values = biometricSnapshot.data;
+                                  final available = values?[0] ?? false;
+                                  final enabled = values?[1] ?? false;
+
+                                  return SwitchListTile(
+                                    secondary: const Icon(
+                                      Icons.fingerprint_rounded,
+                                    ),
+                                    title: Text(
+                                      'Biyometrik doğrulama',
+                                      style: TextStyle(
+                                        color: theme.text,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      available
+                                          ? 'Parmak izi veya cihaz biyometrisi ile doğrulama'
+                                          : 'Bu cihazda kullanılabilir biyometri yok',
+                                      style: TextStyle(
+                                        color:
+                                            theme.text.withValues(alpha: 0.45),
+                                        fontSize: 11.5,
+                                      ),
+                                    ),
+                                    value: available && enabled,
+                                    onChanged: !available
+                                        ? null
+                                        : (value) async {
+                                            try {
+                                              await ZeroLogPrivacyLock
+                                                  .setBiometricEnabled(value);
+                                              if (context.mounted) {
+                                                setPageState(() {});
+                                              }
+                                            } catch (e) {
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Biyometrik ayarı değiştirilemedi: $e',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                  );
+                                },
+                              ),
+                            ListTile(
+                              leading: const Icon(
+                                Icons.lock_open_rounded,
+                              ),
+                              title: Text(
+                                'Gizlilik kilidini kaldır',
+                                style: TextStyle(
+                                  color: theme.text,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              subtitle: Text(
+                                'PIN ve biyometrik kilit ayarlarını kaldır',
+                                style: TextStyle(
+                                  color: theme.text.withValues(alpha: 0.45),
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                              ),
+                              onTap: !configured
+                                  ? null
+                                  : () async {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (dialogContext) {
+                                          return AlertDialog(
+                                            title: const Text(
+                                              'Gizlilik kilidi kaldırılsın mı?',
+                                            ),
+                                            content: const Text(
+                                              'PIN ve biyometrik doğrulama ayarları kaldırılacak. Daha sonra bu bölümden yeniden oluşturabilirsiniz.',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(
+                                                  dialogContext,
+                                                  false,
+                                                ),
+                                                child: const Text('İptal'),
+                                              ),
+                                              FilledButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(
+                                                  dialogContext,
+                                                  true,
+                                                ),
+                                                child: const Text('Kaldır'),
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      );
+
+                                      if (!context.mounted || confirm != true) {
+                                        return;
+                                      }
+
+                                      await ZeroLogPrivacyLock.removeLock();
+
+                                      if (!context.mounted) return;
+
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Gizlilik kilidi kaldırıldı.',
+                                          ),
+                                        ),
+                                      );
+
+                                      setPageState(() {});
+                                    },
+                            ),
+                          ],
+                        ),
                       );
                     },
                   ),
