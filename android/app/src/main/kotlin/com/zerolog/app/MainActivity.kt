@@ -1852,6 +1852,35 @@ class MainActivity : FlutterFragmentActivity() {
             channelName
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                  "setVideoCallScreenAwake" -> {
+                      val awake = call.argument<Boolean>("awake") ?: false
+
+                      try {
+                          if (awake) {
+                              window.addFlags(
+                                  android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                              )
+                          } else {
+                              window.clearFlags(
+                                  android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                              )
+                          }
+
+                          result.success(true)
+                      } catch (e: Exception) {
+                          android.util.Log.e(
+                              "ZeroLogCall",
+                              "Failed to update video call screen state",
+                              e
+                          )
+                          result.error(
+                              "VIDEO_SCREEN_STATE",
+                              e.message,
+                              null
+                          )
+                      }
+                  }
+
                   "startFileTransferForegroundService" -> {
                       startFileTransferForegroundService()
                       result.success(true)

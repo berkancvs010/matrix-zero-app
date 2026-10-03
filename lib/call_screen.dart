@@ -53,6 +53,12 @@ class _CallScreenState extends State<CallScreen> {
   bool _proximityScreenOffEnabled = false;
 
   Future<void> _initProximitySensor() async {
+    // Proximity is only for voice calls.
+    // During video calls the display must remain available.
+    if (_videoEnabled) {
+      return;
+    }
+
     if (_proximitySubscription != null ||
         _proximityScreenOffEnabled ||
         _closing ||
@@ -86,6 +92,34 @@ class _CallScreenState extends State<CallScreen> {
           // Telefon kulaktan uzaklaştırıldı.
         }
       });
+    } catch (_) {}
+  }
+
+  Future<void> _activateVideoCallMode() async {
+    if (_closing || !mounted) return;
+
+    _videoEnabled = true;
+
+    // Video calls must never use proximity-based screen-off behavior.
+    if (_proximitySubscription != null) {
+      await _proximitySubscription?.cancel();
+      _proximitySubscription = null;
+    }
+
+    if (_proximityScreenOffEnabled) {
+      try {
+        await ProximitySensor.setProximityScreenOff(false);
+      } catch (_) {}
+      _proximityScreenOffEnabled = false;
+    }
+
+    // Keep the display awake for the entire active video call.
+    await ZeroLogPushService.setVideoCallScreenAwake(true);
+
+    // Video calls start on speaker.
+    _speakerOn = true;
+    try {
+      await Helper.setSpeakerphoneOn(true);
     } catch (_) {}
   }
 
@@ -124,6 +158,13 @@ class _CallScreenState extends State<CallScreen> {
 
     _videoEnabled = widget.videoCall ||
         (widget.incomingOffer?.contains('m=video') ?? false);
+
+    // App-wide privacy lock must know that a CallScreen is active.
+    ZeroLogPushService.callScreenActive = true;
+
+    if (_videoEnabled) {
+      ZeroLogPushService.setVideoCallScreenAwake(true);
+    }
 
     _subscription = WsClient.instance.events.listen(_handleEvent);
 
@@ -299,10 +340,11 @@ class _CallScreenState extends State<CallScreen> {
 
       if (_closing) return;
 
-      // Start with normal handset audio. Speaker can be enabled
-      // explicitly from the call screen.
+      // Voice calls start on the handset.
+      // Video calls start on the speaker.
+      _speakerOn = _videoEnabled;
       try {
-        await Helper.setSpeakerphoneOn(false);
+        await Helper.setSpeakerphoneOn(_videoEnabled);
       } catch (_) {}
     } catch (e) {
       // Keep the failure inside the Flutter layer instead of leaving
@@ -604,7 +646,7 @@ class _CallScreenState extends State<CallScreen> {
 
     if (type == 'callAccepted') {
       if (data['video'] == true || data['video']?.toString() == 'true') {
-        _videoEnabled = true;
+        await _activateVideoCallMode();
       }
       zeroLog(
         '[CALL][ACCEPTED] received '
@@ -658,9 +700,9 @@ class _CallScreenState extends State<CallScreen> {
         final sdp = data['sdp']?.toString();
 
         if (data['video'] == true || data['video']?.toString() == 'true') {
-          _videoEnabled = true;
+          await _activateVideoCallMode();
         } else if (sdp?.contains('m=video') == true) {
-          _videoEnabled = true;
+          await _activateVideoCallMode();
         }
 
         if (sdp != null && sdp.isNotEmpty) {
@@ -885,6 +927,11 @@ class _CallScreenState extends State<CallScreen> {
     if (_closing) return;
 
     _closing = true;
+    ZeroLogPushService.callScreenActive = false;
+
+    if (_videoEnabled) {
+      await ZeroLogPushService.setVideoCallScreenAwake(false);
+    }
 
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
@@ -967,6 +1014,12 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    if (_videoEnabled) {
+      ZeroLogPushService.setVideoCallScreenAwake(false);
+    }
+
+    ZeroLogPushService.callScreenActive = false;
+
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
 

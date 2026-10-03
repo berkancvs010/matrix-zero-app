@@ -212,6 +212,16 @@ class ZeroLogPushService {
     }
   }
 
+  /// Keeps the display awake only during an active video call.
+  static Future<void> setVideoCallScreenAwake(bool awake) async {
+    try {
+      await _systemChannel.invokeMethod(
+        'setVideoCallScreenAwake',
+        {'awake': awake},
+      );
+    } catch (_) {}
+  }
+
   static Future<void> stopOutgoingCallTone() async {
     try {
       await _systemChannel.invokeMethod('stopOutgoingCallTone');
