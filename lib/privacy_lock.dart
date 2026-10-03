@@ -13,6 +13,7 @@ class ZeroLogPrivacyLock {
   static const String _failedAttemptsKey = 'zerolog.privacy_lock.failed_attempts.v1';
   static const String _lockUntilKey = 'zerolog.privacy_lock.lock_until.v1';
   static const int _maxAttemptsBeforeDelay = 3;
+  static bool authenticationInProgress = false;
 
   static Future<bool> isConfigured() async {
     final hash = await _storage.read(key: _hashKey);
@@ -108,31 +109,37 @@ class ZeroLogPrivacyLock {
   }
 
   static Future<bool> authenticate(BuildContext context) async {
-    if (!await isConfigured()) {
-      if (!context.mounted) return false;
-      final configured = await _showSetup(context);
-      if (!configured) return false;
-    }
-
-    if (await biometricEnabled() && await biometricAvailable()) {
-      try {
-        final ok = await _auth.authenticate(
-          localizedReason: 'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
-          options: const AuthenticationOptions(
-            biometricOnly: true,
-            stickyAuth: true,
-          ),
-        );
-        if (ok) return true;
-      } on PlatformException {
-        // Fall through to PIN. The user always retains a recovery method.
-      } catch (_) {
-        // Fall through to PIN on unexpected platform/plugin errors.
+    if (authenticationInProgress) return false;
+    authenticationInProgress = true;
+    try {
+      if (!await isConfigured()) {
+        if (!context.mounted) return false;
+        final configured = await _showSetup(context);
+        if (!configured) return false;
       }
-    }
 
-    if (!context.mounted) return false;
-    return _showPinPrompt(context);
+      if (await biometricEnabled() && await biometricAvailable()) {
+        try {
+          final ok = await _auth.authenticate(
+            localizedReason: 'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
+            options: const AuthenticationOptions(
+              biometricOnly: true,
+              stickyAuth: false,
+            ),
+          );
+          if (ok) return true;
+        } on PlatformException {
+          // Fall through to PIN. The user always retains a recovery method.
+        } catch (_) {
+          // Fall through to PIN on unexpected plugin errors.
+        }
+      }
+
+      if (!context.mounted) return false;
+      return _showPinPrompt(context);
+    } finally {
+      authenticationInProgress = false;
+    }
   }
 
   static Future<bool> _showSetup(BuildContext context) async {

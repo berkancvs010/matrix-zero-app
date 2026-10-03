@@ -110,6 +110,22 @@ class ZeroLogPushService {
 
   static const MethodChannel _systemChannel = MethodChannel('zerolog/system');
 
+  static Future<Map<String, String>> getAppVersion() async {
+    try {
+      final raw = await _systemChannel.invokeMethod<dynamic>('getAppVersion');
+      if (raw is Map) {
+        return {
+          'versionName': (raw['versionName'] ?? '').toString(),
+          'versionCode': (raw['versionCode'] ?? '').toString(),
+        };
+      }
+    } catch (e) {
+      zeroLog('[APP_VERSION] native version lookup failed: $e');
+    }
+
+    return const <String, String>{};
+  }
+
   static Future<void> requestStartupPermissions() async {
     try {
       await _systemChannel.invokeMethod('requestStartupPermissions');
@@ -260,8 +276,10 @@ class ZeroLogPushService {
           'Gelen çağrılar',
           description: 'ZeroLog sesli arama bildirimleri',
           importance: Importance.max,
-          playSound: true,
-          enableVibration: true,
+          // Native FCM owns the single looping ringtone. Keeping this
+          // channel silent prevents a second system sound.
+          playSound: false,
+          enableVibration: false,
           showBadge: true,
         ),
       );
@@ -589,8 +607,9 @@ class ZeroLogPushService {
       category: AndroidNotificationCategory.call,
       fullScreenIntent: true,
       visibility: NotificationVisibility.public,
-      playSound: true,
-      enableVibration: true,
+      // Ringtone playback is owned by the native service.
+      playSound: false,
+      enableVibration: false,
       ongoing: true,
       autoCancel: false,
       showWhen: false,

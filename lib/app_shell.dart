@@ -207,7 +207,9 @@ class _MatrixZeroAppState extends State<MatrixZeroApp> {
         fontFamily: 'sans-serif',
       ),
       builder: (context, child) {
-        return MiviThemeFrame(child: child ?? const SizedBox.shrink());
+        return MiviThemeFrame(
+          child: AppLockGate(child: child ?? const SizedBox.shrink()),
+        );
       },
       home: const WelcomeScreen(),
     );

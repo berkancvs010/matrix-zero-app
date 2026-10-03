@@ -1852,6 +1852,28 @@ class MainActivity : FlutterFragmentActivity() {
             channelName
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                  "getAppVersion" -> {
+                      try {
+                          val packageInfo = packageManager.getPackageInfo(packageName, 0)
+                          val versionName = packageInfo.versionName.orEmpty()
+                          val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                              packageInfo.longVersionCode
+                          } else {
+                              @Suppress("DEPRECATION")
+                              packageInfo.versionCode.toLong()
+                          }
+
+                          result.success(
+                              mapOf(
+                                  "versionName" to versionName,
+                                  "versionCode" to versionCode,
+                              )
+                          )
+                      } catch (e: Exception) {
+                          result.error("APP_VERSION", e.message, null)
+                      }
+                  }
+
                   "setVideoCallScreenAwake" -> {
                       val awake = call.argument<Boolean>("awake") ?: false
 

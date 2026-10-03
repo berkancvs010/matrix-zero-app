@@ -3930,11 +3930,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           icon: Icons.menu_book_outlined,
           title: 'Açık kaynak lisansları',
           subtitle: 'ZeroLog içinde kullanılan açık kaynak bileşenler',
-          onTap: () {
+          onTap: () async {
+            final version = await ZeroLogPushService.getAppVersion();
+            if (!mounted) return;
             showLicensePage(
               context: context,
               applicationName: 'ZeroLog',
-              applicationVersion: '1.0.10',
+              applicationVersion: version['versionName']?.trim().isNotEmpty == true
+                  ? version['versionName']!.trim()
+                  : '1.0.10',
               applicationLegalese:
                   'Bu program BerkanCVS tarafından hazırlanmıştır.',
             );
@@ -4043,28 +4047,39 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Material(
-                  color: theme.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.system_update_outlined,
-                      color: theme.primary,
-                    ),
-                    title: Text(
-                      'Sürüm',
-                      style: TextStyle(
-                        color: theme.text,
-                        fontWeight: FontWeight.w700,
+                FutureBuilder<Map<String, String>>(
+                  future: ZeroLogPushService.getAppVersion(),
+                  builder: (context, snapshot) {
+                    final versionName = snapshot.data?['versionName']?.trim();
+                    final versionCode = snapshot.data?['versionCode']?.trim();
+                    final versionText = versionName == null || versionName.isEmpty
+                        ? 'Sürüm bilgisi okunuyor…'
+                        : 'ZeroLog $versionName${versionCode != null && versionCode.isNotEmpty ? '+$versionCode' : ''}';
+
+                    return Material(
+                      color: theme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.system_update_outlined,
+                          color: theme.primary,
+                        ),
+                        title: Text(
+                          'Sürüm',
+                          style: TextStyle(
+                            color: theme.text,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          versionText,
+                          style: TextStyle(
+                            color: theme.text.withValues(alpha: 0.48),
+                          ),
+                        ),
                       ),
-                    ),
-                    subtitle: Text(
-                      'ZeroLog 1.0.10',
-                      style: TextStyle(
-                        color: theme.text.withValues(alpha: 0.48),
-                      ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
                 Material(
@@ -4092,11 +4107,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       Icons.chevron_right_rounded,
                       color: theme.text.withValues(alpha: 0.28),
                     ),
-                    onTap: () {
+                    onTap: () async {
+                      final version = await ZeroLogPushService.getAppVersion();
+                      if (!mounted) return;
                       showLicensePage(
                         context: context,
                         applicationName: 'ZeroLog',
-                        applicationVersion: '1.0.10',
+                        applicationVersion: version['versionName']?.trim().isNotEmpty == true
+                            ? version['versionName']!.trim()
+                            : '1.0.10',
                         applicationLegalese:
                             'Bu program BerkanCVS tarafından hazırlanmıştır.',
                       );

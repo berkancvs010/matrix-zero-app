@@ -132,9 +132,18 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     // MaterialApp.builder, above `child`), so its own BuildContext is an
     // ancestor of the Navigator, not a descendant of it, and showDialog
     // would fail to resolve a Navigator from it.
-    final dialogContext = zeroLogNavigatorKey.currentContext;
+    final dialogContext =
+        zeroLogNavigatorKey.currentState?.overlay?.context ??
+        zeroLogNavigatorKey.currentContext;
     if (dialogContext == null || !dialogContext.mounted) {
       _authenticating = false;
+      // The Navigator may not have attached yet on a cold start. Retry once
+      // after the first frame instead of silently leaving the app unlocked.
+      if (mounted && _locked) {
+        Future<void>.delayed(const Duration(milliseconds: 300), () {
+          if (mounted && _locked) _promptUnlock();
+        });
+      }
       return;
     }
 

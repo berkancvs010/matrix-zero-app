@@ -398,6 +398,7 @@ class _CallScreenState extends State<CallScreen> {
       'from': widget.myNick,
       'to': widget.targetNick,
       'callId': callId,
+      'video': _videoEnabled,
     });
 
     if (!inviteSent) {
@@ -617,7 +618,23 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
+    if (type == 'connectionLost' ||
+        type == 'connectionError' ||
+        type == 'connectionClosed') {
+      // The server treats loss of the primary signaling socket as a terminal
+      // call event. End the local CallScreen immediately instead of waiting
+      // for a callEnded message that cannot arrive after the socket is gone.
+      // This is especially important when the peer is already offline.
+      zeroLog('[CALL][SIGNAL] signaling connection lost; ending call');
+      await _finish(sendSignal: false);
+      return;
+    }
+
     if (type == 'connectionRestored' || type == 'registered') {
+      // A restored socket belongs to a new signaling session. The server has
+      // already invalidated any call owned by the previous socket, so do not
+      // resurrect a stale CallScreen or flush old ICE into a new session.
+      if (_closing) return;
       _flushPendingOutgoingIce();
       if (_remoteDescriptionSet) {
         unawaited(_flushPendingIceCandidates());
@@ -645,9 +662,6 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     if (type == 'callAccepted') {
-      if (data['video'] == true || data['video']?.toString() == 'true') {
-        await _activateVideoCallMode();
-      }
       zeroLog(
         '[CALL][ACCEPTED] received '
         'from=$from to=$to callId=$eventCallId '
@@ -663,12 +677,22 @@ class _CallScreenState extends State<CallScreen> {
 
         await ZeroLogPushService.stopOutgoingCallTone();
 
+        if (data['video'] == true ||
+            data['video']?.toString() == 'true') {
+          // Stop the outgoing ringtone before enabling video audio mode.
+          // The native ringtone service restores the pre-ringtone audio state.
+          await _activateVideoCallMode();
+        }
+
         zeroLog(
           '[CALL][ACCEPTED] starting outgoing offer '
           'callId=${widget.callId}',
         );
 
         await _startOutgoingOffer();
+      } else if (data['video'] == true ||
+          data['video']?.toString() == 'true') {
+        await _activateVideoCallMode();
       }
     } else if (type == 'callRejected') {
       ZeroLogPushService.clearPendingCall();
@@ -929,6 +953,25 @@ class _CallScreenState extends State<CallScreen> {
     _closing = true;
     ZeroLogPushService.callScreenActive = false;
 
+    // Signal termination before any optional native/WebRTC cleanup. A slow
+    // audio service or peer close must never prevent the remote peer from
+    // receiving callEnded, nor leave the local screen apparently stuck.
+    if (sendSignal) {
+      WsClient.instance.send({
+        'type': 'callEnd',
+        'from': widget.myNick,
+        'to': widget.targetNick,
+        'callId': widget.callId,
+      });
+    }
+
+    // Close the route immediately. dispose() performs the best-effort native
+    // and WebRTC cleanup; no platform call may keep the call UI frozen.
+    if (mounted) {
+      Navigator.of(context).pop();
+      return;
+    }
+
     if (_videoEnabled) {
       await ZeroLogPushService.setVideoCallScreenAwake(false);
     }
@@ -955,15 +998,6 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     _pendingOutgoingIceCandidates.clear();
-
-    if (sendSignal) {
-      WsClient.instance.send({
-        'type': 'callEnd',
-        'from': widget.myNick,
-        'to': widget.targetNick,
-        'callId': widget.callId,
-      });
-    }
 
     final stream = _localStream;
     _localStream = null;
@@ -1027,6 +1061,8 @@ class _CallScreenState extends State<CallScreen> {
     _callDurationTimer = null;
 
     ZeroLogPushService.stopOutgoingCallTone();
+    ZeroLogPushService.cancelIncomingCallNotification();
+    ZeroLogPushService.clearPendingCall();
     ZeroLogPushService.stopCallForegroundService();
     ZeroLogPushService.clearCallLockScreen();
 

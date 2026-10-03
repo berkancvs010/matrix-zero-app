@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.ActivityOptions
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -314,6 +315,24 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun showCallNotification(message: RemoteMessage) {
+        // WebSocket owns foreground call UI. If the app process is actually
+        // foreground, do not start a second native ringtone/notification when
+        // an FCM data delivery races with the same callInvite. Do not rely on
+        // a persisted lifecycle flag here: a process killed by Android can
+        // leave such a flag stale and accidentally suppress future calls.
+        val processInfo = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(processInfo)
+        val foreground =
+            processInfo.importance ==
+                ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+
+        if (foreground) {
+            android.util.Log.d(
+                "ZeroLogCall",
+                "Suppressing native call notification: app is foreground"
+            )
+            return
+        }
 
         android.util.Log.d(
             "ZeroLogCall",

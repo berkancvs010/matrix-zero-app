@@ -3382,6 +3382,42 @@ function deleteRoomMessagesForUser(username){
   }
 }
 
+function endCallsForDisconnectedUser(nick){
+  const nickKey=normalizeUsername(nick);
+  if(!nickKey)return;
+
+  for(const [callId,call] of activeCalls){
+    if(!isCallParty(call,nickKey))continue;
+
+    const peer=
+      call.callerKey===nickKey
+        ? call.callee
+        : call.caller;
+
+    endActiveCall(callId);
+
+    if(!peer)continue;
+
+    const event={
+      type:'callEnded',
+      from:safeNick(nick),
+      to:peer,
+      callId,
+    };
+
+    const delivered=send(socketFor(peer),event);
+
+    if(!delivered){
+      void sendCallStatusPushIfOffline(
+        peer,
+        callId,
+        'Çağrı sonlandırıldı',
+        `${safeNick(nick)} bağlantısı kesildi ve çağrı sonlandırıldı.`,
+      );
+    }
+  }
+}
+
 function disconnect(ws){
   const nick=users.get(ws);
   if(!nick)return;
@@ -3453,6 +3489,11 @@ function disconnect(ws){
     // are active, normal messages must use FCM rather than a headless
     // file socket.
     if(backgroundSockets.has(nickKey)){
+      // Background transfer sockets are not signaling sockets. Once the
+      // primary app socket is gone, any active call is terminal even though
+      // a transfer keep-alive socket remains.
+      endCallsForDisconnectedUser(nick);
+
       appStates.set(nickKey,'background');
       appStateUpdatedAt.set(nickKey,Date.now());
       broadcastUserOffline(nick);
@@ -3461,23 +3502,7 @@ function disconnect(ws){
     }
   }
 
-  for(const [callId,call] of activeCalls){
-    if(!isCallParty(call,nick))continue;
-
-    const peer=
-      call.callerKey===nickKey
-        ? call.callee
-        : call.caller;
-
-    endActiveCall(callId);
-
-    send(socketFor(peer),{
-      type:'callEnded',
-      from:nick,
-      to:peer,
-      callId,
-    });
-  }
+  endCallsForDisconnectedUser(nick);
 
   appStates.delete(nickKey);
   appStateUpdatedAt.delete(nickKey);
