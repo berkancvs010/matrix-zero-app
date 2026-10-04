@@ -1,31 +1,151 @@
 <!doctype html>
 <html lang="tr">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZeroLog Gizlilik Politikası</title></head>
-<body style="font-family:system-ui;max-width:760px;margin:auto;padding:28px;line-height:1.6">
-<h1>ZeroLog Gizlilik Politikası</h1>
-<p>Son güncelleme: 28 Eylül 2026</p>
-<p>ZeroLog; metin mesajları, dosya aktarımı ve sesli/görüntülü arama özellikleri sağlayan bir iletişim uygulamasıdır.</p>
-<h2>Toplanan bilgiler</h2>
-<ul>
-<li>Hesap için kullanıcı adı ve parola özeti.</li>
-<li>İsteğe bağlı profil bilgileri ve profil fotoğrafı.</li>
-<li>Bildirimler için Firebase Cloud Messaging cihaz belirteci.</li>
-<li>Özel mesajlar sınırlı süreyle sunucuda tutulabilir; uygulama bunları kalıcı arşiv olarak tasarlanmamıştır.</li>
-<li>Topluluk odası mesajları geçici süreyle tutulabilir.</li>
-<li>Dosya aktarımı için geçici oturum/metaveri; sunucu dosya içeriğini kalıcı olarak saklamaz.</li>
-<li>Engelleme ve şikayet işlemleri için gerekli moderasyon kayıtları.</li>
-<li>Güvenlik ve kötüye kullanım önleme amacıyla bağlantı/IP bilgileri ve hız sınırlama kayıtları.</li>
-<li>Sesli/görüntülü aramalarda bağlantının kurulması için gerekli ağ bilgileri ve TURN altyapısının sağlayabildiği IP bilgileri.</li>
-</ul>
-<h2>Kamera ve mikrofon</h2>
-<p>Kamera ve mikrofon yalnızca ilgili arama veya profil işlemi için kullanılır. Uygulama bunları reklam veya analiz amacıyla kullanmaz.</p>
-<h2>Analitik ve reklam</h2>
-<p>ZeroLog bu sürümde reklam ağı veya Firebase Analytics kullanmaz ve kullanıcı verilerini reklam amacıyla satmaz.</p>
-<h2>Güvenlik</h2>
-<p>İletişim WSS/TLS üzerinden taşınır. Bu sürüm gerçek uçtan uca şifreleme (E2EE) sunduğunu iddia etmez.</p>
-<h2>Verilerin silinmesi</h2>
-<p>Hesabınızı uygulama içinden veya <a href="/delete-account">web hesap ve veri silme sayfasından</a> silebilirsiniz. Hesap silme işlemi özel mesajlar, oda mesajları, profil ve hesapla ilişkilendirilen sunucu verilerini kaldırmayı hedefler.</p>
-<h2>İletişim ve talepler</h2>
-<p>Gizlilik, veri silme veya moderasyonla ilgili talepler için web üzerindeki hesap/veri silme ve şikayet mekanizmalarını kullanabilirsiniz.</p>
-</body></html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gizlilik Politikası — ZeroLog</title>
+<meta name="description" content="ZeroLog Gizlilik Politikası: kimlik bilgisi toplamayız, özel mesajlar 24 saatte otomatik silinir, sunucuda kalıcı kayıt tutulmaz.">
+<meta name="theme-color" content="#0c0b09">
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0c0b09;--ink-2:#161310;--panel:#1c1812;
+  --paper:#f4eedb;--paper-dim:#d8cdac;--muted:#a79b80;
+  --redact:#9c3a2c;--redact-bright:#c04632;
+  --line:rgba(244,238,219,.13);--line-strong:rgba(244,238,219,.22);
+  --max:860px;--serif:'Fraunces',serif;--sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:16px;line-height:1.6}
+body:before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse 800px 500px at 10% -10%,rgba(156,58,44,.14),transparent 60%);pointer-events:none;z-index:-1}
+a{color:var(--redact-bright);text-decoration:none;border-bottom:1px solid rgba(192,70,50,.4)}
+a:hover{border-color:var(--redact-bright)}
+.wrap{width:min(var(--max),calc(100% - 44px));margin:auto}
+
+header{padding:30px 0}
+header .row{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;border:0;font-family:var(--serif);font-weight:600;font-size:21px;letter-spacing:-.01em;color:var(--paper)}
+.brand .mark{width:30px;height:30px;border:1.5px solid var(--paper);border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;font-weight:500;transform:rotate(-2deg)}
+nav{display:flex;gap:26px}
+nav a{font-size:13.5px;color:var(--muted);border:0}
+nav a:hover{color:var(--paper)}
+nav a.on{color:var(--paper)}
+
+.doc-head{padding:54px 0 44px;border-bottom:1px solid var(--line-strong)}
+.kicker{font-family:var(--mono);font-size:11.5px;color:var(--redact-bright);letter-spacing:.02em}
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(34px,5vw,50px);line-height:1.05;letter-spacing:-.015em;margin:14px 0 16px}
+.stampline{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--muted);border:1px solid var(--line-strong);padding:7px 12px;border-radius:3px}
+.stampline i{width:6px;height:6px;border-radius:50%;background:var(--redact-bright);display:block}
+
+.principles{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line-strong);border:1px solid var(--line-strong);border-radius:6px;overflow:hidden;margin:40px 0 0}
+.pcard{background:var(--panel);padding:24px 22px}
+.pcard .pn{font-family:var(--mono);font-size:10.5px;color:var(--redact-bright);text-transform:uppercase;letter-spacing:.04em}
+.pcard p{margin:12px 0 0;font-size:13.5px;line-height:1.65;color:var(--paper-dim)}
+.pcard p strong{color:var(--paper)}
+
+article{padding:50px 0 80px}
+article h2{font-family:var(--serif);font-weight:500;font-size:23px;letter-spacing:-.005em;margin:46px 0 14px;display:flex;align-items:baseline;gap:10px}
+article h2:first-child{margin-top:0}
+article h2:before{content:"";flex:none;width:18px;height:1px;background:var(--redact-bright);transform:translateY(-4px)}
+article p{color:var(--paper-dim);font-size:15px;margin:0 0 14px}
+article ul{margin:0 0 14px;padding-left:0;list-style:none}
+article li{color:var(--paper-dim);font-size:15px;padding:7px 0 7px 22px;position:relative;border-bottom:1px dashed var(--line)}
+article li:last-child{border-bottom:0}
+article li:before{content:"—";position:absolute;left:0;color:var(--muted)}
+.note{margin:26px 0;padding:16px 18px;border:1px solid var(--line-strong);border-left:3px solid var(--redact-bright);border-radius:3px;background:var(--panel);font-size:13.5px;color:var(--paper-dim)}
+
+footer{border-top:1px solid var(--line);padding:32px 0 44px;color:var(--muted);font-size:12.5px;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer .links{display:flex;gap:22px}
+footer a{color:var(--muted);border:0}
+footer a:hover{color:var(--paper)}
+
+@media(max-width:700px){
+  nav{display:none}
+  .principles{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="row">
+    <a class="brand" href="/"><span class="mark">Z</span>ZeroLog</a>
+    <nav>
+      <a href="/">Ana sayfa</a>
+      <a class="on" href="/privacy/">Gizlilik</a>
+      <a href="/terms/">Koşullar</a>
+      <a href="/delete-account/">Hesap silme</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="doc-head">
+    <span class="kicker">GİZLİLİK POLİTİKASI</span>
+    <h1>Toplamadığımız veri, sızdıramayacağımız veridir.</h1>
+    <span class="stampline"><i></i>Son güncelleme: 28 Eylül 2026</span>
+
+    <div class="principles">
+      <div class="pcard">
+        <span class="pn">Kimlik</span>
+        <p><strong>ZeroLog sizden hiçbir kimlik bilgisi talep etmez.</strong> Hesap açmak için ad, e-posta veya telefon numarası istenmez — yalnızca bir rumuz yeterlidir.</p>
+      </div>
+      <div class="pcard">
+        <span class="pn">Ömür</span>
+        <p><strong>Özel mesajlarınız 24 saat içinde kendiliğinden silinir.</strong> Siz silmeseniz dahi, sunucudaki kaydı otomatik ve kalıcı olarak yok edilir.</p>
+      </div>
+      <div class="pcard">
+        <span class="pn">Saklama</span>
+        <p><strong>Sunucuda kalıcı arşiv tutulmaz.</strong> Mesaj, dosya ve arama içerikleri, iletişim tamamlandıktan sonra sistemde kalıcı olarak saklanmaz.</p>
+      </div>
+    </div>
+  </div>
+
+  <article>
+    <p>ZeroLog; metin mesajları, dosya aktarımı ve sesli/görüntülü arama özellikleri sağlayan bir iletişim uygulamasıdır. Bu sayfa, uygulamanın hangi bilgiyi neden işlediğini ve ne zaman sildiğini ayrıntılı olarak açıklar.</p>
+
+    <h2>Topladığımız sınırlı bilgiler</h2>
+    <p>Hizmeti çalıştırabilmek için yalnızca aşağıdaki asgari bilgiler işlenir:</p>
+    <ul>
+      <li>Rumuz ve parolanızın geri döndürülemez özeti (şifre metninin kendisi saklanmaz).</li>
+      <li>Eklemeyi tercih ettiğiniz isteğe bağlı profil bilgisi ve profil fotoğrafı.</li>
+      <li>Bildirim gönderebilmek için cihazınıza ait Firebase Cloud Messaging belirteci.</li>
+      <li>Özel mesajlar, yalnızca iletilene kadar ve en fazla 24 saat sınırıyla sunucuda geçici olarak tutulur.</li>
+      <li>Topluluk odası mesajları, oda geçmişini sürdürebilmek için sınırlı bir süre tutulur.</li>
+      <li>Dosya aktarımı sırasında geçici oturum/meta veri oluşur; dosya içeriğinin kendisi sunucuda kalıcı olarak saklanmaz.</li>
+      <li>Engelleme ve şikayet işlemlerinin yürütülebilmesi için gerekli moderasyon kayıtları.</li>
+      <li>Kötüye kullanımı önlemek amacıyla bağlantı/IP bilgisi ve giriş denemesi hız sınırlama kayıtları.</li>
+      <li>Sesli/görüntülü aramalarda bağlantının kurulabilmesi için gerekli ağ bilgileri ve TURN altyapısının zorunlu kıldığı IP bilgisi.</li>
+    </ul>
+
+    <h2>Kamera ve mikrofon</h2>
+    <p>Kamera ve mikrofon erişimi yalnızca başlattığınız arama veya güncellediğiniz profil fotoğrafı için kullanılır. Bu veriler reklam, analiz veya başka bir amaç için işlenmez.</p>
+
+    <h2>Analitik ve reklam</h2>
+    <p>ZeroLog bu sürümde herhangi bir reklam ağı veya analiz (Firebase Analytics dâhil) kullanmaz. Kullanıcı verileri hiçbir şekilde satılmaz veya reklam amacıyla paylaşılmaz.</p>
+
+    <h2>Güvenlik</h2>
+    <p>Tüm veri trafiği, cihazınız ile sunucumuz arasında WSS/TLS ile şifrelenerek taşınır ve mesajınız iletildikten sonra 24 saat içinde kalıcı olarak silinir.</p>
+
+    <h2>Verilerin silinmesi</h2>
+    <p>Hesabınızı istediğiniz an uygulama içinden veya <a href="/delete-account/">web üzerindeki hesap ve veri silme sayfasından</a> kapatabilirsiniz. Hesap silme; özel mesajlarınızı, oda mesajlarınızı, profilinizi ve hesabınızla ilişkilendirilmiş tüm sunucu verilerini kaldırmayı amaçlar.</p>
+
+    <h2>İletişim ve talepler</h2>
+    <p>Gizlilik, veri silme veya moderasyonla ilgili talepleriniz için uygulama içindeki ve web üzerindeki hesap/veri silme ile şikâyet mekanizmalarını kullanabilirsiniz.</p>
+  </article>
+</main>
+
+<footer class="wrap">
+  <div>© 2026 ZeroLog</div>
+  <div class="links">
+    <a href="/">Ana sayfa</a>
+    <a href="/terms/">Koşullar</a>
+    <a href="/delete-account/">Hesap silme</a>
+  </div>
+</footer>
+
+</body>
+</html>

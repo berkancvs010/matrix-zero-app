@@ -1,7 +1,116 @@
 <!doctype html>
-<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ZeroLog Hesap ve Veri Silme</title></head>
-<body style="font-family:system-ui;max-width:760px;margin:auto;padding:28px;line-height:1.6"><h1>ZeroLog hesap ve veri silme</h1><p>Hesabınızı ve sunucuda hesabınızla ilişkilendirilen verileri silmek için kullanıcı adı ve mevcut şifrenizi girin. İşlem geri alınamaz.</p><form method="post" action="https://zerolog.giize.com/delete-account"><label>Kullanıcı adı<br><input name="username" autocomplete="username" required maxlength="24"></label><br><br><label>Şifre<br><input name="password" type="password" autocomplete="current-password" required></label><br><br><input type="hidden" name="csrfToken" id="csrfToken" value="">
-<button type="submit">Hesabı ve verileri sil</button></form><p>İletişim WSS/TLS üzerinden taşınır. Dosya içerikleri sunucuda kalıcı olarak saklanmaz.</p>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hesap ve veri silme — ZeroLog</title>
+<meta name="description" content="ZeroLog hesabınızı ve sunucudaki tüm verilerinizi kalıcı olarak silin.">
+<meta name="theme-color" content="#0c0b09">
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0c0b09;--ink-2:#161310;--panel:#1c1812;
+  --paper:#f4eedb;--paper-dim:#d8cdac;--muted:#a79b80;
+  --redact:#9c3a2c;--redact-bright:#c04632;
+  --line:rgba(244,238,219,.13);--line-strong:rgba(244,238,219,.22);
+  --max:640px;--serif:'Fraunces',serif;--sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:16px;line-height:1.6;min-height:100vh}
+body:before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse 800px 500px at 90% -10%,rgba(156,58,44,.14),transparent 60%);pointer-events:none;z-index:-1}
+a{color:var(--redact-bright);text-decoration:none;border-bottom:1px solid rgba(192,70,50,.4)}
+a:hover{border-color:var(--redact-bright)}
+.wrap{width:min(var(--max),calc(100% - 44px));margin:auto}
+
+header{padding:30px 0}
+header .row{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;border:0;font-family:var(--serif);font-weight:600;font-size:21px;letter-spacing:-.01em;color:var(--paper)}
+.brand .mark{width:30px;height:30px;border:1.5px solid var(--paper);border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;font-weight:500;transform:rotate(-2deg)}
+nav{display:flex;gap:26px}
+nav a{font-size:13.5px;color:var(--muted);border:0}
+nav a:hover{color:var(--paper)}
+
+main{padding:30px 0 90px}
+.kicker{font-family:var(--mono);font-size:11.5px;color:var(--redact-bright);letter-spacing:.02em;display:flex;align-items:center;gap:8px}
+.kicker i{width:6px;height:6px;border-radius:50%;background:var(--redact-bright);display:block}
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(30px,5vw,42px);line-height:1.1;letter-spacing:-.015em;margin:14px 0 14px}
+.lead{color:var(--paper-dim);font-size:15px;margin:0 0 34px;max-width:52ch}
+
+form{border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);padding:30px}
+label{display:block;font-size:12.5px;color:var(--muted);margin:0 0 7px;font-family:var(--mono);letter-spacing:.01em}
+.field{margin-bottom:18px}
+input[type=text],input[type=password],input:not([type]){
+  width:100%;background:var(--ink-2);border:1px solid var(--line-strong);border-radius:4px;
+  padding:13px 14px;color:var(--paper);font-size:15px;font-family:var(--sans);outline:none;transition:border-color .15s
+}
+input:focus{border-color:var(--redact-bright)}
+input::placeholder{color:var(--muted)}
+
+.btn{display:inline-flex;width:100%;justify-content:center;align-items:center;gap:9px;
+  padding:14px 20px;border-radius:4px;border:1px solid var(--redact-bright);background:var(--redact);
+  color:var(--paper);font-size:14.5px;font-weight:600;font-family:var(--sans);cursor:pointer;margin-top:6px;
+  transition:background .2s,opacity .2s}
+.btn:hover:not(:disabled){background:var(--redact-bright)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.warn{margin:22px 0 0;padding:14px 16px;border:1px solid var(--line-strong);border-left:3px solid var(--redact-bright);border-radius:3px;background:var(--ink-2);font-size:12.5px;color:var(--paper-dim)}
+.foot-note{margin-top:28px;font-size:12.5px;color:var(--muted);text-align:center}
+
+footer{border-top:1px solid var(--line);padding:32px 0 44px;color:var(--muted);font-size:12.5px;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer .links{display:flex;gap:22px}
+footer a{color:var(--muted);border:0}
+footer a:hover{color:var(--paper)}
+
+@media(max-width:560px){nav{display:none}}
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="row">
+    <a class="brand" href="/"><span class="mark">Z</span>ZeroLog</a>
+    <nav>
+      <a href="/">Ana sayfa</a>
+      <a href="/privacy/">Gizlilik</a>
+      <a href="/terms/">Koşullar</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <span class="kicker"><i></i>GERİ ALINAMAZ İŞLEM</span>
+  <h1>Hesabınızı ve verilerinizi silin.</h1>
+  <p class="lead">Kullanıcı adınızı ve mevcut şifrenizi girin. Onayladığınızda hesabınız ve sunucuda hesabınızla ilişkilendirilen tüm veriler kalıcı olarak silinir.</p>
+
+  <form method="post" action="https://zerolog.giize.com/delete-account">
+    <div class="field">
+      <label for="username">Kullanıcı adı</label>
+      <input id="username" name="username" autocomplete="username" required maxlength="24">
+    </div>
+    <div class="field">
+      <label for="password">Şifre</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <input type="hidden" name="csrfToken" id="csrfToken" value="">
+    <button type="submit" class="btn">Hesabı ve verileri sil</button>
+  </form>
+
+  <div class="warn">Bu işlem geri alınamaz. Silme tamamlandıktan sonra aynı kullanıcı adı ve geçmiş verileriniz kurtarılamaz.</div>
+  <p class="foot-note">İletişim WSS/TLS üzerinden taşınır. Dosya içerikleri sunucuda kalıcı olarak saklanmaz.</p>
+</main>
+
+<footer class="wrap">
+  <div>© 2026 ZeroLog</div>
+  <div class="links">
+    <a href="/">Ana sayfa</a>
+    <a href="/privacy/">Gizlilik</a>
+    <a href="/terms/">Koşullar</a>
+  </div>
+</footer>
+
 <script>
 (async function () {
   const tokenInput = document.getElementById('csrfToken');
@@ -25,4 +134,5 @@
 })();
 </script>
 
-</body></html>
+</body>
+</html>

@@ -1,22 +1,129 @@
 <!doctype html>
 <html lang="tr">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZeroLog Kullanım Koşulları</title></head>
-<body style="font-family:system-ui;max-width:760px;margin:auto;padding:28px;line-height:1.6">
-<h1>ZeroLog Kullanım Koşulları</h1>
-<p>Son güncelleme: 28 Eylül 2026</p>
-<p>ZeroLog'u kullanarak bu kurallara uymayı kabul edersiniz.</p>
-<h2>Yasak içerik ve davranışlar</h2>
-<ul>
-<li>Yasa dışı içerik veya yasa dışı faaliyetleri teşvik eden içerik.</li>
-<li>Tehdit, taciz, zorbalık, nefret veya şiddet çağrısı.</li>
-<li>Cinsel istismar, çocukların cinsel sömürüsü veya benzeri yasak içerikler.</li>
-<li>Kişisel verilerin izinsiz paylaşılması, doxxing veya hesap ele geçirme girişimleri.</li>
-<li>Spam, kimlik avı, kötü amaçlı yazılım veya hizmeti kötüye kullanma.</li>
-<li>Başka kullanıcıları taklit ederek dolandırıcılık veya yanıltma.</li>
-</ul>
-<h2>Engelleme ve şikayet</h2>
-<p>Kullanıcıları engelleyebilir ve uygunsuz davranışları şikayet edebilirsiniz. Şikayetler moderasyon kayıtlarına alınır ve yetkili moderasyon erişimi üzerinden incelenebilir. Gerekli durumlarda içerik veya hesap kaldırılabilir.</p>
-<h2>Hesap silme</h2>
-<p>Hesabınızı uygulama içinden veya <a href="/delete-account">web hesap ve veri silme sayfasından</a> silebilirsiniz.</p>
-</body></html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kullanım Koşulları — ZeroLog</title>
+<meta name="description" content="ZeroLog Kullanım Koşulları: yasak içerikler, engelleme ve şikâyet mekanizması, hesap silme hakları.">
+<meta name="theme-color" content="#0c0b09">
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0c0b09;--ink-2:#161310;--panel:#1c1812;
+  --paper:#f4eedb;--paper-dim:#d8cdac;--muted:#a79b80;
+  --redact:#9c3a2c;--redact-bright:#c04632;
+  --line:rgba(244,238,219,.13);--line-strong:rgba(244,238,219,.22);
+  --max:860px;--serif:'Fraunces',serif;--sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:16px;line-height:1.6}
+body:before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse 800px 500px at 10% -10%,rgba(156,58,44,.14),transparent 60%);pointer-events:none;z-index:-1}
+a{color:var(--redact-bright);text-decoration:none;border-bottom:1px solid rgba(192,70,50,.4)}
+a:hover{border-color:var(--redact-bright)}
+.wrap{width:min(var(--max),calc(100% - 44px));margin:auto}
+
+header{padding:30px 0}
+header .row{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;border:0;font-family:var(--serif);font-weight:600;font-size:21px;letter-spacing:-.01em;color:var(--paper)}
+.brand .mark{width:30px;height:30px;border:1.5px solid var(--paper);border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;font-weight:500;transform:rotate(-2deg)}
+nav{display:flex;gap:26px}
+nav a{font-size:13.5px;color:var(--muted);border:0}
+nav a:hover{color:var(--paper)}
+nav a.on{color:var(--paper)}
+
+.doc-head{padding:54px 0 44px;border-bottom:1px solid var(--line-strong)}
+.kicker{font-family:var(--mono);font-size:11.5px;color:var(--redact-bright);letter-spacing:.02em}
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(34px,5vw,50px);line-height:1.05;letter-spacing:-.015em;margin:14px 0 16px}
+.stampline{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--muted);border:1px solid var(--line-strong);padding:7px 12px;border-radius:3px}
+.stampline i{width:6px;height:6px;border-radius:50%;background:var(--redact-bright);display:block}
+.doc-head p{color:var(--paper-dim);font-size:15.5px;max-width:58ch;margin:22px 0 0}
+
+article{padding:50px 0 80px}
+article h2{font-family:var(--serif);font-weight:500;font-size:23px;letter-spacing:-.005em;margin:46px 0 14px;display:flex;align-items:baseline;gap:10px}
+article h2:first-child{margin-top:0}
+article h2:before{content:"";flex:none;width:18px;height:1px;background:var(--redact-bright);transform:translateY(-4px)}
+article p{color:var(--paper-dim);font-size:15px;margin:0 0 14px}
+article ul{margin:0 0 14px;padding-left:0;list-style:none}
+article li{color:var(--paper-dim);font-size:15px;padding:7px 0 7px 22px;position:relative;border-bottom:1px dashed var(--line)}
+article li:last-child{border-bottom:0}
+article li:before{content:"—";position:absolute;left:0;color:var(--muted)}
+
+.forbidden{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line-strong);border:1px solid var(--line-strong);border-radius:6px;overflow:hidden;margin:18px 0 28px}
+.fcard{background:var(--panel);padding:16px 18px;font-size:13.5px;color:var(--paper-dim);display:flex;gap:10px;align-items:flex-start}
+.fcard svg{flex:none;margin-top:2px;color:var(--redact-bright)}
+
+.note{margin:26px 0;padding:16px 18px;border:1px solid var(--line-strong);border-left:3px solid var(--redact-bright);border-radius:3px;background:var(--panel);font-size:13.5px;color:var(--paper-dim)}
+
+footer{border-top:1px solid var(--line);padding:32px 0 44px;color:var(--muted);font-size:12.5px;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer .links{display:flex;gap:22px}
+footer a{color:var(--muted);border:0}
+footer a:hover{color:var(--paper)}
+
+@media(max-width:700px){
+  nav{display:none}
+  .forbidden{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="row">
+    <a class="brand" href="/"><span class="mark">Z</span>ZeroLog</a>
+    <nav>
+      <a href="/">Ana sayfa</a>
+      <a href="/privacy/">Gizlilik</a>
+      <a class="on" href="/terms/">Koşullar</a>
+      <a href="/delete-account/">Hesap silme</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="doc-head">
+    <span class="kicker">KULLANIM KOŞULLARI</span>
+    <h1>Herkesin gizliliği, herkesin uyması gereken birkaç kuralla korunur.</h1>
+    <span class="stampline"><i></i>Son güncelleme: 28 Eylül 2026</span>
+    <p>ZeroLog'u indirip bir rumuz oluşturduğunuzda, aşağıdaki kurallara uymayı kabul etmiş olursunuz. Kurallar kısadır, çünkü gizlilik ancak herkes aynı sınırlara saygı duyduğunda anlamlıdır.</p>
+  </div>
+
+  <article>
+    <h2>Yasak içerik ve davranışlar</h2>
+    <p>Aşağıdaki içerik ve davranışlara ZeroLog üzerinde kesinlikle izin verilmez:</p>
+
+    <div class="forbidden">
+      <div class="fcard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 2.5 18a1.5 1.5 0 0 0 1.3 2.2h16.4a1.5 1.5 0 0 0 1.3-2.2L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Yasa dışı içerik veya yasa dışı faaliyeti teşvik eden paylaşımlar.</div>
+      <div class="fcard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 2.5 18a1.5 1.5 0 0 0 1.3 2.2h16.4a1.5 1.5 0 0 0 1.3-2.2L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Tehdit, taciz, zorbalık, nefret söylemi veya şiddet çağrısı.</div>
+      <div class="fcard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 2.5 18a1.5 1.5 0 0 0 1.3 2.2h16.4a1.5 1.5 0 0 0 1.3-2.2L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Çocukların cinsel istismarı, sömürüsü veya buna benzer her türlü yasak içerik.</div>
+      <div class="fcard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 2.5 18a1.5 1.5 0 0 0 1.3 2.2h16.4a1.5 1.5 0 0 0 1.3-2.2L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Başkalarının kişisel verilerini izinsiz paylaşmak (doxxing) veya hesap ele geçirme girişimi.</div>
+      <div class="fcard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 2.5 18a1.5 1.5 0 0 0 1.3 2.2h16.4a1.5 1.5 0 0 0 1.3-2.2L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Spam, kimlik avı (phishing), kötü amaçlı yazılım veya hizmeti kötüye kullanma.</div>
+      <div class="fcard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 2.5 18a1.5 1.5 0 0 0 1.3 2.2h16.4a1.5 1.5 0 0 0 1.3-2.2L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Başka bir kullanıcıyı taklit ederek dolandırıcılık yapmak veya yanıltmak.</div>
+    </div>
+
+    <h2>Engelleme ve şikâyet</h2>
+    <p>Rahatsız olduğunuz herhangi bir kullanıcıyı tek dokunuşla engelleyebilir ve uygunsuz davranışı şikâyet edebilirsiniz. Şikâyetler moderasyon kayıtlarına alınır ve yetkili moderasyon erişimi üzerinden incelenir. Gerekli görüldüğünde ilgili içerik veya hesap kaldırılır.</p>
+
+    <div class="note">Şikâyet mekanizması, yukarıdaki kuralların ihlal edilip edilmediğini değerlendirmek içindir — sıradan anlaşmazlıklar için değil.</div>
+
+    <h2>Hesabınız, kontrolünüzde</h2>
+    <p>Hesabınızı dilediğiniz an uygulama içinden veya <a href="/delete-account/">web üzerindeki hesap ve veri silme sayfasından</a> kalıcı olarak silebilirsiniz. Bu işlem geri alınamaz.</p>
+
+    <h2>Değişiklikler</h2>
+    <p>Bu koşullar, hizmetin gelişimiyle birlikte güncellenebilir. Önemli değişiklikler bu sayfada "son güncelleme" tarihiyle birlikte yayımlanır.</p>
+  </article>
+</main>
+
+<footer class="wrap">
+  <div>© 2026 ZeroLog</div>
+  <div class="links">
+    <a href="/">Ana sayfa</a>
+    <a href="/privacy/">Gizlilik</a>
+    <a href="/delete-account/">Hesap silme</a>
+  </div>
+</footer>
+
+</body>
+</html>

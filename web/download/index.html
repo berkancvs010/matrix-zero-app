@@ -1,22 +1,121 @@
 <!doctype html>
 <html lang="tr">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZeroLog — Android</title>
-<meta name="description" content="ZeroLog Android uygulamasını indir.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZeroLog'u indir — Android</title>
+<meta name="description" content="ZeroLog Android uygulamasını indirin. Hesap oluşturmak için e-posta veya telefon numarası gerekmez.">
+<meta name="theme-color" content="#0c0b09">
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{color-scheme:dark;--bg:#050914;--panel:rgba(13,22,38,.78);--line:rgba(170,205,235,.12);--text:#f2f7ff;--muted:#93a3b9;--a:#65d7c8;--b:#6e9cff}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 20% 0,#12314b 0,transparent 32%),radial-gradient(circle at 85% 20%,#10263d 0,transparent 30%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
-.wrap{width:min(980px,calc(100% - 36px));margin:auto;padding:28px 0 60px}.brand{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font-weight:900;font-size:20px}.mark{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),var(--b));color:#061018;font-weight:950}
-.card{margin-top:70px;padding:clamp(30px,7vw,72px);border:1px solid var(--line);border-radius:34px;background:linear-gradient(145deg,rgba(16,29,48,.82),rgba(7,13,24,.76));backdrop-filter:blur(22px);box-shadow:0 35px 100px rgba(0,0,0,.4);text-align:center}.eyebrow{color:var(--a);font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}h1{font-size:clamp(42px,8vw,76px);line-height:.95;letter-spacing:-.06em;margin:15px 0 20px}p{color:var(--muted);line-height:1.75;max-width:640px;margin:0 auto}.button{display:inline-flex;margin-top:30px;padding:15px 24px;border-radius:15px;background:linear-gradient(135deg,var(--a),#54b7d6);color:#061018;text-decoration:none;font-weight:900;box-shadow:0 16px 40px rgba(76,210,196,.17)}.meta{margin-top:18px;font-size:12px;color:#718198}.links{margin-top:35px;display:flex;justify-content:center;gap:20px;flex-wrap:wrap}.links a{color:#aab9cd;text-decoration:none;font-size:12px}.links a:hover{color:#fff}
-</style></head>
-<body><div class="wrap">
-<a class="brand" href="/"><span class="mark">Z</span>ZeroLog</a>
-<main class="card">
-<div class="eyebrow">Android · ZeroLog 1.0.10</div>
-<h1>Özel iletişim,<br>doğrudan cihazınızda.</h1>
-<p>ZeroLog Android uygulamasının güncel sürümünü indirip rumuzunuzla iletişim kurmaya başlayın. E-posta adresi gerektirmez.</p>
-<a class="button" href="/download/zerolog.apk" download>Android APK'yı indir →</a>
-<div class="meta">Sürüm 1.0.10 · Güncel Android dağıtımı</div>
-<div class="links"><a href="/">Ana sayfa</a><a href="/privacy/">Gizlilik</a><a href="/terms/">Koşullar</a><a href="/delete-account/">Hesap silme</a></div>
-</main></div></body></html>
+:root{
+  --ink:#0c0b09;--ink-2:#161310;--panel:#1c1812;
+  --paper:#f4eedb;--paper-dim:#d8cdac;--muted:#a79b80;
+  --redact:#9c3a2c;--redact-bright:#c04632;
+  --line:rgba(244,238,219,.13);--line-strong:rgba(244,238,219,.22);
+  --max:860px;--serif:'Fraunces',serif;--sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:16px;line-height:1.6;min-height:100vh}
+body:before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse 800px 500px at 10% -10%,rgba(156,58,44,.14),transparent 60%);pointer-events:none;z-index:-1}
+a{color:var(--redact-bright);text-decoration:none;border-bottom:1px solid rgba(192,70,50,.4)}
+a:hover{border-color:var(--redact-bright)}
+.wrap{width:min(var(--max),calc(100% - 44px));margin:auto}
+
+header{padding:30px 0}
+header .row{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;border:0;font-family:var(--serif);font-weight:600;font-size:21px;letter-spacing:-.01em;color:var(--paper)}
+.brand .mark{width:30px;height:30px;border:1.5px solid var(--paper);border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;font-weight:500;transform:rotate(-2deg)}
+nav{display:flex;gap:26px}
+nav a{font-size:13.5px;color:var(--muted);border:0}
+nav a:hover{color:var(--paper)}
+nav a.on{color:var(--paper)}
+
+main{padding:40px 0 90px}
+.card{border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);padding:clamp(34px,6vw,64px);text-align:center}
+.kicker{font-family:var(--mono);font-size:11.5px;color:var(--redact-bright);letter-spacing:.02em}
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(32px,5.4vw,48px);line-height:1.06;letter-spacing:-.015em;margin:16px auto 16px;max-width:16ch}
+.card p.lead{color:var(--paper-dim);font-size:15.5px;max-width:46ch;margin:0 auto}
+
+.btn{display:inline-flex;align-items:center;gap:10px;padding:16px 26px;border-radius:4px;text-decoration:none;font-size:14.5px;font-weight:600;background:var(--paper);color:var(--ink);border:0;margin-top:30px;transition:transform .2s,opacity .2s}
+.btn:hover{transform:translateY(-2px);opacity:.9}
+.btn svg{flex:none}
+
+.specs{display:flex;justify-content:center;gap:28px;flex-wrap:wrap;margin-top:22px;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.specs b{color:var(--paper-dim);font-weight:500}
+
+.steps{margin-top:54px;border-top:1px solid var(--line-strong);padding-top:38px;text-align:left}
+.steps h2{font-family:var(--serif);font-weight:500;font-size:19px;margin:0 0 20px;text-align:center}
+.steps ol{list-style:none;margin:0;padding:0;display:grid;gap:14px;max-width:480px;margin-inline:auto}
+.steps li{display:flex;gap:14px;align-items:flex-start;font-size:13.5px;color:var(--paper-dim);line-height:1.6}
+.steps .num{flex:none;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);display:grid;place-items:center;font-family:var(--mono);font-size:11px;color:var(--redact-bright)}
+
+.safenote{margin-top:30px;padding:14px 18px;border:1px solid var(--line-strong);border-left:3px solid var(--redact-bright);border-radius:3px;background:var(--ink-2);font-size:12.5px;color:var(--paper-dim);text-align:left}
+
+footer{border-top:1px solid var(--line);padding:32px 0 44px;color:var(--muted);font-size:12.5px;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer .links{display:flex;gap:22px}
+footer a{color:var(--muted);border:0}
+footer a:hover{color:var(--paper)}
+
+@media(max-width:700px){nav{display:none}.specs{gap:16px}}
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="row">
+    <a class="brand" href="/"><span class="mark">Z</span>ZeroLog</a>
+    <nav>
+      <a href="/">Ana sayfa</a>
+      <a href="/privacy/">Gizlilik</a>
+      <a href="/terms/">Koşullar</a>
+      <a href="/delete-account/">Hesap silme</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="card">
+    <span class="kicker">ANDROID · SÜRÜM 1.0.10</span>
+    <h1>Özel iletişim, doğrudan cihazınızda.</h1>
+    <p class="lead">ZeroLog'un güncel Android sürümünü indirin ve bir rumuz oluşturarak hemen bağlantı kurun. E-posta veya telefon numarası gerekmez.</p>
+
+    <a class="btn" href="/download/zerolog.apk" download>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v13m0 0 5-5m-5 5-5-5M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Android APK'yı indir
+    </a>
+
+    <div class="specs">
+      <span><b>1.0.10</b> sürüm</span>
+      <span><b>Android 8.0+</b> gereksinim</span>
+      <span><b>APK</b> doğrudan kurulum</span>
+    </div>
+
+    <div class="steps">
+      <h2>Kurulum</h2>
+      <ol>
+        <li><span class="num">1</span>Yukarıdaki düğmeyle APK dosyasını indirin.</li>
+        <li><span class="num">2</span>İndirilenler klasöründen dosyayı açın; istenirse "bilinmeyen kaynaklardan yüklemeye" tek seferlik izin verin.</li>
+        <li><span class="num">3</span>Kurulum tamamlandığında uygulamayı açıp bir rumuz oluşturun — hesabınız hazır.</li>
+      </ol>
+    </div>
+
+    <div class="safenote">ZeroLog, Google Play dışında doğrudan dağıtılır. Dosyayı yalnızca bu resmî adresten indirin.</div>
+  </div>
+</main>
+
+<footer class="wrap">
+  <div>© 2026 ZeroLog</div>
+  <div class="links">
+    <a href="/">Ana sayfa</a>
+    <a href="/privacy/">Gizlilik</a>
+    <a href="/terms/">Koşullar</a>
+    <a href="/delete-account/">Hesap silme</a>
+  </div>
+</footer>
+
+</body>
+</html>
