@@ -45,6 +45,8 @@ class _CallScreenState extends State<CallScreen> {
   bool _frontCamera = true;
 
   Timer? _outgoingTimeoutTimer;
+  Timer? _callConnectionTimeoutTimer;
+  Timer? _callDisconnectGraceTimer;
   Timer? _callDurationTimer;
   DateTime? _connectedAt;
   Duration _callDuration = Duration.zero;
@@ -268,6 +270,10 @@ class _CallScreenState extends State<CallScreen> {
         if (!mounted || _closing) return;
 
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          _callConnectionTimeoutTimer?.cancel();
+          _callConnectionTimeoutTimer = null;
+          _callDisconnectGraceTimer?.cancel();
+          _callDisconnectGraceTimer = null;
           _startCallDuration();
           setState(() {
             _connected = true;
@@ -275,11 +281,31 @@ class _CallScreenState extends State<CallScreen> {
         } else if (state ==
                 RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             state ==
-                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
-            state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-          setState(() {
-            _connected = false;
-          });
+                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          if (mounted) {
+            setState(() {
+              _connected = false;
+            });
+          }
+
+          // Do not leave a call screen stuck forever on "Bağlanıyor…".
+          // Give ICE/WebRTC a short recovery window before terminating.
+          _callDisconnectGraceTimer?.cancel();
+          _callDisconnectGraceTimer = Timer(
+            const Duration(seconds: 12),
+            () {
+              if (!mounted || _closing || _connected) return;
+              zeroLog('[CALL][WEBRTC] connection did not recover');
+              unawaited(_finish());
+            },
+          );
+        } else if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+          if (mounted) {
+            setState(() {
+              _connected = false;
+            });
+          }
         }
       };
 
@@ -431,8 +457,25 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
+  void _startCallConnectionWatchdog() {
+    _callConnectionTimeoutTimer?.cancel();
+    _callConnectionTimeoutTimer = Timer(
+      const Duration(seconds: 45),
+      () {
+        if (!mounted || _closing || _connected) return;
+        zeroLog('[CALL][WEBRTC] connection timeout');
+        _showError('Arama bağlantısı kurulamadı.');
+        unawaited(_finish());
+      },
+    );
+  }
+
   Future<void> _startOutgoingOffer() async {
     if (_closing) return;
+
+    // Cover the whole acceptance -> peer creation -> offer -> answer path,
+    // not only the period after the SDP offer is sent.
+    _startCallConnectionWatchdog();
 
     zeroLog(
       '[CALL][OFFER] _startOutgoingOffer entered '
@@ -472,6 +515,7 @@ class _CallScreenState extends State<CallScreen> {
           _accepted = true;
         });
 
+        _startCallConnectionWatchdog();
         await _initProximitySensor();
       }
     } catch (e) {
@@ -524,6 +568,10 @@ class _CallScreenState extends State<CallScreen> {
             _accepted = true;
           });
 
+          // Start the connection watchdog immediately after acceptance. The
+          // offer may arrive later, so waiting until SDP/ICE setup would leave
+          // this exact acceptance->offer gap without a timeout.
+          _startCallConnectionWatchdog();
           await _initProximitySensor();
         }
 
@@ -587,6 +635,7 @@ class _CallScreenState extends State<CallScreen> {
           _accepted = true;
         });
 
+        _startCallConnectionWatchdog();
         await _initProximitySensor();
       }
 
@@ -978,6 +1027,10 @@ class _CallScreenState extends State<CallScreen> {
 
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
+    _callConnectionTimeoutTimer?.cancel();
+    _callConnectionTimeoutTimer = null;
+    _callDisconnectGraceTimer?.cancel();
+    _callDisconnectGraceTimer = null;
 
     _callDurationTimer?.cancel();
     _callDurationTimer = null;
@@ -1056,6 +1109,10 @@ class _CallScreenState extends State<CallScreen> {
 
     _outgoingTimeoutTimer?.cancel();
     _outgoingTimeoutTimer = null;
+    _callConnectionTimeoutTimer?.cancel();
+    _callConnectionTimeoutTimer = null;
+    _callDisconnectGraceTimer?.cancel();
+    _callDisconnectGraceTimer = null;
 
     _callDurationTimer?.cancel();
     _callDurationTimer = null;

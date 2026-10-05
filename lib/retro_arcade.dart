@@ -1,4 +1,3 @@
-// ignore_for_file: curly_braces_in_flow_control_structures
 part of 'main.dart';
 
 /// ZeroLog Retro: küçük, bağımsız ve offline oyunlar.
@@ -32,6 +31,7 @@ const _retroGames = <RetroGame>[
     'Tuğlaları kır, topu oyunda tut.',
     Icons.grid_4x4_rounded,
     'Arcade',
+    gamepad: true,
   ),
   RetroGame(
     'pong',
@@ -339,7 +339,7 @@ class _RetroGamePageState extends State<RetroGamePage> {
       case 'space_shooter':
         return _SpaceGame(showPad: showPad);
       case 'breakout':
-        return const _BreakoutGame();
+        return _BreakoutGame(showPad: showPad);
       case 'pong':
         return _PongGame(showPad: showPad);
       case 'snake':
@@ -517,12 +517,15 @@ class _SnakeState extends State<_SnakeGame> {
   Timer? timer;
   int score = 0;
   bool over = false;
+
   @override
   void initState() {
     super.initState();
     _reset();
     timer = Timer.periodic(const Duration(milliseconds: 125), (_) {
-      if (mounted && !over) setState(_tick);
+      if (mounted && !over) {
+        setState(_tick);
+      }
     });
   }
 
@@ -554,7 +557,12 @@ class _SnakeState extends State<_SnakeGame> {
   }
 
   void turn(math.Point<int> d) {
-    if (d.x == -dir.x && d.y == -dir.y) return;
+    if (over) {
+      return;
+    }
+    if (d.x == -dir.x && d.y == -dir.y) {
+      return;
+    }
     dir = d;
   }
 
@@ -565,6 +573,7 @@ class _SnakeState extends State<_SnakeGame> {
       over = true;
       return;
     }
+
     snake.insert(0, n);
     if (n == food) {
       score += 10;
@@ -590,7 +599,9 @@ class _SnakeState extends State<_SnakeGame> {
             left: () => setState(() => turn(const math.Point(-1, 0))),
             right: () => setState(() => turn(const math.Point(1, 0))),
             a: () => setState(() {
-              if (over) _reset();
+              if (over) {
+                _reset();
+              }
             }),
             b: () => setState(_reset),
           )
@@ -613,7 +624,8 @@ class _SnakeState extends State<_SnakeGame> {
 }
 
 class _BreakoutGame extends StatefulWidget {
-  const _BreakoutGame();
+  final bool showPad;
+  const _BreakoutGame({required this.showPad});
   @override
   State<_BreakoutGame> createState() => _BreakoutState();
 }
@@ -621,14 +633,16 @@ class _BreakoutGame extends StatefulWidget {
 class _BreakoutState extends State<_BreakoutGame> {
   double x = .5, y = .72, vx = .012, vy = -.015, paddle = .5;
   int score = 0, lives = 3;
-  final List<bool> bricks = List<bool>.filled(30, true);
   Timer? tm;
+  final List<bool> bricks = List<bool>.filled(30, true);
 
   @override
   void initState() {
     super.initState();
     tm = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      if (mounted) setState(_tick);
+      if (mounted) {
+        setState(_tick);
+      }
     });
   }
 
@@ -649,44 +663,37 @@ class _BreakoutState extends State<_BreakoutGame> {
     x += vx;
     y += vy;
 
-    if (x < .03 || x > .97) {
+    if (x < .025 || x > .975) {
       vx = -vx;
-      x = x.clamp(.03, .97).toDouble();
+      x = x.clamp(.025, .975).toDouble();
     }
-
     if (y < .04) {
       vy = vy.abs();
       y = .04;
     }
 
-    // 6 columns × 5 rows of real Breakout bricks.
+    // Six columns x five rows of live bricks.
     for (var row = 0; row < 5; row++) {
       for (var col = 0; col < 6; col++) {
         final index = row * 6 + col;
-        if (!bricks[index]) continue;
+        if (!bricks[index]) {
+          continue;
+        }
 
-        final left = .015 + col / 6;
-        final right = .985 - (5 - col) / 6;
-        final top = .025 + row * .045;
-        final bottom = top + .035;
+        final left = .03 + col * .16;
+        final right = left + .13;
+        final top = .05 + row * .085;
+        final bottom = top + .06;
 
-        if (x >= left && x <= right && y >= top && y <= bottom && vy < 0) {
+        if (x >= left - .018 &&
+            x <= right + .018 &&
+            y >= top - .018 &&
+            y <= bottom + .018) {
           bricks[index] = false;
-          vy = vy.abs();
           score += 10;
+          vy = -vy;
           break;
         }
-      }
-    }
-
-    if (y > .86 && y < .95 && (x - paddle).abs() < .16 && vy > 0) {
-      vy = -vy.abs();
-
-      // Give the paddle some influence over the horizontal direction.
-      final offset = (x - paddle) / .16;
-      vx = (vx + offset * .004).clamp(-.018, .018).toDouble();
-      if (vx.abs() < .004) {
-        vx = vx < 0 ? -.004 : .004;
       }
     }
 
@@ -697,12 +704,20 @@ class _BreakoutState extends State<_BreakoutGame> {
       vy *= 1.08;
     }
 
+    if (y > .86 && y < .95 && (x - paddle).abs() < .17 && vy > 0) {
+      final influence = (x - paddle) * .06;
+      vy = -vy.abs();
+      vx = (vx + influence).clamp(-.022, .022).toDouble();
+    }
+
     if (y > 1) {
       lives--;
       if (lives <= 0) {
         lives = 3;
         score = 0;
         _resetBricks();
+        vx = .012;
+        vy = -.015;
       }
       _resetBall();
     }
@@ -717,6 +732,22 @@ class _BreakoutState extends State<_BreakoutGame> {
   @override
   Widget build(BuildContext c) => _ArcadeFrame(
     score: '$score  •  ♥ $lives',
+    controls: widget.showPad
+        ? _VirtualGamepad(
+            left: () => setState(
+              () => paddle = (paddle - .08).clamp(.12, .88).toDouble(),
+            ),
+            right: () => setState(
+              () => paddle = (paddle + .08).clamp(.12, .88).toDouble(),
+            ),
+            a: () => setState(
+              () => paddle = (paddle - .14).clamp(.12, .88).toDouble(),
+            ),
+            b: () => setState(
+              () => paddle = (paddle + .14).clamp(.12, .88).toDouble(),
+            ),
+          )
+        : null,
     child: GestureDetector(
       onHorizontalDragUpdate: (d) => setState(
         () => paddle = (paddle + d.primaryDelta! / 300)
@@ -747,27 +778,36 @@ class _PongState extends State<_PongGame> {
   double bx = .5, by = .5, vx = .012, vy = .008, me = .5, ai = .5;
   int score = 0;
   Timer? tm;
+
   @override
   void initState() {
     super.initState();
     tm = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      if (mounted) setState(_tick);
+      if (mounted) {
+        setState(_tick);
+      }
     });
   }
 
   void _tick() {
     bx += vx;
     by += vy;
+
     if (by < .04 || by > .96) {
       vy = -vy;
       by = by.clamp(.04, .96).toDouble();
     }
+
     ai += (by - ai) * .035;
-    if (bx < .08 && (by - me).abs() < .15) vx = vx.abs();
+
+    if (bx < .08 && (by - me).abs() < .15) {
+      vx = vx.abs();
+    }
     if (bx > .92 && (by - ai).abs() < .15) {
       vx = -vx.abs();
       score++;
     }
+
     if (bx < -.03 || bx > 1.03) {
       final servedFromLeft = bx < 0;
       bx = .5;
@@ -778,6 +818,7 @@ class _PongState extends State<_PongGame> {
 
   void move(double d) =>
       setState(() => me = (me + d).clamp(.12, .88).toDouble());
+
   @override
   void dispose() {
     tm?.cancel();
@@ -818,12 +859,15 @@ class _SpaceState extends State<_SpaceGame> {
   int score = 0;
   Timer? tm;
   final r = math.Random();
+
   @override
   void initState() {
     super.initState();
     _reset();
     tm = Timer.periodic(const Duration(milliseconds: 30), (_) {
-      if (mounted) setState(_tick);
+      if (mounted) {
+        setState(_tick);
+      }
     });
   }
 
@@ -845,9 +889,11 @@ class _SpaceState extends State<_SpaceGame> {
       for (final s in shots)
         if (s.dy > .02) Offset(s.dx, s.dy - .025),
     ];
+
     if (r.nextDouble() < .035) {
       enemies.add(Offset(.08 + r.nextDouble() * .84, .03));
     }
+
     final hitEnemies = <Offset>{};
     final hitShots = <Offset>{};
 
@@ -871,12 +917,15 @@ class _SpaceState extends State<_SpaceGame> {
       enemies.remove(e);
       score += 10;
     }
+
     enemies = [for (final e in enemies) Offset(e.dx, e.dy + .0028)];
+
     if (enemies.any((e) => e.dy > .91)) _reset();
   }
 
   void move(double d) =>
       setState(() => ship = (ship + d).clamp(.05, .95).toDouble());
+
   @override
   void dispose() {
     tm?.cancel();
@@ -915,8 +964,11 @@ class _TetrisGame extends StatefulWidget {
 class _TetrisState extends State<_TetrisGame> {
   List<List<int>> board = List.generate(20, (_) => List.filled(10, 0));
   int x = 4, y = 0, kind = 0, score = 0, rotation = 0;
+  bool over = false;
   Timer? timer;
   final r = math.Random();
+
+  // I, O, T, J, L, S, Z.
   final shapes = const [
     [
       [1, 1, 1, 1],
@@ -937,20 +989,32 @@ class _TetrisState extends State<_TetrisGame> {
       [0, 0, 1],
       [1, 1, 1],
     ],
+    [
+      [0, 1, 1],
+      [1, 1, 0],
+    ],
+    [
+      [1, 1, 0],
+      [0, 1, 1],
+    ],
   ];
+
   @override
   void initState() {
     super.initState();
     _spawn();
     timer = Timer.periodic(const Duration(milliseconds: 420), (_) {
-      if (mounted) setState(_drop);
+      if (mounted && !over) {
+        setState(_drop);
+      }
     });
   }
 
   List<List<int>> get s {
     var out = shapes[kind].map((row) => List<int>.from(row)).toList();
     for (var n = 0; n < rotation; n++) {
-      final h = out.length, w = out.first.length;
+      final h = out.length;
+      final w = out.first.length;
       out = List.generate(
         w,
         (yy) => List.generate(h, (xx) => out[h - 1 - xx][yy]),
@@ -960,18 +1024,18 @@ class _TetrisState extends State<_TetrisGame> {
   }
 
   bool can(int nx, int ny) {
-    for (int yy = 0; yy < s.length; yy++)
+    for (int yy = 0; yy < s.length; yy++) {
       for (int xx = 0; xx < s[yy].length; xx++) {
-        if (s[yy][xx] == 1) {
-          final bx = nx + xx, by = ny + yy;
-          if (bx < 0 ||
-              bx >= 10 ||
-              by >= 20 ||
-              (by >= 0 && board[by][bx] != 0)) {
-            return false;
-          }
+        if (s[yy][xx] != 1) {
+          continue;
+        }
+        final bx = nx + xx;
+        final by = ny + yy;
+        if (bx < 0 || bx >= 10 || by >= 20 || (by >= 0 && board[by][bx] != 0)) {
+          return false;
         }
       }
+    }
     return true;
   }
 
@@ -980,27 +1044,38 @@ class _TetrisState extends State<_TetrisGame> {
     rotation = 0;
     x = 4;
     y = 0;
+
     if (!can(x, y)) {
-      board = List.generate(20, (_) => List.filled(10, 0));
-      score = 0;
+      over = true;
     }
   }
 
   void _drop() {
+    if (over) {
+      return;
+    }
+
     if (can(x, y + 1)) {
       y++;
       return;
     }
-    for (int yy = 0; yy < s.length; yy++)
+
+    for (int yy = 0; yy < s.length; yy++) {
       for (int xx = 0; xx < s[yy].length; xx++) {
-        if (s[yy][xx] == 1 && y + yy >= 0) board[y + yy][x + xx] = kind + 1;
+        if (s[yy][xx] == 1 && y + yy >= 0) {
+          board[y + yy][x + xx] = kind + 1;
+        }
       }
+    }
+
     final before = board.length;
     board.removeWhere((row) => row.every((v) => v != 0));
     score += (before - board.length) * 100;
+
     while (board.length < 20) {
       board.insert(0, List.filled(10, 0));
     }
+
     _spawn();
   }
 
@@ -1012,14 +1087,21 @@ class _TetrisState extends State<_TetrisGame> {
       score = 0;
       rotation = 0;
       kind = r.nextInt(shapes.length);
+      over = false;
     });
   }
 
   void move(int d) {
+    if (over) {
+      return;
+    }
     if (can(x + d, y)) setState(() => x += d);
   }
 
   void rotate() {
+    if (over) {
+      return;
+    }
     final next = (rotation + 1) % 4;
     final old = rotation;
     setState(() {
@@ -1029,6 +1111,9 @@ class _TetrisState extends State<_TetrisGame> {
   }
 
   void hard() {
+    if (over) {
+      return;
+    }
     setState(() {
       while (can(x, y + 1)) {
         y++;
@@ -1045,7 +1130,7 @@ class _TetrisState extends State<_TetrisGame> {
 
   @override
   Widget build(BuildContext c) => _ArcadeFrame(
-    score: '$score',
+    score: over ? 'OYUN BİTTİ • $score' : '$score',
     controls: widget.showPad
         ? _VirtualGamepad(
             left: () => move(-1),
@@ -1058,13 +1143,15 @@ class _TetrisState extends State<_TetrisGame> {
         : null,
     child: GestureDetector(
       onHorizontalDragUpdate: (d) {
-        if (d.delta.dx.abs() > 7) move(d.delta.dx > 0 ? 1 : -1);
+        if (d.delta.dx.abs() > 7) {
+          move(d.delta.dx > 0 ? 1 : -1);
+        }
       },
       onVerticalDragEnd: (d) {
         if ((d.primaryVelocity ?? 0) > 0) hard();
       },
       child: CustomPaint(
-        painter: _TetrisPainter(board, s, x, y, kind),
+        painter: _TetrisPainter(board, s, x, y, kind, over),
         size: Size.infinite,
       ),
     ),
@@ -1213,6 +1300,7 @@ class _MinesState extends State<_MinesGame> {
   late List<bool> mines, open, flags;
   final r = math.Random();
   bool over = false, won = false;
+
   @override
   void initState() {
     super.initState();
@@ -1225,6 +1313,7 @@ class _MinesState extends State<_MinesGame> {
     flags = List.filled(36, false);
     over = false;
     won = false;
+
     final ids = <int>{};
     while (ids.length < 6) {
       ids.add(r.nextInt(36));
@@ -1237,16 +1326,22 @@ class _MinesState extends State<_MinesGame> {
   int around(int i) {
     final x = i % 6, y = i ~/ 6;
     var n = 0;
-    for (final dx in [-1, 0, 1])
+    for (final dx in [-1, 0, 1]) {
       for (final dy in [-1, 0, 1]) {
         final xx = x + dx, yy = y + dy;
-        if (xx >= 0 && xx < 6 && yy >= 0 && yy < 6 && mines[yy * 6 + xx]) n++;
+        if (xx >= 0 && xx < 6 && yy >= 0 && yy < 6 && mines[yy * 6 + xx]) {
+          n++;
+        }
       }
+    }
     return n;
   }
 
   void tap(int i) {
-    if (over || flags[i] || open[i]) return;
+    if (over || won || flags[i] || open[i]) {
+      return;
+    }
+
     if (mines[i]) {
       setState(() {
         open = List.filled(36, true);
@@ -1254,26 +1349,36 @@ class _MinesState extends State<_MinesGame> {
       });
       return;
     }
+
     final q = [i];
     while (q.isNotEmpty) {
       final n = q.removeLast();
-      if (open[n] || flags[n] || mines[n]) continue;
+      if (open[n] || flags[n] || mines[n]) {
+        continue;
+      }
       open[n] = true;
+
       if (around(n) == 0) {
         final x = n % 6, y = n ~/ 6;
-        for (final dx in [-1, 0, 1])
+        for (final dx in [-1, 0, 1]) {
           for (final dy in [-1, 0, 1]) {
             final xx = x + dx, yy = y + dy;
-            if (xx >= 0 && xx < 6 && yy >= 0 && yy < 6) q.add(yy * 6 + xx);
+            if (xx >= 0 && xx < 6 && yy >= 0 && yy < 6) {
+              q.add(yy * 6 + xx);
+            }
           }
+        }
       }
     }
+
     if (open.where((x) => x).length >= 30) won = true;
     setState(() {});
   }
 
   void flag(int i) {
-    if (over || open[i]) return;
+    if (over || won || open[i]) {
+      return;
+    }
     setState(() => flags[i] = !flags[i]);
   }
 
@@ -1523,31 +1628,26 @@ class _SnakePainter extends CustomPainter {
 class _BreakPainter extends CustomPainter {
   final double x, y, p;
   final List<bool> bricks;
-
   _BreakPainter(this.x, this.y, this.p, this.bricks);
-
   @override
   void paint(Canvas c, Size z) {
-    final q = Paint()..color = const Color(0xff48ff9b);
-
-    for (var j = 0; j < 5; j++) {
-      for (var i = 0; i < 6; i++) {
+    final q = Paint();
+    for (int i = 0; i < 6; i++) {
+      for (int j = 0; j < 5; j++) {
         final index = j * 6 + i;
         if (!bricks[index]) continue;
-
         q.color = Color.lerp(
           const Color(0xff55b7ff),
           const Color(0xffff4f8b),
           j / 4,
         )!;
-
         c.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromLTWH(
-              10 + i * z.width / 6,
-              18 + j * 27,
-              z.width / 6 - 14,
-              21,
+              (.03 + i * .16) * z.width,
+              .05 * z.height + j * .085 * z.height,
+              .13 * z.width,
+              .06 * z.height,
             ),
             const Radius.circular(7),
           ),
@@ -1555,10 +1655,8 @@ class _BreakPainter extends CustomPainter {
         );
       }
     }
-
     q.color = Colors.white;
     c.drawCircle(Offset(x * z.width, y * z.height), 7, q);
-
     q.color = const Color(0xff48ff9b);
     c.drawRRect(
       RRect.fromRectAndRadius(
@@ -1661,14 +1759,15 @@ class _SpacePainter extends CustomPainter {
 class _TetrisPainter extends CustomPainter {
   final List<List<int>> b, s;
   final int x, y, k;
-  _TetrisPainter(this.b, this.s, this.x, this.y, this.k);
+  final bool over;
+  _TetrisPainter(this.b, this.s, this.x, this.y, this.k, this.over);
   @override
   void paint(Canvas c, Size z) {
     final p = Paint();
     final cw = z.width / 10, ch = z.height / 20;
     p.color = const Color(0xff0c1220);
     c.drawRect(Offset.zero & z, p);
-    for (int yy = 0; yy < 20; yy++)
+    for (int yy = 0; yy < 20; yy++) {
       for (int xx = 0; xx < 10; xx++) {
         if (b[yy][xx] != 0) {
           p.color = Colors.primaries[(b[yy][xx] - 1) % Colors.primaries.length]
@@ -1682,8 +1781,9 @@ class _TetrisPainter extends CustomPainter {
           );
         }
       }
+    }
     p.color = Colors.white;
-    for (int yy = 0; yy < s.length; yy++)
+    for (int yy = 0; yy < s.length; yy++) {
       for (int xx = 0; xx < s[yy].length; xx++) {
         if (s[yy][xx] == 1) {
           c.drawRRect(
@@ -1700,6 +1800,12 @@ class _TetrisPainter extends CustomPainter {
           );
         }
       }
+    }
+    if (over) {
+      p.color = Colors.black54;
+      c.drawRect(Offset.zero & z, p);
+      _center(c, z, 'OYUN BİTTİ');
+    }
   }
 
   @override

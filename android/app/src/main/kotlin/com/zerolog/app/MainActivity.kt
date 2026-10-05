@@ -1659,6 +1659,7 @@ class MainActivity : FlutterFragmentActivity() {
         val from = incomingIntent.getStringExtra("from")?.trim().orEmpty()
         val to = incomingIntent.getStringExtra("to")?.trim().orEmpty()
         val callId = incomingIntent.getStringExtra("callId")?.trim().orEmpty()
+        val video = incomingIntent.getBooleanExtra("video", false)
 
         if (from.isEmpty() || to.isEmpty() || callId.isEmpty()) return
 
@@ -1667,6 +1668,7 @@ class MainActivity : FlutterFragmentActivity() {
             .putString("from", from)
             .putString("to", to)
             .putString("callId", callId)
+            .putBoolean("video", video)
             .apply()
     }
 
@@ -2082,6 +2084,12 @@ class MainActivity : FlutterFragmentActivity() {
                         prefs.getString("callId", "")?.trim().orEmpty()
                     }
 
+                    val video = if (hasCallIntent) {
+                        currentIntent?.getBooleanExtra("video", false) == true
+                    } else {
+                        prefs.getBoolean("video", false)
+                    }
+
                     val data =
                         if (from.isNotEmpty() &&
                             to.isNotEmpty() &&
@@ -2094,6 +2102,7 @@ class MainActivity : FlutterFragmentActivity() {
                                 "from" to from,
                                 "to" to to,
                                 "callId" to callId,
+                                "video" to video,
                             )
                         } else {
                             null

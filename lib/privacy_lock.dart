@@ -254,6 +254,8 @@ class ZeroLogPrivacyLock {
   static Future<bool> _showPinPrompt(BuildContext context) async {
     final controller = TextEditingController();
     var error = '';
+    var autoSubmitPending = true;
+    var verifyingPin = false;
     var attempts = int.tryParse(
           await _storage.read(key: _failedAttemptsKey) ?? '0',
         ) ??
@@ -287,6 +289,42 @@ class ZeroLogPrivacyLock {
       lockUntilMs = 0;
       await _storage.delete(key: _failedAttemptsKey);
       await _storage.delete(key: _lockUntilKey);
+    }
+
+    Future<void> verifyEnteredPin(StateSetter setState, BuildContext dialogContext) async {
+      if (verifyingPin) return;
+      final pin = controller.text.trim();
+      if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
+        setState(() => error = 'PIN tam olarak 6 rakam olmalı.');
+        return;
+      }
+
+      verifyingPin = true;
+      try {
+        final ok = await _verifyPin(pin);
+        if (ok && dialogContext.mounted) {
+          await clearFailures();
+          ticker?.cancel();
+          if (!dialogContext.mounted) return;
+          Navigator.pop(dialogContext, true);
+          return;
+        }
+
+        await persistFailure();
+        if (!dialogContext.mounted) return;
+        controller.clear();
+        // After a failed automatic 6-digit attempt, require an explicit
+        // keyboard/button confirmation for the next attempt. This prevents
+        // duplicate attempts when TextField onChanged and onSubmitted race.
+        autoSubmitPending = false;
+        setState(() {
+          error = attempts >= _maxAttemptsBeforeDelay
+              ? 'PIN hatalı. Güvenlik kilidi devreye girdi.'
+              : 'PIN hatalı. Kalan deneme: ${_maxAttemptsBeforeDelay - attempts}.';
+        });
+      } finally {
+        verifyingPin = false;
+      }
     }
 
     if (!context.mounted) return false;
@@ -358,24 +396,20 @@ class ZeroLogPrivacyLock {
                       keyboardType: TextInputType.number,
                       obscureText: true,
                       maxLength: 6,
-                      onSubmitted: (_) async {
-                        final ok = await _verifyPin(controller.text.trim());
-                        if (ok && dialogContext.mounted) {
-                          await clearFailures();
-                          ticker?.cancel();
-                          if (!dialogContext.mounted) return;
-                          Navigator.pop(dialogContext, true);
+                      onChanged: (value) {
+                        if (!autoSubmitPending ||
+                            value.trim().length != 6 ||
+                            !dialogContext.mounted ||
+                            verifyingPin) {
                           return;
                         }
 
-                        await persistFailure();
-                        if (!dialogContext.mounted) return;
-                        controller.clear();
-                        setState(() {
-                          error = attempts >= _maxAttemptsBeforeDelay
-                              ? 'PIN hatalı. Güvenlik kilidi devreye girdi.'
-                              : 'PIN hatalı. Kalan deneme: ${_maxAttemptsBeforeDelay - attempts}.';
-                        });
+                        autoSubmitPending = false;
+                        unawaited(verifyEnteredPin(setState, dialogContext));
+                      },
+                      onSubmitted: (_) async {
+                        autoSubmitPending = false;
+                        await verifyEnteredPin(setState, dialogContext);
                       },
                       decoration: InputDecoration(
                         labelText: 'PIN',
@@ -397,25 +431,12 @@ class ZeroLogPrivacyLock {
                 ),
                 if (!locked)
                   FilledButton.icon(
-                    onPressed: () async {
-                      final ok = await _verifyPin(controller.text.trim());
-                      if (ok && dialogContext.mounted) {
-                        await clearFailures();
-                        ticker?.cancel();
-                        if (!dialogContext.mounted) return;
-                        Navigator.pop(dialogContext, true);
-                        return;
-                      }
-
-                      await persistFailure();
-                      if (!dialogContext.mounted) return;
-                      controller.clear();
-                      setState(() {
-                        error = attempts >= _maxAttemptsBeforeDelay
-                            ? 'PIN hatalı. Güvenlik kilidi devreye girdi.'
-                            : 'PIN hatalı. Kalan deneme: ${_maxAttemptsBeforeDelay - attempts}.';
-                      });
-                    },
+                    onPressed: verifyingPin
+                        ? null
+                        : () async {
+                            autoSubmitPending = false;
+                            await verifyEnteredPin(setState, dialogContext);
+                          },
                     icon: const Icon(Icons.lock_open_rounded),
                     label: const Text('Doğrula'),
                   ),

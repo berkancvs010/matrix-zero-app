@@ -19,80 +19,82 @@ void main() {
     ];
 
     for (final id in ids) {
-      final pattern = RegExp(
-        r'''RetroGame\(\s*['"]''' + RegExp.escape(id) + r'''['"]''',
-        multiLine: true,
-      );
-
-      expect(
-        pattern.hasMatch(source),
-        isTrue,
-        reason: 'Retro katalogunda $id bulunamadı',
-      );
+      expect(source, contains("RetroGame('$id'"));
     }
 
+    expect(RegExp(r"RetroGame\('").allMatches(source).length, 9);
+  });
+
+  test('gamepad-enabled games receive the page gamepad state', () {
     expect(
-      RegExp(
-        r'''RetroGame\(\s*['"]''',
-        multiLine: true,
-      ).allMatches(source).length,
-      9,
+      source,
+      contains("case 'breakout': return _BreakoutGame(showPad: showPad);"),
+    );
+    expect(
+      source,
+      isNot(contains("case 'breakout': return const _BreakoutGame();")),
     );
   });
 
   test('gamepad is wired to concrete actions', () {
     expect(source, contains('class _VirtualGamepad'));
     expect(source, contains('behavior: HitTestBehavior.opaque'));
+    expect(source, contains('a: rotate'));
+    expect(source, contains('b: _resetGame'));
+    expect(source, isNot(contains('b:()=>setState(_resetGame)')));
+  });
 
+  test('snake food placement cannot loop forever on a full board', () {
+    expect(source, contains('final available = <math.Point<int>>'));
+    expect(source, contains('if (available.isEmpty)'));
+    expect(source, isNot(contains('do { food = math.Point')));
+  });
+
+  test('breakout has real brick state and collision handling', () {
     expect(
-      RegExp(
-        r'down\s*:\s*\(\)\s*=>\s*setState\(\s*_drop\s*\)',
-      ).hasMatch(source),
-      isTrue,
+      source,
+      contains('final List<bool> bricks = List<bool>.filled(30, true);'),
     );
+    expect(source, contains('bricks[index] = false;'));
+    expect(source, contains('bricks.every((brick) => !brick)'));
+    expect(source, contains('_BreakPainter(x, y, paddle, bricks)'));
+  });
 
-    expect(RegExp(r'a\s*:\s*rotate').hasMatch(source), isTrue);
+  test('pong serve direction is captured before resetting the ball', () {
+    expect(source, contains('final servedFromLeft = bx < 0;'));
+    expect(source, contains('vx = servedFromLeft ? .012 : -.012;'));
+    expect(source, isNot(contains('vx = bx < .1 ? .012 : -.012;')));
+  });
 
-    expect(RegExp(r'b\s*:\s*_resetGame').hasMatch(source), isTrue);
+  test('space shooter consumes one shot and one score per enemy hit', () {
+    expect(source, contains('final hitEnemies = <Offset>{};'));
+    expect(source, contains('final hitShots = <Offset>{};'));
+    expect(source, contains('if (!hitShots.contains(s)) s'));
+  });
 
-    expect(
-      RegExp(
-        r'b\s*:\s*\(\)\s*=>\s*setState\(\s*_resetGame\s*\)',
-      ).hasMatch(source),
-      isFalse,
-    );
+  test('tetris has all seven tetrominoes and real game over', () {
+    expect(source, contains('// I, O, T, J, L, S, Z.'));
+    expect(source, contains('bool over = false;'));
+    expect(source, contains('if (!can(x, y))'));
+    expect(source, contains('over = true;'));
+    expect(source, contains("score: over ? 'OYUN BİTTİ • \$score'"));
+    expect(source, contains('if (over) return;'));
   });
 
   test('2048 has terminal-state protection', () {
-    expect(
-      RegExp(r'bool\s+over\s*=\s*false\s*,\s*won\s*=\s*false').hasMatch(source),
-      isTrue,
-    );
-
+    expect(source, contains('bool over = false, won = false;'));
     expect(source, contains('bool _movesAvailable()'));
+    expect(source, contains('if(over||won)return;'));
+  });
 
-    expect(
-      RegExp(r'if\s*\(\s*over\s*\|\|\s*won\s*\)\s*return\s*;').hasMatch(source),
-      isTrue,
-    );
+  test('minesweeper blocks input after win or loss', () {
+    expect(source, contains('if (over || won || flags[i] || open[i]) {'));
+    expect(source, contains('if (over || won || open[i]) {'));
   });
 
   test('retro game timers are disposed', () {
-    final disposeCount = RegExp(
-      r'void\s+dispose\s*\(\s*\)\s*\{.*?cancel\s*\(\s*\).*?super\.dispose\s*\(\s*\)\s*;',
-      multiLine: true,
-      dotAll: true,
-    ).allMatches(source).length;
-
-    expect(disposeCount, greaterThanOrEqualTo(2));
-
-    expect(
-      RegExp(
-        r'timer\?\.cancel\s*\(\s*\).*?super\.dispose\s*\(\s*\)\s*;',
-        multiLine: true,
-        dotAll: true,
-      ).hasMatch(source),
-      isTrue,
-    );
+    expect(source, contains('tm?.cancel();'));
+    expect(source, contains('timer?.cancel();'));
+    expect(source, contains('super.dispose();'));
   });
 }

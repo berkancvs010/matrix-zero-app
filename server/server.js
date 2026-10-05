@@ -5280,9 +5280,9 @@ wss.on('connection',(ws,req)=>{
 
     const recipient=socketFor(to);
 
-    // Socket açık olsa bile uygulama foreground değilse kullanıcı
-    // çağrıyı UI üzerinden göremeyebilir. Bu durumda WebSocket yerine
-    // native FCM/full-screen çağrı akışını kullan.
+    // WebSocket remains the low-latency foreground path. FCM is also kept
+    // as a wake-up fallback because the foreground heartbeat can become stale
+    // during a lock-screen/device-sleep transition.
     const recipientForeground =
       !!recipient &&
       isForegroundActive(to);
@@ -5297,7 +5297,7 @@ wss.on('connection',(ws,req)=>{
       });
     }
 
-    if(!recipientForeground && callNotificationsEnabled(to)){
+    if(callNotificationsEnabled(to)){
       await sendFcmPush(to,{
         data:{
           type:'callInvite',
@@ -5308,7 +5308,9 @@ wss.on('connection',(ws,req)=>{
         },
         android:{
           priority:'high',
-          ttl:600000,
+          // The signaling call itself expires after 60 seconds.
+          // Do not let FCM surface a stale invite after the call is gone.
+          ttl:60000,
         },
       });
     }

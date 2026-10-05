@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.ActivityOptions
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -326,7 +327,13 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             processInfo.importance ==
                 ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
 
-        if (foreground) {
+        // A process can still report FOREGROUND while its activity is behind
+        // the lock screen. In that state suppressing the native call
+        // notification would lose the only lock-screen/full-screen wake path.
+        val keyguardManager = getSystemService(KeyguardManager::class.java)
+        val deviceLocked = keyguardManager?.isKeyguardLocked == true
+
+        if (foreground && !deviceLocked) {
             android.util.Log.d(
                 "ZeroLogCall",
                 "Suppressing native call notification: app is foreground"
@@ -512,6 +519,7 @@ class ZeroLogFirebaseMessagingService : FirebaseMessagingService() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setTimeoutAfter(60_000L)
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true)
 

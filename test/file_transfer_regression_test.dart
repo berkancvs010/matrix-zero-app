@@ -144,9 +144,9 @@ void main() {
     expect(pushSource, contains('ackPendingMessageIntent'));
   });
 
-  test('release build version is bumped for V28', () {
+  test('release build version is bumped for V34', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.10+26'));
+    expect(pubspec, contains('version: 1.0.10+34'));
   });
 
   test('outgoing/in-app-accepted transfers keep the process foreground-priority', () {

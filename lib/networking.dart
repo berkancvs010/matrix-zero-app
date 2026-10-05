@@ -256,6 +256,7 @@ class WsClient {
   bool _manualDisconnect = false;
   bool _connecting = false;
   int _reconnectAttempt = 0;
+  int _connectionGeneration = 0;
 
   final Set<String> _activeRooms = <String>{};
 
@@ -490,7 +491,10 @@ class WsClient {
         (ZeroLogPushService.currentToken == null ||
             ZeroLogPushService.currentToken!.trim().isEmpty)) {
       try {
-        final token = await FirebaseMessaging.instance.getToken();
+        final token = await FirebaseMessaging.instance.getToken().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => null,
+        );
 
         if (token != null && token.trim().isNotEmpty) {
           ZeroLogPushService.setCurrentToken(token.trim());
@@ -498,7 +502,7 @@ class WsClient {
             '[FCM] login-time token acquired length=${token.trim().length}',
           );
         } else {
-          zeroLog('[FCM] login-time token is empty');
+          zeroLog('[FCM] login-time token unavailable; continuing WebSocket connection');
         }
       } catch (e) {
         zeroLog('[FCM] login-time getToken failed: $e');
@@ -518,6 +522,7 @@ class WsClient {
     }
 
     _connecting = true;
+    final connectionGeneration = ++_connectionGeneration;
 
     try {
       await _closeCurrent();
@@ -530,6 +535,7 @@ class WsClient {
 
       _subscription = channel.stream.listen(
         (raw) {
+          if (connectionGeneration != _connectionGeneration) return;
           try {
             if (raw is List<int>) {
               final bytes = raw is Uint8List ? raw : Uint8List.fromList(raw);
@@ -854,6 +860,7 @@ class WsClient {
           }
         },
         onError: (_) {
+          if (connectionGeneration != _connectionGeneration) return;
           connected = false;
 
           if (!authCompleter.isCompleted) {
@@ -863,6 +870,7 @@ class WsClient {
           _handleConnectionLost();
         },
         onDone: () {
+          if (connectionGeneration != _connectionGeneration) return;
           connected = false;
 
           if (!authCompleter.isCompleted) {
@@ -1178,7 +1186,12 @@ class WsClient {
     _subscription = null;
 
     try {
-      await _channel?.sink.close();
+      final sink = _channel?.sink;
+      if (sink != null) {
+        await sink.close().timeout(const Duration(seconds: 2));
+      }
+    } on TimeoutException {
+      zeroLog('[WS] socket close timed out; forcing local cleanup');
     } catch (_) {}
 
     _channel = null;

@@ -40,6 +40,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
   bool _locked = false;
   bool _authenticating = false;
   bool _wasBackgrounded = false;
+  final GlobalKey<NavigatorState> _lockNavigatorKey =
+      GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -127,14 +129,11 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
       return;
     }
 
-    // Use the app's root navigator context rather than this widget's own
-    // context: AppLockGate wraps the Navigator (it sits in
-    // MaterialApp.builder, above `child`), so its own BuildContext is an
-    // ancestor of the Navigator, not a descendant of it, and showDialog
-    // would fail to resolve a Navigator from it.
-    final dialogContext =
-        zeroLogNavigatorKey.currentState?.overlay?.context ??
-        zeroLogNavigatorKey.currentContext;
+    // The lock gate is rendered above the app Navigator. A PIN dialog pushed
+    // onto the app Navigator would therefore be hidden underneath the opaque
+    // lock screen. Use the dedicated Navigator that lives inside the lock
+    // overlay so the PIN prompt is always above the lock screen.
+    final dialogContext = _lockNavigatorKey.currentState?.context;
     if (dialogContext == null || !dialogContext.mounted) {
       _authenticating = false;
       // The Navigator may not have attached yet on a cold start. Retry once
@@ -175,7 +174,14 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
       children: [
         widget.child,
         if (_locked)
-          Positioned.fill(child: _AppLockScreen(onUnlock: _promptUnlock)),
+          Positioned.fill(
+            child: Navigator(
+              key: _lockNavigatorKey,
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                builder: (_) => _AppLockScreen(onUnlock: _promptUnlock),
+              ),
+            ),
+          ),
       ],
     );
   }

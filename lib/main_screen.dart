@@ -2087,6 +2087,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget _connectionBanner() {
     final theme = ThemeController.instance.data;
 
+    // The connection event stream is intentionally lossy. If the socket is
+    // already authenticated but a `connectionRestored` event was missed,
+    // the banner must follow the authoritative transport state rather than
+    // remaining stuck on "Bağlantı yeniden kuruluyor…".
+    if (WsClient.instance.connected) {
+      return const SizedBox.shrink();
+    }
+
     if (_connected && !_reconnecting) {
       return const SizedBox.shrink();
     }
@@ -3754,6 +3762,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           onTap: _openPrivacySettings,
         ),
 
+        tile(
+          icon: Icons.sports_esports_rounded,
+          title: 'Retro',
+          subtitle: '9 özgün offline oyun • reklam yok',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const RetroArcadePage()),
+          ),
+        ),
+
         sectionTitle('Uygulama'),
 
         tile(
@@ -4999,6 +5016,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       );
                     },
                   ),
+
 
                   const SizedBox(height: 8),
 
