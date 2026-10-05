@@ -207,10 +207,12 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
         widget.child,
         if (_locked)
           Positioned.fill(
-            child: Navigator(
-              key: _lockNavigatorKey,
-              onGenerateRoute: (_) => MaterialPageRoute<void>(
-                builder: (_) => _AppLockScreen(onUnlock: _promptUnlock),
+            child: HeroControllerScope.none(
+              child: Navigator(
+                key: _lockNavigatorKey,
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (_) => _AppLockScreen(onUnlock: _promptUnlock),
+                ),
               ),
             ),
           ),

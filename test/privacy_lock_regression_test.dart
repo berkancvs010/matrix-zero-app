@@ -11,6 +11,17 @@ void main() {
     expect(gate, contains('ZeroLogPrivacyLock.authenticationInProgress'));
     expect(gate, contains('if (_privacyAuthCausedLifecyclePause)'));
     expect(gate, contains('_privacyAuthCausedLifecyclePause = false;'));
+    expect(gate, contains('HeroControllerScope.none('));
+  });
+
+  test('PIN controllers outlive the dialog reverse transition', () {
+    final privacy = read('lib/privacy_lock.dart');
+    expect(
+      privacy,
+      contains('static Future<T?> _showDialogAndWaitForRemoval<T>'),
+    );
+    expect(privacy, contains('await route.completed;'));
+    expect(privacy, contains('_showDialogAndWaitForRemoval<bool>('));
   });
 
   test(

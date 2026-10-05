@@ -115,6 +115,28 @@ class ZeroLogPrivacyLock {
     return sha256.convert(bytes).toString();
   }
 
+  /// Wait until the dialog route is fully removed from the navigator overlay.
+  /// `showDialog` completes when it is popped, which can precede the reverse
+  /// transition. The PIN TextField must keep its controller alive until that
+  /// transition finishes or Flutter can rebuild a disposed controller and
+  /// leave the privacy flow on a blank screen.
+  static Future<T?> _showDialogAndWaitForRemoval<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+    bool barrierDismissible = true,
+  }) async {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final route = DialogRoute<T>(
+      context: context,
+      builder: builder,
+      barrierDismissible: barrierDismissible,
+      themes: InheritedTheme.capture(from: context, to: navigator.context),
+    );
+    final result = await navigator.push<T>(route);
+    await route.completed;
+    return result;
+  }
+
   static Future<bool> _verifyPin(String pin) async {
     final salt = await _storage.read(key: _saltKey);
     final expected = await _storage.read(key: _hashKey);
@@ -180,7 +202,7 @@ class ZeroLogPrivacyLock {
     var useBiometric = biometric;
     var error = '';
 
-    final result = await showDialog<bool>(
+    final result = await _showDialogAndWaitForRemoval<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
@@ -364,7 +386,7 @@ class ZeroLogPrivacyLock {
     }
 
     if (!context.mounted) return false;
-    final result = await showDialog<bool>(
+    final result = await _showDialogAndWaitForRemoval<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
