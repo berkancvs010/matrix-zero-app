@@ -40,6 +40,7 @@ part 'models.dart';
 part 'profile_controller.dart';
 part 'privacy_lock.dart';
 part 'app_lock_gate.dart';
+part 'retro_arcade.dart';
 
 
 void zeroLog(Object? message) {
