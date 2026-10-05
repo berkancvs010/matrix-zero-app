@@ -1,59 +1,72 @@
-# ZeroLog — Final Audit Report
-Date: 2026-10-05
+# ZeroLog — Kapsamlı Kaynak Denetimi ve Düzeltme Raporu
 
-## Old reminder report — line-by-line verification
+**Denetim tarihi:** 5 Ekim 2026  
+**İncelenen girdi:** `ZeroLog_2_Tur_Derin_Tarama_FINAL_2026-10-05.zip`  
+**Düzeltilmiş sürüm:** 1.0.11+35  
+**Kapsam:** Retro Oyun Salonu, gizlilik PIN/biometri girişi ve özel mesaj teslim işareti. Önceki rapordaki doğrulanabilir iddialar da kaynak paket üzerinde yeniden kontrol edildi.
 
-1. Lock-screen incoming call / screen wake
-   - Native FCM owns the single incoming-call notification and ringtone.
-   - Foreground suppression checks both process state and Keyguard state, so a locked device is not treated as ordinary foreground.
-   - CALL notification uses CATEGORY_CALL, MAX priority, PUBLIC visibility and full-screen intent.
-   - MainActivity / IncomingCallActivity explicitly use SHOW_WHEN_LOCKED and TURN_SCREEN_ON.
-   - Android 14+ full-screen-intent permission is checked and the system permission page is opened when needed.
-   - Result: code path is present and internally consistent. Device/OEM behavior still requires physical APK testing; this audit does not claim that every Xiaomi/Android build can be guaranteed.
+## Yönetici özeti
 
-2. Chats stuck on “Bağlantı yeniden kuruluyor…” after cold start
-   - WebSocket connections use a generation token so stale socket callbacks cannot overwrite a newer connection.
-   - Reconnect scheduling is centralized and retries with bounded backoff.
-   - socket close has a 2-second timeout so a dead socket cannot block the next connection indefinitely.
-   - MainScreen checks the authoritative WsClient.connected state before displaying the reconnect banner.
-   - Successful authentication emits connectionRestored and restores active rooms / directory state.
-   - Result: the reported permanent-banner failure path is addressed in source.
+Önceki rapor, beş oyunu “oynanabilir” diye anlatmasına karşın bu kullanıcının kalite beklentisini karşılamamış; ana ayarlar menüsünde ise hâlâ “9 özgün offline oyun” yazıyordu. Ayrıca kaynak raporundaki “düzeltildi” ifadeleri gerçek cihazda APK sınaması anlamına gelmiyordu. Bu turda Retro alanı sıfırdan yenilendi, kullanıcının daha önce bildirdiği PIN/biometri sonrası siyah/boş sayfa riski ve arka plan mesaj teslim makbuzu yolları yeniden incelenip ek korumalar yazıldı. Önceki raporun kapsamı/tarihi ve burada gerçekten neyin doğrulandığı aşağıda açıkça ayrılıyor.
 
-3. PIN lock “Kilidi aç” behavior
-   - The first complete 6-digit PIN entry auto-submits.
-   - After a failed attempt, automatic submission is disabled; the next attempt requires keyboard submit or the on-screen Doğrula button.
-   - Verification is serialized so duplicate onChanged/onSubmitted races cannot create double attempts.
-   - Result: requested behavior is implemented.
+| Alan | Kaynakta bulunan / önceki rapor durumu | Bu sürümdeki işlem | Doğrulama |
+|---|---|---|---|
+| Retro | Beş farklı, fakat küçük/deneysel oyun; menü metni 9 oyun diyordu | 10 farklı tür; yeniden çizilmiş salon, filtreler, gerçek oyun döngüleri ve gamepad/dokunmatik kontroller | Analyzer PASS; tüm test sonucu aşağıdaki doğrulama kaydında |
+| Gizlilik | Shared authentication Future ve lock-remove revision bildirimi zaten vardı; eski rapor bunları önceki çalışma olarak yazmıştı. Kullanıcının siyah ekran hatası bu rapordan giderilmiş sayılamazdı. | Android biyometri sistem penceresinin Activity duraklamasını ikinci global kilit gibi yorumlamama; ayar açma girişini rota açık kaldığı süre boyunca seri tutma; hata Snackbar’ı | Analyzer PASS, kaynak regresyon testi. Gerçek cihazda PIN ve biyometri akışı ayrıca denenmeli |
+| Teslim işareti | Native FCM HTTP makbuzuna ek olarak headless socket ACK yolu bulunuyordu. Ancak `pendingPrivateMessages` toplu olayı UI dışında karşılanmadığından arka plan/soğuk başlangıçta teslim ACK’i eksik kalabiliyordu. | Bekleyen batch içindeki her mesaj için token’lı `messageDelivered` ACK; canlı mesaj, sohbet listesi ve sohbet ACK’lerinde sunucu token’ını iletme | Analyzer PASS, statik protokol regresyon testleri. İki cihazla arka plan/force-stop sınaması ayrıca gerekir |
+| Önceki audit | Önceki raporun tarih/scope metni eskiydi ve mevcut durumla karıştırılabilirdi | Bu rapor, önceki rapor iddialarını önceki çalışmanın beyanı olarak ayırıyor; eski işlerin kullanıcı cihazında doğrulandığını ileri sürmüyor | Girdi ZIP’inde mevcut rapor okundu ve düzeltildi |
 
-4. Call accepted but WebRTC remains stuck
-   - A connection watchdog starts immediately after acceptance, before SDP offer availability.
-   - A 45-second global connection timeout terminates a call that never connects.
-   - Failed/disconnected WebRTC state receives a 12-second recovery grace period before termination.
-   - Signaling disconnect terminates the local call instead of leaving stale call UI.
-   - callEnd is sent before slow native/WebRTC cleanup.
-   - Result: the reported indefinite “connecting” path is bounded and cleaned up.
+## Retro Oyun Salonu — yeniden tasarım
 
-## Additional issue found during this audit and fixed
-- Native cold-start incoming-call state now preserves the `video` flag when the full-screen intent is persisted and later read. This prevents a cold-start video-call intent from losing its original media mode.
+Önceki 5 oyunluk katalog (`Neon Runner`, `Stack Tower`, `Pixel Hunt`, `Color Reflex`, `Neon Defender`) ile menüdeki “9 oyun” açıklaması birbiriyle uyumsuzdu. Ayrıca önceki notlar kalite beklentisinin karşılandığı anlamına gelecek kadar iddialıydı. Eski oyun kodu/önceki kısa deneysel menü bu turda kaldırıldı ve tek salonda 10 farklı oyun sunuldu:
 
-## Retro audit
-- 9 distinct offline games are present.
-- Breakout now has actual brick state/collision handling and receives the virtual gamepad visibility state.
-- Pong reset direction is calculated before resetting the ball position.
-- Snake food placement uses a finite available-cell list instead of a potentially infinite random loop.
-- Space Shooter consumes a shot/enemy pair only once per tick.
-- Tetris contains seven tetrominoes and a real game-over state.
-- 2048 and Minesweeper protect terminal states.
-- Virtual gamepad actions are concrete and game-specific.
+| Oyun | Tür | Uygulanan temel mekanik |
+|---|---|---|
+| Piksel Macerası | Arcade/platform | Yürüme, zıplama, zemin/platform çarpışması, altın toplama, düşman, can ve bitiş koşulu |
+| Tank Arenası | Arcade | Hücre tabanlı hareket, engeller, oyuncu ve düşman mermileri, can, kazanma/kaybetme |
+| Uzay Savunması | Arcade | Dalgalar, gemi hareketi, ateş, skor ve can |
+| Yılan | Arcade | Yön kilidi, çarpışma, yem, büyüme ve oyun sonu |
+| Tuğla Kırıcı | Arcade | Top/yastık çarpışması, tuğlalar, can ve seviye |
+| Raket Düellosu | Arcade | Rakip paddle, sayı takibi ve 7 puanlık maç |
+| Blok Düşürme | Puzzle/arcade | Parça hareketi, döndürme, düşürme, sıra temizleme ve çarpışma |
+| Reversi | Puzzle/strateji | Yasal hamle ve taş çevirme, geçiş/sonuç, köşe/kenar tercihli yerel CPU rakibi |
+| Mayın Tarlası | Puzzle | İlk tıklama güvenli, bayrak, komşu sayısı, boş alanı açma ve kazanma |
+| Sayı Birleştirme | Puzzle | Dört yönde kaydırma, doğru sağ/aşağı ters çevrimi, birleştirme, 2048 ve hamlesiz son |
 
-## Static verification performed
-- ZIP extraction and source-tree inspection: PASS.
-- No APK/AAB included in final source package: PASS.
-- server/package.json JSON parse: PASS.
-- server/server.js `node --check`: PASS.
-- Android XML parse: PASS.
-- Regression-test source checks updated for the audited behaviors.
-- ZIP integrity will be verified with `unzip -t` after packaging.
+Oyunlar orijinal Dart çizimleri ve mekanikleriyle çevrimdışı çalışır. Bu değişiklikte ROM, Nintendo/Sega oyun dosyası, üçüncü taraf karakter/görsel/müzik, reklam SDK’sı veya oyun sunucusu eklenmedi. Tür filtreleri, oyun kartları, gamepadı gizle/göster ve sıfırlama denetimleri de yenilendi. Başlangıç menüsünün alt yazısı artık 10 oyunu doğru sayıyor.
 
-## Limitation
-Flutter SDK is not installed in this analysis container, so `flutter analyze`, `flutter test`, and `flutter build apk` cannot honestly be marked PASS here. The source is prepared for the VDS/GitHub Actions Flutter 3.44.0 verification step.
+Ayrıca test incelemesinde bulunan iki oynanış kusuru düzeltildi: sayı birleştirme oyununda sağ/aşağı hareket ters yönde işleniyordu; tank düşmanları oyuncuyla aynı hücreye girebiliyordu. Pong’da puandan sonra servis yönü doğru skorlayana döndürüldü. Her süreli oyun kapatılırken periyodik timer’ını iptal ediyor.
+
+## Gizlilik PIN’i ve biyometri
+
+Eski raporda `ZeroLogPrivacyLock.authenticate` çağrılarının ortak Future ile serileştirildiği, PIN kaldırmanın secure-storage anahtarlarını silip `configurationRevision` bildirdiği ve app-wide gate’in bu revizyonu dinlediği yazılıydı. Bunlar önceki kaynak paketinde zaten mevcuttu; bu turdaki yeni düzeltmeler gibi sunulmamalıdır. Kullanıcının siyah ekranda kalma bildirimini de önceki rapor kanıtlamıyordu.
+
+Bu turda, Android biyometrik sistem penceresinin uygulama `paused`/`resumed` olayına sebep olabileceği ve auth Future tamamlanırken global app-lock gate’in ikinci bir kilit ekranı bindirebileceği yolu korumaya alındı. Global gate, Activity duraklaması anında gizlilik kimlik doğrulamasının sürüp sürmediğini kaydediyor ve bu biyometri kaynaklı dönüşte yeniden auth istemiyor. Gizlilik ayar sayfasına art arda giriş rota açık kaldığı süre boyunca engelleniyor; doğrulama veya açma sırasında istisna oluşursa kullanıcıya hata Snackbar’ı veriliyor. PIN kaldırma davranışı, biyometri anahtarı temizliği ve lock gate revision bildirimi regresyon testiyle korunuyor.
+
+Bu, siyah ekranın gerçek telefonda tamamen kaybolduğunun kanıtı değildir. Yeni APK’nin normal giriş, PIN ile giriş, biyometri başarı, biyometri iptal → PIN, PIN/biyometri kapatma ve uygulama arka plana alınarak geri dönme senaryoları fiziksel Android cihazda sınanmalıdır.
+
+## Mesaj teslim ve okundu tikleri
+
+Önceki kaynakta canlı gelen özel mesajlarda transport katmanı teslim ACK’i ve Android FCM servisinde HTTP teslim makbuzu yedeği mevcuttu; sunucuya gönderilmiş olmayı tek başına teslim sayma yolu olarak görmedim. Sunucu da kimliği doğrulanmış alıcı ve varsa sunucu token’ı ile ACK doğruluyordu. Sorunlu senaryoda özellikle soğuk başlangıç/arka plan login’inin, tekil `privateMessage` yerine `pendingPrivateMessages` listesi üretmesi önemliydi: ACK mesaj balonuna/aktif sohbete bağlı kalırsa alıcı arayüzü kurulmadığında gönderilemeyebilirdi.
+
+Bu nedenle `WsClient` şimdi pending mesaj listesindeki her gerçek, alıcıya ait mesajı mesaj ID’si ve sunucunun ürettiği `deliveryToken` ile ACK’liyor. `main_screen.dart` içindeki iki liste/tekil ACK yoluna da token eklendi. Sunucunun `/delivery` HTTP makbuzu yedeği olduğu gibi kaldı. Kullanıcının “okundu ve sunucuya ulaştı çalışıyor, iki gri tik çalışmıyor” gözlemiyle örtüşen arka plan yoluna odaklanıldı; `read`/okundu semantiği değiştirilmedi.
+
+## Önceki rapordaki iddiaların sınırı
+
+Girdideki 5 Ekim tarihli eski `FINAL_AUDIT_REPORT.md`, gelen arama/screen wake, yeniden bağlanma bildirimi, PIN auto-submit, WebRTC watchdog, gizlilik ortak Future ve mesaj teslim makbuzu gibi önceki düzeltmelerden bahsediyordu. Bu rapor onların tarihsel notunu içerir; ancak her Android OEM’de veya son kullanıcı cihazında test edildiğini **kanıtlamaz**. Bu turda esasen ilgili kod yolları okundu; eski arama/WebRTC sorunlarının fiziksel cihazda yeniden regresyon testi yapılmadı.
+
+Kullanıcının “nerede ve ne zaman düzelttin?” sorusuna kaynak paketten çıkarılabilen cevap: önceki dosya `FINAL_AUDIT_REPORT.md` 5 Ekim 2026 tarihini veriyor; daha eski uygulama koduna ilişkin kesin commit/timestamp kanıtı ZIP’te yok (girdi paketi git geçmişi taşımıyor). Dolayısıyla önceki işlerin gerçek uygulama anını daha dar bir zamanla belgeleyemiyorum. Bu rapor yalnız bu turdaki dosya değişikliklerini ve çalıştırılan doğrulamaları açıklıyor.
+
+## Test ve paket doğrulama
+
+- `flutter analyze --no-pub`: PASS — **No issues found** (Flutter 3.47.6 / Dart 3.13.5).
+- Retro katalog kontrolü: 10 benzersiz oyun ve her oyun için dispatch dalı: PASS.
+- Android XML: 11 dosya parse edildi: PASS.
+- `node --check server/server.js`: PASS.
+- Tam `flutter test --no-pub`: PASS — **88 test geçti**, sıfır başarısız test.
+- Android build tools (`android.jar`, SDK Manager/ADB) sandbox’ta kurulu değil; bu yüzden **APK/AAB derlemesi ve cihaz üzerinde APK testi bu teslim için yapılmadı**. Flutter uygulaması test edilebilir; native Android release build doğrulaması için gerçek Android SDK/JDK ek adımları gerekir.
+- Üretim release imzası ve Play Store dağıtımı bu görevde yapılmadı.
+
+## Sürüm ve değişiklik noktaları
+
+Sürüm `1.0.11+35` olarak artırıldı. Esas kod: `lib/retro_arcade.dart` (salon ve on oyun), `lib/main_screen.dart` (retro kısayolu, privacy route ve canlı delivery ACK’leri), `lib/app_lock_gate.dart` (biyometri Activity lifecycle), `lib/networking.dart` (pending batch ACK), `lib/privacy_lock.dart` (await/error akışı). Regresyon testleri `test/retro_arcade_regression_test.dart`, `test/retro_arcade_widget_test.dart`, `test/messaging_delivery_regression_test.dart`, `test/privacy_lock_regression_test.dart` dosyalarındadır. Release version testi `test/file_transfer_regression_test.dart` içinde 35’e güncellendi.

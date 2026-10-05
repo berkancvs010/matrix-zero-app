@@ -43,8 +43,33 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await ZeroLogPushService.cancelIncomingCallNotification();
     await ZeroLogPushService.clearPendingCall();
   } else if (type == 'privateMessage') {
-    // Data-only mesaj bildirimi native FCM service tarafından
-    // oluşturuluyor. Burada tekrar bildirim üretme.
+    // Native FCM service bildirimi gösterir. Teslim durumunu yalnızca
+    // native HTTP receipt'e bırakma: Android/OEM süreç kapanışı nedeniyle
+    // kısa ömürlü headless WebSocket ile de gerçek delivery ACK gönder.
+    // Bu bağlantı primary oturumu devralmaz ve yalnızca pending mesajları
+    // alıp transport katmanının messageDelivered ACK'lerini göndermesi için
+    // kullanılır.
+    try {
+      final session = await SecureSession.read();
+      if (session != null) {
+        final client = WsClient.instance;
+        final connected = await client.connect(
+          session['username']!,
+          session['password']!,
+          backgroundDelivery: true,
+          skipFcmToken: true,
+        ).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => false,
+        );
+        if (connected) {
+          await Future<void>.delayed(const Duration(milliseconds: 1500));
+        }
+        await client.disconnect();
+      }
+    } catch (e) {
+      zeroLog('[FCM][background] delivery ACK fallback failed: $e');
+    }
   }
 
   zeroLog(

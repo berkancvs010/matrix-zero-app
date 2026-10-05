@@ -10,10 +10,18 @@ class ZeroLogPrivacyLock {
   static const String _hashKey = 'zerolog.privacy_lock.pin_hash.v1';
   static const String _saltKey = 'zerolog.privacy_lock.pin_salt.v1';
   static const String _biometricKey = 'zerolog.privacy_lock.biometric.v1';
-  static const String _failedAttemptsKey = 'zerolog.privacy_lock.failed_attempts.v1';
+  static const String _failedAttemptsKey =
+      'zerolog.privacy_lock.failed_attempts.v1';
   static const String _lockUntilKey = 'zerolog.privacy_lock.lock_until.v1';
   static const int _maxAttemptsBeforeDelay = 3;
-  static bool authenticationInProgress = false;
+  static Future<bool>? _authenticationFuture;
+  static final ValueNotifier<int> configurationRevision = ValueNotifier<int>(0);
+
+  static void _notifyConfigurationChanged() {
+    configurationRevision.value++;
+  }
+
+  static bool get authenticationInProgress => _authenticationFuture != null;
 
   static Future<bool> isConfigured() async {
     final hash = await _storage.read(key: _hashKey);
@@ -47,6 +55,7 @@ class ZeroLogPrivacyLock {
     }
 
     await _setBiometricEnabled(value);
+    _notifyConfigurationChanged();
   }
 
   static Future<void> removeLock() async {
@@ -55,6 +64,7 @@ class ZeroLogPrivacyLock {
     await _storage.delete(key: _biometricKey);
     await _storage.delete(key: _failedAttemptsKey);
     await _storage.delete(key: _lockUntilKey);
+    _notifyConfigurationChanged();
   }
 
   static Future<bool> changePin({
@@ -78,7 +88,10 @@ class ZeroLogPrivacyLock {
     return _showSetup(context);
   }
 
-  static Future<void> configurePin(String pin, {required bool biometric}) async {
+  static Future<void> configurePin(
+    String pin, {
+    required bool biometric,
+  }) async {
     final normalized = pin.trim();
     if (!RegExp(r'^\d{6}$').hasMatch(normalized)) {
       throw ArgumentError('PIN must be exactly 6 digits.');
@@ -94,6 +107,7 @@ class ZeroLogPrivacyLock {
     await _storage.delete(key: _failedAttemptsKey);
     await _storage.delete(key: _lockUntilKey);
     await _setBiometricEnabled(biometric);
+    _notifyConfigurationChanged();
   }
 
   static String _hashPin(String pin, String salt) {
@@ -108,9 +122,23 @@ class ZeroLogPrivacyLock {
     return _hashPin(pin, salt) == expected;
   }
 
-  static Future<bool> authenticate(BuildContext context) async {
-    if (authenticationInProgress) return false;
-    authenticationInProgress = true;
+  static Future<bool> authenticate(BuildContext context) {
+    final existing = _authenticationFuture;
+    if (existing != null) return existing;
+
+    final future = _authenticateInternal(context);
+    _authenticationFuture = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_authenticationFuture, future)) {
+          _authenticationFuture = null;
+        }
+      }),
+    );
+    return future;
+  }
+
+  static Future<bool> _authenticateInternal(BuildContext context) async {
     try {
       if (!await isConfigured()) {
         if (!context.mounted) return false;
@@ -121,7 +149,8 @@ class ZeroLogPrivacyLock {
       if (await biometricEnabled() && await biometricAvailable()) {
         try {
           final ok = await _auth.authenticate(
-            localizedReason: 'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
+            localizedReason:
+                'ZeroLog Gizlilik Merkezi\'ni açmak için doğrulayın.',
             options: const AuthenticationOptions(
               biometricOnly: true,
               stickyAuth: false,
@@ -136,9 +165,10 @@ class ZeroLogPrivacyLock {
       }
 
       if (!context.mounted) return false;
-      return _showPinPrompt(context);
-    } finally {
-      authenticationInProgress = false;
+      return await _showPinPrompt(context);
+    } catch (e) {
+      zeroLog('[PRIVACY_LOCK] authentication failed: $e');
+      return false;
     }
   }
 
@@ -201,16 +231,22 @@ class ZeroLogPrivacyLock {
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
                         value: useBiometric,
-                        onChanged: (value) => setState(() => useBiometric = value),
+                        onChanged: (value) =>
+                            setState(() => useBiometric = value),
                         title: const Text('Parmak izi / biyometri kullan'),
-                        subtitle: const Text('PIN yerine cihaz biyometrisini kullanabilirsiniz.'),
+                        subtitle: const Text(
+                          'PIN yerine cihaz biyometrisini kullanabilirsiniz.',
+                        ),
                       ),
                     ],
                     if (error.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
                         error,
-                        style: TextStyle(color: theme.primary, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: theme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ],
@@ -234,7 +270,9 @@ class ZeroLogPrivacyLock {
                       return;
                     }
                     await configurePin(pin, biometric: useBiometric);
-                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                    if (dialogContext.mounted) {
+                      Navigator.pop(dialogContext, true);
+                    }
                   },
                   icon: const Icon(Icons.lock_outline_rounded),
                   label: const Text('Kilidi oluştur'),
@@ -256,10 +294,8 @@ class ZeroLogPrivacyLock {
     var error = '';
     var autoSubmitPending = true;
     var verifyingPin = false;
-    var attempts = int.tryParse(
-          await _storage.read(key: _failedAttemptsKey) ?? '0',
-        ) ??
-        0;
+    var attempts =
+        int.tryParse(await _storage.read(key: _failedAttemptsKey) ?? '0') ?? 0;
     var lockUntilMs =
         int.tryParse(await _storage.read(key: _lockUntilKey) ?? '0') ?? 0;
     Timer? ticker;
@@ -272,15 +308,12 @@ class ZeroLogPrivacyLock {
         final duration = attempts >= 12
             ? const Duration(minutes: 30)
             : attempts >= 8
-                ? const Duration(minutes: 10)
-                : attempts >= 5
-                    ? const Duration(minutes: 2)
-                    : const Duration(seconds: 30);
+            ? const Duration(minutes: 10)
+            : attempts >= 5
+            ? const Duration(minutes: 2)
+            : const Duration(seconds: 30);
         lockUntilMs = DateTime.now().add(duration).millisecondsSinceEpoch;
-        await _storage.write(
-          key: _lockUntilKey,
-          value: '$lockUntilMs',
-        );
+        await _storage.write(key: _lockUntilKey, value: '$lockUntilMs');
       }
     }
 
@@ -291,7 +324,10 @@ class ZeroLogPrivacyLock {
       await _storage.delete(key: _lockUntilKey);
     }
 
-    Future<void> verifyEnteredPin(StateSetter setState, BuildContext dialogContext) async {
+    Future<void> verifyEnteredPin(
+      StateSetter setState,
+      BuildContext dialogContext,
+    ) async {
       if (verifyingPin) return;
       final pin = controller.text.trim();
       if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
@@ -334,7 +370,8 @@ class ZeroLogPrivacyLock {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setState) {
-            final remaining = lockUntilMs > DateTime.now().millisecondsSinceEpoch
+            final remaining =
+                lockUntilMs > DateTime.now().millisecondsSinceEpoch
                 ? Duration(
                     milliseconds:
                         lockUntilMs - DateTime.now().millisecondsSinceEpoch,
@@ -349,7 +386,9 @@ class ZeroLogPrivacyLock {
               });
             }
 
-            final seconds = remaining.inSeconds + (remaining.inMilliseconds % 1000 == 0 ? 0 : 1);
+            final seconds =
+                remaining.inSeconds +
+                (remaining.inMilliseconds % 1000 == 0 ? 0 : 1);
 
             return AlertDialog(
               title: Row(

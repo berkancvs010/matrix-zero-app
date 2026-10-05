@@ -5,100 +5,82 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final source = File('lib/retro_arcade.dart').readAsStringSync();
 
-  test('retro catalog contains only the nine distinct games', () {
+  test('retro menu exposes ten distinct arcade and puzzle games', () {
     const ids = [
-      'space_shooter',
-      'breakout',
-      'pong',
+      'pixel_platform',
+      'tank_arena',
+      'space_defense',
       'snake',
-      'tetris',
-      '2048',
-      'minesweeper',
-      'memory',
-      'flappy',
+      'brick_breaker',
+      'racket_duel',
+      'block_drop',
+      'reversi',
+      'mines',
+      'merge',
     ];
+    final start = source.indexOf('const _retroGames = <RetroGame>[');
+    final end = source.indexOf('];', start);
+    final catalog = source.substring(start, end + 2);
 
+    expect(RegExp(r'RetroGame\(').allMatches(catalog).length, 10);
     for (final id in ids) {
-      expect(source, contains("    '$id',"));
+      expect(catalog, contains("'$id'"));
+      expect(source, contains("case '$id':"));
     }
-
-    final catalog = source.substring(
-      source.indexOf('const _retroGames = <RetroGame>['),
-      source.indexOf('];', source.indexOf('const _retroGames = <RetroGame>[')) + 2,
-    );
-    expect(RegExp(r'RetroGame\(').allMatches(catalog).length, 9);
+    expect(catalog, contains("'Arcade'"));
+    expect(catalog, contains("'Puzzle'"));
   });
 
-  test('gamepad-enabled games receive the page gamepad state', () {
-    expect(
-      source,
-      contains("case 'breakout':\n        return _BreakoutGame(showPad: showPad);"),
-    );
-    expect(
-      source,
-      isNot(contains("case 'breakout': return const _BreakoutGame();")),
-    );
+  test('every catalog entry resolves to a playable game widget', () {
+    for (final type in [
+      '_PlatformerGame',
+      '_TankGame',
+      '_SpaceGame',
+      '_SnakeGame',
+      '_BreakoutGame',
+      '_PongGame',
+      '_BlockDropGame',
+      '_ReversiGame',
+      '_MinesGame',
+      '_MergeGame',
+    ]) {
+      expect(source, contains(type));
+    }
+    expect(source, contains("default:\n        return const Center("));
   });
 
-  test('gamepad is wired to concrete actions', () {
-    expect(source, contains('class _VirtualGamepad'));
-    expect(source, contains('behavior: HitTestBehavior.opaque'));
-    expect(source, contains('a: rotate'));
-    expect(source, contains('b: _resetGame'));
-    expect(source, isNot(contains('b:()=>setState(_resetGame)')));
+  test(
+    'platform game has jump, collision, collectibles and a finish state',
+    () {
+      expect(source, contains('class _PlatformerState'));
+      expect(source, contains('void _jump()'));
+      expect(source, contains('bool _solid(int col, int row)'));
+      expect(source, contains('_collectCoins();'));
+      expect(source, contains('_x >= 46.2'));
+    },
+  );
+
+  test(
+    'tank battle includes player shots, enemy shots, cover and terminal states',
+    () {
+      expect(source, contains('class _TankState'));
+      expect(source, contains('void _fire()'));
+      expect(source, contains('bullet.enemy'));
+      expect(source, contains(r"_walls.contains('$bx:$by')"));
+      expect(source, contains('_enemies.isEmpty'));
+    },
+  );
+
+  test('Reversi offers legal moves and plays a CPU turn', () {
+    expect(source, contains('class _ReversiState'));
+    expect(source, contains('List<int> _legal(int player)'));
+    expect(source, contains('void _cpuTurn()'));
+    expect(source, contains('_moveValue(b).compareTo(_moveValue(a))'));
   });
 
-  test('snake food placement cannot loop forever on a full board', () {
-    expect(source, contains('final available = <math.Point<int>>'));
-    expect(source, contains('if (available.isEmpty)'));
-    expect(source, isNot(contains('do { food = math.Point')));
-  });
-
-  test('breakout has real brick state and collision handling', () {
-    expect(
-      source,
-      contains('final List<bool> bricks = List<bool>.filled(30, true);'),
-    );
-    expect(source, contains('bricks[index] = false;'));
-    expect(source, contains('bricks.every((brick) => !brick)'));
-    expect(source, contains('_BreakPainter(x, y, paddle, bricks)'));
-  });
-
-  test('pong serve direction is captured before resetting the ball', () {
-    expect(source, contains('final servedFromLeft = bx < 0;'));
-    expect(source, contains('vx = servedFromLeft ? .012 : -.012;'));
-    expect(source, isNot(contains('vx = bx < .1 ? .012 : -.012;')));
-  });
-
-  test('space shooter consumes one shot and one score per enemy hit', () {
-    expect(source, contains('final hitEnemies = <Offset>{};'));
-    expect(source, contains('final hitShots = <Offset>{};'));
-    expect(source, contains('if (!hitShots.contains(s)) s'));
-  });
-
-  test('tetris has all seven tetrominoes and real game over', () {
-    expect(source, contains('// I, O, T, J, L, S, Z.'));
-    expect(source, contains('bool over = false;'));
-    expect(source, contains('if (!can(x, y))'));
-    expect(source, contains('over = true;'));
-    expect(source, contains("score: over ? 'OYUN BİTTİ • \$score'"));
-    expect(source, contains('if (over) {\n      return;\n    }'));
-  });
-
-  test('2048 has terminal-state protection', () {
-    expect(source, contains('bool over = false, won = false;'));
-    expect(source, contains('bool _movesAvailable()'));
-    expect(source, contains('if (over || won) return;'));
-  });
-
-  test('minesweeper blocks input after win or loss', () {
-    expect(source, contains('if (over || won || flags[i] || open[i]) {'));
-    expect(source, contains('if (over || won || open[i]) {'));
-  });
-
-  test('retro game timers are disposed', () {
-    expect(source, contains('tm?.cancel();'));
-    expect(source, contains('timer?.cancel();'));
+  test('long-running game timers are cancelled when games close', () {
+    expect(source, contains('_timer?.cancel();'));
     expect(source, contains('super.dispose();'));
+    expect(source, contains('Timer.periodic'));
   });
 }

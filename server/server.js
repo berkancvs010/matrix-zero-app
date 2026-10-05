@@ -43,6 +43,7 @@ const users=new Map(); // ws -> nick
 const sockets=new Map(); // nick -> primary foreground ws
 const backgroundSockets=new Map(); // normalized nick -> Map(transferId -> {ws,transferId})
 const backgroundSocketByWs=new Map(); // ws -> transferId
+const backgroundDeliverySockets=new Set(); // short-lived delivery ACK sockets
 
 // Reliable WebSocket file-transfer sessions. File bytes are relayed only;
 // the server does not persist file contents.
@@ -2234,7 +2235,7 @@ function backgroundSocketFor(username,transferId=''){
 }
 
 function isBackgroundSocket(ws){
-  return backgroundSocketByWs.has(ws);
+  return backgroundSocketByWs.has(ws) || backgroundDeliverySockets.has(ws);
 }
 
 function fileSocketFor(username,transferId=''){
@@ -3433,6 +3434,13 @@ function disconnect(ws){
 
   users.delete(ws);
 
+  if(backgroundDeliverySockets.has(ws)){
+    backgroundDeliverySockets.delete(ws);
+    // Delivery-only sockets never own presence or calls. Do not let their
+    // disconnect alter the primary session state.
+    return;
+  }
+
   const backgroundKey=backgroundSocketByWs.get(ws);
 
   if(backgroundKey){
@@ -4047,9 +4055,10 @@ wss.on('connection',(ws,req)=>{
     const loginStateKey=normalizeUsername(account.username);
     const old=sockets.get(account.username);
     const backgroundTransfer=d.backgroundTransfer===true;
+    const backgroundDelivery=d.backgroundDelivery===true;
     const backgroundTransferId=String(d.backgroundTransferId||'').trim();
 
-    if(old && old!==ws && !backgroundTransfer){
+    if(old && old!==ws && !backgroundTransfer && !backgroundDelivery){
       const sameAppInstallation =
         !!fcmToken &&
         !!account.fcmToken &&
@@ -4173,7 +4182,13 @@ wss.on('connection',(ws,req)=>{
 
     users.set(ws,account.username);
 
-    if(backgroundTransfer){
+    if(backgroundDelivery){
+      // Kapalı uygulamadaki kısa ömürlü delivery socket primary oturumu
+      // devralmaz ve presence yayınlamaz. Yalnızca pending mesajların
+      // transport katmanına ulaşmasını ve messageDelivered ACK'lerinin
+      // gönderilmesini sağlar.
+      backgroundDeliverySockets.add(ws);
+    }else if(backgroundTransfer){
       // Headless file-transfer socket hiçbir zaman normal uygulamanın
       // primary socket'ini devralmamalıdır. Aksi halde normal mesajlar,
       // profile updates ve delivery/read event'leri yalnızca dosya
@@ -4314,7 +4329,7 @@ wss.on('connection',(ws,req)=>{
     }
 
     // A headless transfer socket must never publish presence.
-    if(!backgroundTransfer){
+    if(!backgroundTransfer && !backgroundDelivery){
       broadcastUserOnline(account.username);
     }
     send(ws,{type:'rooms',rooms});

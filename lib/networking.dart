@@ -285,6 +285,7 @@ class WsClient {
   }
 
   void updateAppState(String state) {
+    if (_backgroundDelivery) return;
     final normalized = state.trim().toLowerCase();
 
     if (normalized != 'foreground' && normalized != 'background') {
@@ -353,11 +354,7 @@ class WsClient {
     final target = username.trim();
     final cleanReason = reason.trim();
     if (target.isEmpty || cleanReason.isEmpty) return;
-    send({
-      'type': 'reportUser',
-      'username': target,
-      'reason': cleanReason,
-    });
+    send({'type': 'reportUser', 'username': target, 'reason': cleanReason});
   }
 
   void requestPrivacySettings() {
@@ -460,6 +457,7 @@ class WsClient {
 
   bool _backgroundTransfer = false;
   String _backgroundTransferId = '';
+  bool _backgroundDelivery = false;
 
   String? _lastConnectErrorCode;
   String? _lastConnectErrorMessage;
@@ -472,6 +470,7 @@ class WsClient {
     String password, {
     bool backgroundTransfer = false,
     String backgroundTransferId = '',
+    bool backgroundDelivery = false,
     bool skipFcmToken = false,
   }) async {
     _manualDisconnect = false;
@@ -479,6 +478,7 @@ class WsClient {
     this.password = password;
     _backgroundTransfer = backgroundTransfer;
     _backgroundTransferId = backgroundTransferId.trim();
+    _backgroundDelivery = backgroundDelivery;
     nickname = this.username;
     _reconnectAttempt = 0;
     _reconnectTimer?.cancel();
@@ -502,7 +502,9 @@ class WsClient {
             '[FCM] login-time token acquired length=${token.trim().length}',
           );
         } else {
-          zeroLog('[FCM] login-time token unavailable; continuing WebSocket connection');
+          zeroLog(
+            '[FCM] login-time token unavailable; continuing WebSocket connection',
+          );
         }
       } catch (e) {
         zeroLog('[FCM] login-time getToken failed: $e');
@@ -603,16 +605,18 @@ class WsClient {
                 // Yeni WebSocket bağlantısı varsayılan olarak foreground
                 // kabul edilir. MainScreen lifecycle bilgisi hazır olduğunda
                 // gerçek durumu tekrar gönderir.
-                try {
-                  _channel?.sink.add(
-                    jsonEncode({
-                      'type': 'appState',
-                      'state': _backgroundTransfer
-    ? 'background'
-    : (_appForeground ? 'foreground' : 'background'),
-                    }),
-                  );
-                } catch (_) {}
+                if (!_backgroundDelivery) {
+                  try {
+                    _channel?.sink.add(
+                      jsonEncode({
+                        'type': 'appState',
+                        'state': _backgroundTransfer
+                            ? 'background'
+                            : (_appForeground ? 'foreground' : 'background'),
+                      }),
+                    );
+                  } catch (_) {}
+                }
 
                 final latestFcmToken = ZeroLogPushService.currentToken;
 
@@ -800,15 +804,20 @@ class WsClient {
               if (incomingType == 'privateMessage' ||
                   incomingType == 'privateFileMessage') {
                 final sender = (data['sender'] ?? data['from'] ?? '')
-                    .toString().trim();
+                    .toString()
+                    .trim();
                 final recipient = (data['recipient'] ?? data['to'] ?? '')
-                    .toString().trim();
+                    .toString()
+                    .trim();
                 final messageId = (data['id'] ?? data['messageId'] ?? '')
-                    .toString().trim();
-                final clientMessageId =
-                    (data['clientMessageId'] ?? '').toString().trim();
-                final deliveryToken =
-                    (data['deliveryToken'] ?? '').toString().trim();
+                    .toString()
+                    .trim();
+                final clientMessageId = (data['clientMessageId'] ?? '')
+                    .toString()
+                    .trim();
+                final deliveryToken = (data['deliveryToken'] ?? '')
+                    .toString()
+                    .trim();
 
                 if (sender.isNotEmpty &&
                     sender.toLowerCase() != (nickname ?? '').toLowerCase() &&
@@ -826,20 +835,72 @@ class WsClient {
                 }
               }
 
+              // A cold-start/background login replays undelivered messages
+              // as one pendingPrivateMessages batch rather than individual
+              // privateMessage events. Acknowledge each item at the transport
+              // layer too; the chat widget may not exist in this isolate.
+              if (incomingType == 'pendingPrivateMessages') {
+                final pending = data['messages'];
+                if (pending is List) {
+                  for (final item in pending) {
+                    if (item is! Map) continue;
+                    final message = Map<String, dynamic>.from(item);
+                    final sender = (message['sender'] ?? message['from'] ?? '')
+                        .toString()
+                        .trim();
+                    final recipient =
+                        (message['recipient'] ??
+                                message['to'] ??
+                                username ??
+                                '')
+                            .toString()
+                            .trim();
+                    final messageId = (message['id'] ?? '').toString().trim();
+                    final clientMessageId = (message['clientMessageId'] ?? '')
+                        .toString()
+                        .trim();
+                    final deliveryToken = (message['deliveryToken'] ?? '')
+                        .toString()
+                        .trim();
+
+                    if (sender.isEmpty ||
+                        sender.toLowerCase() ==
+                            (nickname ?? '').toLowerCase() ||
+                        recipient.toLowerCase() !=
+                            (nickname ?? '').toLowerCase() ||
+                        (messageId.isEmpty && clientMessageId.isEmpty)) {
+                      continue;
+                    }
+
+                    send({
+                      'type': 'messageDelivered',
+                      'from': sender,
+                      'messageId': messageId,
+                      'clientMessageId': clientMessageId,
+                      'deliveryToken': deliveryToken,
+                    });
+                  }
+                }
+              }
+
               if (data['type'] == 'userBlocked') {
-                final target =
-                    (data['target'] ?? '').toString().trim().toLowerCase();
+                final target = (data['target'] ?? '')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
                 if (target.isNotEmpty) _blockedUsers.add(target);
               } else if (data['type'] == 'userUnblocked') {
-                final target =
-                    (data['target'] ?? '').toString().trim().toLowerCase();
+                final target = (data['target'] ?? '')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
                 if (target.isNotEmpty) _blockedUsers.remove(target);
               }
 
               if (data['type'] == 'authError') {
                 connected = false;
-                _lastConnectErrorCode =
-                    (data['code'] ?? 'AUTH_ERROR').toString();
+                _lastConnectErrorCode = (data['code'] ?? 'AUTH_ERROR')
+                    .toString();
                 _lastConnectErrorMessage =
                     (data['message'] ?? 'Giriş başarısız.').toString();
                 // An authentication rejection is final for this attempt;
@@ -854,9 +915,7 @@ class WsClient {
               _events.add(data);
             }
           } catch (error, stack) {
-            zeroLog(
-              '[WS] EVENT_PARSE_ERROR error=$error stack=$stack',
-            );
+            zeroLog('[WS] EVENT_PARSE_ERROR error=$error stack=$stack');
           }
         },
         onError: (_) {
@@ -896,6 +955,7 @@ class WsClient {
           'fcmToken': ZeroLogPushService.currentToken,
           'backgroundTransfer': _backgroundTransfer,
           'backgroundTransferId': _backgroundTransferId,
+          'backgroundDelivery': _backgroundDelivery,
         }),
       );
 
@@ -946,6 +1006,8 @@ class WsClient {
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
 
+    if (_backgroundDelivery) return;
+
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (!connected || _channel == null) return;
 
@@ -954,8 +1016,8 @@ class WsClient {
           jsonEncode({
             'type': 'appHeartbeat',
             'state': _backgroundTransfer
-    ? 'background'
-    : (_appForeground ? 'foreground' : 'background'),
+                ? 'background'
+                : (_appForeground ? 'foreground' : 'background'),
           }),
         );
       } catch (_) {

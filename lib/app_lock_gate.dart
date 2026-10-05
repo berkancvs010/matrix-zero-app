@@ -40,6 +40,7 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
   bool _locked = false;
   bool _authenticating = false;
   bool _wasBackgrounded = false;
+  bool _privacyAuthCausedLifecyclePause = false;
   final GlobalKey<NavigatorState> _lockNavigatorKey =
       GlobalKey<NavigatorState>();
 
@@ -47,13 +48,34 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ZeroLogPrivacyLock.configurationRevision.addListener(
+      _onPrivacyConfigurationChanged,
+    );
     _evaluateOnStart();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ZeroLogPrivacyLock.configurationRevision.removeListener(
+      _onPrivacyConfigurationChanged,
+    );
     super.dispose();
+  }
+
+  void _onPrivacyConfigurationChanged() {
+    unawaited(_syncPrivacyConfiguration());
+  }
+
+  Future<void> _syncPrivacyConfiguration() async {
+    final configured = await ZeroLogPrivacyLock.isConfigured();
+    if (!mounted) return;
+    if (!configured && _locked) {
+      setState(() {
+        _locked = false;
+        _authenticating = false;
+      });
+    }
   }
 
   Future<void> _evaluateOnStart() async {
@@ -83,11 +105,21 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _wasBackgrounded = true;
+      // Android's native biometric sheet can pause the Activity just like
+      // switching apps. Remember the cause at pause time: the authentication
+      // Future may already have completed by the time the Activity resumes.
+      _privacyAuthCausedLifecyclePause =
+          _privacyAuthCausedLifecyclePause ||
+          ZeroLogPrivacyLock.authenticationInProgress;
       return;
     }
 
     if (state == AppLifecycleState.resumed && _wasBackgrounded) {
       _wasBackgrounded = false;
+      if (_privacyAuthCausedLifecyclePause) {
+        _privacyAuthCausedLifecyclePause = false;
+        return;
+      }
       _onResumedFromBackground();
     }
   }

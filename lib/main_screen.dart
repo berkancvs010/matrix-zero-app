@@ -774,6 +774,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _messageNotificationsEnabled = true;
   bool _callNotificationsEnabled = true;
   bool _autoAcceptFileTransfers = true;
+  bool _openingPrivacySettings = false;
 
   int _selectedIndex = 0;
 
@@ -935,6 +936,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             'from': from,
             'messageId': messageId,
             'clientMessageId': (data['clientMessageId'] ?? '').toString(),
+            'deliveryToken': (data['deliveryToken'] ?? '').toString(),
           });
         }
       }
@@ -978,6 +980,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 'from': sender,
                 'messageId': map['id']?.toString() ?? '',
                 'clientMessageId': map['clientMessageId']?.toString() ?? '',
+                'deliveryToken': (map['deliveryToken'] ?? '').toString(),
               });
             }
           }
@@ -1042,9 +1045,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (type == 'userBlocked') {
       final target = data['target']?.toString() ?? '';
       if (target.isNotEmpty && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$target engellendi.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$target engellendi.')));
       }
       return;
     }
@@ -1061,18 +1064,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (type == 'reportSubmitted') {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Şikayetiniz alındı.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Şikayetiniz alındı.')));
       }
       return;
     }
 
     if (type == 'reportRejected') {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Şikayet gönderilemedi.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Şikayet gönderilemedi.')));
       }
       return;
     }
@@ -1510,8 +1513,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             'from': from,
             'to': to,
             'callId': callId,
-            'video': data['video'] == true ||
-                data['video']?.toString() == 'true',
+            'video':
+                data['video'] == true || data['video']?.toString() == 'true',
           }),
         );
         return;
@@ -1530,8 +1533,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             targetNick: from,
             outgoing: false,
             callId: callId,
-            videoCall: data['video'] == true ||
-                data['video']?.toString() == 'true',
+            videoCall:
+                data['video'] == true || data['video']?.toString() == 'true',
           ),
         ),
       );
@@ -1569,7 +1572,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             outgoing: false,
             callId: callId.isEmpty ? null : callId,
             incomingOffer: data['sdp']?.toString(),
-            videoCall: data['video'] == true ||
+            videoCall:
+                data['video'] == true ||
                 data['video']?.toString() == 'true' ||
                 data['sdp']?.toString().contains('m=video') == true,
           ),
@@ -1931,8 +1935,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           targetNick: from,
           outgoing: false,
           callId: callId,
-          videoCall: data['video'] == true ||
-              data['video']?.toString() == 'true',
+          videoCall:
+              data['video'] == true || data['video']?.toString() == 'true',
         ),
       ),
     );
@@ -3377,7 +3381,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       IconButton(
                         tooltip: 'Görüntülü ara',
                         onPressed: () => _videoCall(user),
-                        icon: Icon(Icons.videocam_outlined, color: theme.primary),
+                        icon: Icon(
+                          Icons.videocam_outlined,
+                          color: theme.primary,
+                        ),
                       ),
                     ],
                   ),
@@ -3658,17 +3665,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           Expanded(
                             child: GridView.builder(
                               padding: const EdgeInsets.only(bottom: 8),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                crossAxisSpacing: 12,
-                                mainAxisSpacing: 12,
-                                childAspectRatio: 0.92,
-                              ),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    crossAxisSpacing: 12,
+                                    mainAxisSpacing: 12,
+                                    childAspectRatio: 0.92,
+                                  ),
                               itemCount: ZeroLogTheme.values.length,
                               itemBuilder: (context, index) {
                                 final value = ZeroLogTheme.values[index];
                                 final data = zeroLogThemes[value]!;
-                                final selected = ThemeController.instance.current == value;
+                                final selected =
+                                    ThemeController.instance.current == value;
 
                                 return Material(
                                   color: theme.background,
@@ -3676,19 +3685,28 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                   clipBehavior: Clip.antiAlias,
                                   child: InkWell(
                                     onTap: () async {
-                                      await ThemeController.instance.setTheme(value);
-                                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                                      await ThemeController.instance.setTheme(
+                                        value,
+                                      );
+                                      if (sheetContext.mounted) {
+                                        Navigator.pop(sheetContext);
+                                      }
                                       if (mounted) setState(() {});
                                     },
                                     child: Padding(
                                       padding: const EdgeInsets.all(8),
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
                                         children: [
                                           Expanded(
                                             child: Stack(
                                               children: [
-                                                Positioned.fill(child: ZeroLogThemePreview(theme: data)),
+                                                Positioned.fill(
+                                                  child: ZeroLogThemePreview(
+                                                    theme: data,
+                                                  ),
+                                                ),
                                                 if (selected)
                                                   Positioned(
                                                     top: 8,
@@ -3701,12 +3719,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                                         shape: BoxShape.circle,
                                                         boxShadow: [
                                                           BoxShadow(
-                                                            color: Colors.black.withValues(alpha: 0.22),
+                                                            color: Colors.black
+                                                                .withValues(
+                                                                  alpha: 0.22,
+                                                                ),
                                                             blurRadius: 8,
                                                           ),
                                                         ],
                                                       ),
-                                                      child: const Icon(Icons.check_rounded, color: Colors.white, size: 18),
+                                                      child: const Icon(
+                                                        Icons.check_rounded,
+                                                        color: Colors.white,
+                                                        size: 18,
+                                                      ),
                                                     ),
                                                   ),
                                               ],
@@ -3719,14 +3744,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                                 child: Text(
                                                   data.name,
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: TextStyle(color: theme.text, fontSize: 13, fontWeight: FontWeight.w800),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: theme.text,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
                                                 ),
                                               ),
                                               Container(
                                                 width: 9,
                                                 height: 9,
-                                                decoration: BoxDecoration(color: data.primary, shape: BoxShape.circle),
+                                                decoration: BoxDecoration(
+                                                  color: data.primary,
+                                                  shape: BoxShape.circle,
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -3764,11 +3797,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         tile(
           icon: Icons.sports_esports_rounded,
-          title: 'Retro',
-          subtitle: '9 özgün offline oyun • reklam yok',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const RetroArcadePage()),
-          ),
+          title: 'Retro Oyun Salonu',
+          subtitle: '10 arcade ve puzzle oyunu • tamamen offline',
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const RetroArcadePage())),
         ),
 
         sectionTitle('Uygulama'),
@@ -3953,7 +3986,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             showLicensePage(
               context: context,
               applicationName: 'ZeroLog',
-              applicationVersion: version['versionName']?.trim().isNotEmpty == true
+              applicationVersion:
+                  version['versionName']?.trim().isNotEmpty == true
                   ? version['versionName']!.trim()
                   : '1.0.10',
               applicationLegalese:
@@ -4069,7 +4103,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   builder: (context, snapshot) {
                     final versionName = snapshot.data?['versionName']?.trim();
                     final versionCode = snapshot.data?['versionCode']?.trim();
-                    final versionText = versionName == null || versionName.isEmpty
+                    final versionText =
+                        versionName == null || versionName.isEmpty
                         ? 'Sürüm bilgisi okunuyor…'
                         : 'ZeroLog $versionName${versionCode != null && versionCode.isNotEmpty ? '+$versionCode' : ''}';
 
@@ -4130,7 +4165,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       showLicensePage(
                         context: context,
                         applicationName: 'ZeroLog',
-                        applicationVersion: version['versionName']?.trim().isNotEmpty == true
+                        applicationVersion:
+                            version['versionName']?.trim().isNotEmpty == true
                             ? version['versionName']!.trim()
                             : '1.0.10',
                         applicationLegalese:
@@ -4279,27 +4315,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 keyboardType: TextInputType.number,
                 obscureText: true,
                 maxLength: 6,
-                decoration: const InputDecoration(
-                  labelText: 'Mevcut PIN',
-                ),
+                decoration: const InputDecoration(labelText: 'Mevcut PIN'),
               ),
               TextField(
                 controller: newController,
                 keyboardType: TextInputType.number,
                 obscureText: true,
                 maxLength: 6,
-                decoration: const InputDecoration(
-                  labelText: 'Yeni PIN',
-                ),
+                decoration: const InputDecoration(labelText: 'Yeni PIN'),
               ),
               TextField(
                 controller: confirmController,
                 keyboardType: TextInputType.number,
                 obscureText: true,
                 maxLength: 6,
-                decoration: const InputDecoration(
-                  labelText: 'Yeni PIN tekrar',
-                ),
+                decoration: const InputDecoration(labelText: 'Yeni PIN tekrar'),
               ),
             ],
           ),
@@ -4739,360 +4769,378 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openPrivacySettings() async {
-    final configured = await ZeroLogPrivacyLock.isConfigured();
+    if (_openingPrivacySettings) return;
+    _openingPrivacySettings = true;
 
-    if (configured) {
-      final unlocked = await _authenticatePrivacy();
-      if (!mounted || !unlocked) return;
-    }
+    try {
+      final configured = await ZeroLogPrivacyLock.isConfigured();
 
-    if (!mounted) return;
+      if (configured) {
+        final unlocked = await _authenticatePrivacy();
+        if (!mounted || !unlocked) return;
+      }
 
-    final theme = ThemeController.instance.data;
+      if (!mounted) return;
 
-    var presenceVisible = _presenceVisible;
-    var privateMessagesEnabled = _privateMessagesEnabled;
+      final theme = ThemeController.instance.data;
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => StatefulBuilder(
-          builder: (context, setPageState) {
-            return Scaffold(
-              backgroundColor: theme.background,
-              appBar: AppBar(
+      var presenceVisible = _presenceVisible;
+      var privateMessagesEnabled = _privateMessagesEnabled;
+
+      final privacyRoute = Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => StatefulBuilder(
+            builder: (context, setPageState) {
+              return Scaffold(
                 backgroundColor: theme.background,
-                surfaceTintColor: Colors.transparent,
-                elevation: 0,
-                title: const Text('Gizlilik'),
-              ),
-              body: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
-                children: [
-                  Text(
-                    'Gizlilik ve güvenlik',
-                    style: TextStyle(
-                      color: theme.text,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.4,
+                appBar: AppBar(
+                  backgroundColor: theme.background,
+                  surfaceTintColor: Colors.transparent,
+                  elevation: 0,
+                  title: const Text('Gizlilik'),
+                ),
+                body: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+                  children: [
+                    Text(
+                      'Gizlilik ve güvenlik',
+                      style: TextStyle(
+                        color: theme.text,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    'Kimlerin sizi görebileceğini ve size ulaşabileceğini seçin.',
-                    style: TextStyle(
-                      color: theme.text.withValues(alpha: 0.46),
-                      fontSize: 12.5,
+                    const SizedBox(height: 5),
+                    Text(
+                      'Kimlerin sizi görebileceğini ve size ulaşabileceğini seçin.',
+                      style: TextStyle(
+                        color: theme.text.withValues(alpha: 0.46),
+                        fontSize: 12.5,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
 
-                  FutureBuilder<String>(
-                    future: ZeroLogPrivacyLock.statusLabel(),
-                    builder: (context, snapshot) {
-                      final status = snapshot.data ?? 'Gizlilik kilidi kontrol ediliyor…';
-                      return _settingsInfoCard(
-                        icon: Icons.verified_user_outlined,
-                        title: 'Gizlilik kilidi',
-                        text: '$status. Bu bölüm yalnızca cihaz doğrulaması sonrası açılır.',
-                      );
-                    },
-                  ),
+                    FutureBuilder<String>(
+                      future: ZeroLogPrivacyLock.statusLabel(),
+                      builder: (context, snapshot) {
+                        final status =
+                            snapshot.data ??
+                            'Gizlilik kilidi kontrol ediliyor…';
+                        return _settingsInfoCard(
+                          icon: Icons.verified_user_outlined,
+                          title: 'Gizlilik kilidi',
+                          text:
+                              '$status. Bu bölüm yalnızca cihaz doğrulaması sonrası açılır.',
+                        );
+                      },
+                    ),
 
-                  const SizedBox(height: 10),
+                    const SizedBox(height: 10),
 
-                  FutureBuilder<bool>(
-                    future: ZeroLogPrivacyLock.isConfigured(),
-                    builder: (context, snapshot) {
-                      final configured = snapshot.data ?? false;
+                    FutureBuilder<bool>(
+                      future: ZeroLogPrivacyLock.isConfigured(),
+                      builder: (context, snapshot) {
+                        final configured = snapshot.data ?? false;
 
-                      return Material(
-                        color: theme.surface,
-                        borderRadius: BorderRadius.circular(20),
-                        child: Column(
-                          children: [
-                            ListTile(
-                              leading: const Icon(
-                                Icons.password_rounded,
-                              ),
-                              title: Text(
-                                'PIN kodunu değiştir',
-                                style: TextStyle(
-                                  color: theme.text,
-                                  fontWeight: FontWeight.w700,
+                        return Material(
+                          color: theme.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          child: Column(
+                            children: [
+                              ListTile(
+                                leading: const Icon(Icons.password_rounded),
+                                title: Text(
+                                  'PIN kodunu değiştir',
+                                  style: TextStyle(
+                                    color: theme.text,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
-                              subtitle: Text(
-                                configured
-                                    ? 'Gizlilik kilidi PIN kodunu değiştir'
-                                    : 'Önce bir gizlilik kilidi oluştur',
-                                style: TextStyle(
-                                  color: theme.text.withValues(alpha: 0.45),
-                                  fontSize: 11.5,
+                                subtitle: Text(
+                                  configured
+                                      ? 'Gizlilik kilidi PIN kodunu değiştir'
+                                      : 'Önce bir gizlilik kilidi oluştur',
+                                  style: TextStyle(
+                                    color: theme.text.withValues(alpha: 0.45),
+                                    fontSize: 11.5,
+                                  ),
                                 ),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
+                                onTap: configured
+                                    ? () => _changePrivacyPin(context)
+                                    : () async {
+                                        final ok =
+                                            await ZeroLogPrivacyLock.setup(
+                                              context,
+                                            );
+                                        if (context.mounted && ok) {
+                                          setPageState(() {});
+                                        }
+                                      },
                               ),
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                              ),
-                              onTap: configured
-                                  ? () => _changePrivacyPin(context)
-                                  : () async {
-                                      final ok =
-                                          await ZeroLogPrivacyLock.setup(
-                                        context,
-                                      );
-                                      if (context.mounted && ok) {
+                              if (configured)
+                                FutureBuilder<List<bool>>(
+                                  future: Future.wait([
+                                    ZeroLogPrivacyLock.biometricAvailable(),
+                                    ZeroLogPrivacyLock.biometricEnabled(),
+                                  ]),
+                                  builder: (context, biometricSnapshot) {
+                                    final values = biometricSnapshot.data;
+                                    final available = values?[0] ?? false;
+                                    final enabled = values?[1] ?? false;
+
+                                    return SwitchListTile(
+                                      secondary: const Icon(
+                                        Icons.fingerprint_rounded,
+                                      ),
+                                      title: Text(
+                                        'Biyometrik doğrulama',
+                                        style: TextStyle(
+                                          color: theme.text,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        available
+                                            ? 'Parmak izi veya cihaz biyometrisi ile doğrulama'
+                                            : 'Bu cihazda kullanılabilir biyometri yok',
+                                        style: TextStyle(
+                                          color: theme.text.withValues(
+                                            alpha: 0.45,
+                                          ),
+                                          fontSize: 11.5,
+                                        ),
+                                      ),
+                                      value: available && enabled,
+                                      onChanged: !available
+                                          ? null
+                                          : (value) async {
+                                              try {
+                                                await ZeroLogPrivacyLock.setBiometricEnabled(
+                                                  value,
+                                                );
+                                                if (context.mounted) {
+                                                  setPageState(() {});
+                                                }
+                                              } catch (e) {
+                                                if (!context.mounted) return;
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      'Biyometrik ayarı değiştirilemedi: $e',
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                    );
+                                  },
+                                ),
+                              ListTile(
+                                leading: const Icon(Icons.lock_open_rounded),
+                                title: Text(
+                                  'Gizlilik kilidini kaldır',
+                                  style: TextStyle(
+                                    color: theme.text,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'PIN ve biyometrik kilit ayarlarını kaldır',
+                                  style: TextStyle(
+                                    color: theme.text.withValues(alpha: 0.45),
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
+                                onTap: !configured
+                                    ? null
+                                    : () async {
+                                        final confirm = await showDialog<bool>(
+                                          context: context,
+                                          builder: (dialogContext) {
+                                            return AlertDialog(
+                                              title: const Text(
+                                                'Gizlilik kilidi kaldırılsın mı?',
+                                              ),
+                                              content: const Text(
+                                                'PIN ve biyometrik doğrulama ayarları kaldırılacak. Daha sonra bu bölümden yeniden oluşturabilirsiniz.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                        dialogContext,
+                                                        false,
+                                                      ),
+                                                  child: const Text('İptal'),
+                                                ),
+                                                FilledButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                        dialogContext,
+                                                        true,
+                                                      ),
+                                                  child: const Text('Kaldır'),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        );
+
+                                        if (!context.mounted ||
+                                            confirm != true) {
+                                          return;
+                                        }
+
+                                        await ZeroLogPrivacyLock.removeLock();
+
+                                        if (!context.mounted) return;
+
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Gizlilik kilidi kaldırıldı.',
+                                            ),
+                                          ),
+                                        );
+
                                         setPageState(() {});
-                                      }
-                                    },
-                            ),
-                            if (configured)
-                              FutureBuilder<List<bool>>(
-                                future: Future.wait([
-                                  ZeroLogPrivacyLock.biometricAvailable(),
-                                  ZeroLogPrivacyLock.biometricEnabled(),
-                                ]),
-                                builder: (context, biometricSnapshot) {
-                                  final values = biometricSnapshot.data;
-                                  final available = values?[0] ?? false;
-                                  final enabled = values?[1] ?? false;
+                                      },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
 
-                                  return SwitchListTile(
-                                    secondary: const Icon(
-                                      Icons.fingerprint_rounded,
-                                    ),
-                                    title: Text(
-                                      'Biyometrik doğrulama',
+                    const SizedBox(height: 10),
+
+                    _settingsSectionCard(
+                      icon: Icons.visibility_outlined,
+                      title: 'Çevrimiçi durum',
+                      subtitle:
+                          'Çevrimiçi olduğunuzu diğer kullanıcılar görsün',
+                      value: presenceVisible,
+                      onChanged: (value) {
+                        setPageState(() => presenceVisible = value);
+                        _presenceVisible = value;
+
+                        WsClient.instance.setPrivacySettings(
+                          presenceVisible: value,
+                        );
+                      },
+                    ),
+
+                    _settingsSectionCard(
+                      icon: Icons.lock_outline_rounded,
+                      title: 'Özel mesajlar',
+                      subtitle:
+                          'Diğer kullanıcıların size mesaj göndermesine izin ver',
+                      value: privateMessagesEnabled,
+                      onChanged: (value) {
+                        setPageState(() => privateMessagesEnabled = value);
+                        _privateMessagesEnabled = value;
+
+                        WsClient.instance.setPrivacySettings(
+                          privateMessagesEnabled: value,
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Material(
+                      color: theme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () => _deleteAccount(allData: true),
+                        child: Padding(
+                          padding: const EdgeInsets.all(15),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: theme.text.withValues(alpha: 0.06),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: theme.text.withValues(alpha: 0.62),
+                                ),
+                              ),
+                              const SizedBox(width: 13),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Verilerimi sil',
                                       style: TextStyle(
                                         color: theme.text,
+                                        fontSize: 14,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    subtitle: Text(
-                                      available
-                                          ? 'Parmak izi veya cihaz biyometrisi ile doğrulama'
-                                          : 'Bu cihazda kullanılabilir biyometri yok',
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Hesap ve kayıtları kalıcı olarak yönet',
                                       style: TextStyle(
-                                        color:
-                                            theme.text.withValues(alpha: 0.45),
+                                        color: theme.text.withValues(
+                                          alpha: 0.45,
+                                        ),
                                         fontSize: 11.5,
                                       ),
                                     ),
-                                    value: available && enabled,
-                                    onChanged: !available
-                                        ? null
-                                        : (value) async {
-                                            try {
-                                              await ZeroLogPrivacyLock
-                                                  .setBiometricEnabled(value);
-                                              if (context.mounted) {
-                                                setPageState(() {});
-                                              }
-                                            } catch (e) {
-                                              if (!context.mounted) return;
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Biyometrik ayarı değiştirilemedi: $e',
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                          },
-                                  );
-                                },
-                              ),
-                            ListTile(
-                              leading: const Icon(
-                                Icons.lock_open_rounded,
-                              ),
-                              title: Text(
-                                'Gizlilik kilidini kaldır',
-                                style: TextStyle(
-                                  color: theme.text,
-                                  fontWeight: FontWeight.w700,
+                                  ],
                                 ),
                               ),
-                              subtitle: Text(
-                                'PIN ve biyometrik kilit ayarlarını kaldır',
-                                style: TextStyle(
-                                  color: theme.text.withValues(alpha: 0.45),
-                                  fontSize: 11.5,
-                                ),
-                              ),
-                              trailing: const Icon(
+                              Icon(
                                 Icons.chevron_right_rounded,
+                                color: theme.text.withValues(alpha: 0.30),
                               ),
-                              onTap: !configured
-                                  ? null
-                                  : () async {
-                                      final confirm = await showDialog<bool>(
-                                        context: context,
-                                        builder: (dialogContext) {
-                                          return AlertDialog(
-                                            title: const Text(
-                                              'Gizlilik kilidi kaldırılsın mı?',
-                                            ),
-                                            content: const Text(
-                                              'PIN ve biyometrik doğrulama ayarları kaldırılacak. Daha sonra bu bölümden yeniden oluşturabilirsiniz.',
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(
-                                                  dialogContext,
-                                                  false,
-                                                ),
-                                                child: const Text('İptal'),
-                                              ),
-                                              FilledButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(
-                                                  dialogContext,
-                                                  true,
-                                                ),
-                                                child: const Text('Kaldır'),
-                                              ),
-                                            ],
-                                          );
-                                        },
-                                      );
-
-                                      if (!context.mounted || confirm != true) {
-                                        return;
-                                      }
-
-                                      await ZeroLogPrivacyLock.removeLock();
-
-                                      if (!context.mounted) return;
-
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Gizlilik kilidi kaldırıldı.',
-                                          ),
-                                        ),
-                                      );
-
-                                      setPageState(() {});
-                                    },
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  _settingsSectionCard(
-                    icon: Icons.visibility_outlined,
-                    title: 'Çevrimiçi durum',
-                    subtitle: 'Çevrimiçi olduğunuzu diğer kullanıcılar görsün',
-                    value: presenceVisible,
-                    onChanged: (value) {
-                      setPageState(() => presenceVisible = value);
-                      _presenceVisible = value;
-
-                      WsClient.instance.setPrivacySettings(
-                        presenceVisible: value,
-                      );
-                    },
-                  ),
-
-                  _settingsSectionCard(
-                    icon: Icons.lock_outline_rounded,
-                    title: 'Özel mesajlar',
-                    subtitle:
-                        'Diğer kullanıcıların size mesaj göndermesine izin ver',
-                    value: privateMessagesEnabled,
-                    onChanged: (value) {
-                      setPageState(() => privateMessagesEnabled = value);
-                      _privateMessagesEnabled = value;
-
-                      WsClient.instance.setPrivacySettings(
-                        privateMessagesEnabled: value,
-                      );
-                    },
-                  ),
-
-
-                  const SizedBox(height: 8),
-
-                  Material(
-                    color: theme.surface,
-                    borderRadius: BorderRadius.circular(20),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () => _deleteAccount(allData: true),
-                      child: Padding(
-                        padding: const EdgeInsets.all(15),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: theme.text.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Icon(
-                                Icons.delete_outline_rounded,
-                                color: theme.text.withValues(alpha: 0.62),
-                              ),
-                            ),
-                            const SizedBox(width: 13),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Verilerimi sil',
-                                    style: TextStyle(
-                                      color: theme.text,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Hesap ve kayıtları kalıcı olarak yönet',
-                                    style: TextStyle(
-                                      color: theme.text.withValues(alpha: 0.45),
-                                      fontSize: 11.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Icon(
-                              Icons.chevron_right_rounded,
-                              color: theme.text.withValues(alpha: 0.30),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
 
-                  _settingsInfoCard(
-                    icon: Icons.shield_outlined,
-                    title: 'Kontrol sizde',
-                    text:
-                        'Gizlilik tercihleri hesabınıza kaydedilir. '
-                        'Çevrimiçi durumunu kapattığınızda diğer kullanıcılar '
-                        'sizi çevrimiçi listesinde göremez.',
-                  ),
-                ],
-              ),
-            );
-          },
+                    _settingsInfoCard(
+                      icon: Icons.shield_outlined,
+                      title: 'Güvenlik',
+                      text: 'Tüm veriler uçtan uca şifrelidir.',
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
-      ),
-    );
+      );
 
-    WsClient.instance.requestPrivacySettings();
+      WsClient.instance.requestPrivacySettings();
+      await privacyRoute;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gizlilik bölümü açılamadı: $error')),
+        );
+      }
+    } finally {
+      _openingPrivacySettings = false;
+    }
   }
 
   @override
