@@ -19,16 +19,20 @@ void main() {
     ];
 
     for (final id in ids) {
-      expect(source, contains("RetroGame('$id'"));
+      expect(source, contains("    '$id',"));
     }
 
-    expect(RegExp(r"RetroGame\('").allMatches(source).length, 9);
+    final catalog = source.substring(
+      source.indexOf('const _retroGames = <RetroGame>['),
+      source.indexOf('];', source.indexOf('const _retroGames = <RetroGame>[')) + 2,
+    );
+    expect(RegExp(r'RetroGame\(').allMatches(catalog).length, 9);
   });
 
   test('gamepad-enabled games receive the page gamepad state', () {
     expect(
       source,
-      contains("case 'breakout': return _BreakoutGame(showPad: showPad);"),
+      contains("case 'breakout':\n        return _BreakoutGame(showPad: showPad);"),
     );
     expect(
       source,
@@ -78,13 +82,13 @@ void main() {
     expect(source, contains('if (!can(x, y))'));
     expect(source, contains('over = true;'));
     expect(source, contains("score: over ? 'OYUN BİTTİ • \$score'"));
-    expect(source, contains('if (over) return;'));
+    expect(source, contains('if (over) {\n      return;\n    }'));
   });
 
   test('2048 has terminal-state protection', () {
     expect(source, contains('bool over = false, won = false;'));
     expect(source, contains('bool _movesAvailable()'));
-    expect(source, contains('if(over||won)return;'));
+    expect(source, contains('if (over || won) return;'));
   });
 
   test('minesweeper blocks input after win or loss', () {
