@@ -30,7 +30,12 @@ void main() {
     expect(shell, contains('AppLockGate(child:'));
     expect(gate, contains('_lockNavigatorKey'));
     expect(gate, contains('MaterialPageRoute<void>'));
-    expect(gate, contains('final dialogContext = _lockNavigatorKey.currentState?.context;'));
+    expect(
+      gate,
+      contains(
+        'final dialogContext = _lockNavigatorKey.currentState?.context;',
+      ),
+    );
     expect(privacy, contains('authenticationInProgress'));
     expect(privacy, contains('stickyAuth: false'));
     expect(privacy, contains('biometricOnly: true'));
@@ -45,21 +50,29 @@ void main() {
 
   test('call cleanup stops incoming ringtone and clears pending state', () {
     final call = source('lib/call_screen.dart');
-    expect(call, contains('ZeroLogPushService.cancelIncomingCallNotification();'));
+    expect(
+      call,
+      contains('ZeroLogPushService.cancelIncomingCallNotification();'),
+    );
     expect(call, contains('ZeroLogPushService.clearPendingCall();'));
   });
 
-  test('signaling disconnect terminates the local call instead of leaving a stale UI', () {
-    final call = source('lib/call_screen.dart');
-    expect(call, contains("type == 'connectionLost'"));
-    expect(call, contains("type == 'connectionError'"));
-    expect(call, contains("type == 'connectionClosed'"));
-    expect(call, contains("_finish(sendSignal: false)"));
-  });
+  test(
+    'signaling disconnect terminates the local call instead of leaving a stale UI',
+    () {
+      final call = source('lib/call_screen.dart');
+      expect(call, contains("type == 'connectionLost'"));
+      expect(call, contains("type == 'connectionError'"));
+      expect(call, contains("type == 'connectionClosed'"));
+      expect(call, contains("_finish(sendSignal: false)"));
+    },
+  );
 
   test('in-app version is read from the installed Android package', () {
     final push = source('lib/push_service.dart');
-    final native = source('android/app/src/main/kotlin/com/zerolog/app/MainActivity.kt');
+    final native = source(
+      'android/app/src/main/kotlin/com/zerolog/app/MainActivity.kt',
+    );
     expect(push, contains("invokeMethod<dynamic>('getAppVersion')"));
     expect(native, contains('"getAppVersion"'));
     expect(native, contains('packageInfo.longVersionCode'));
@@ -69,7 +82,10 @@ void main() {
     final native = source(
       'android/app/src/main/kotlin/com/zerolog/app/ZeroLogFirebaseMessagingService.kt',
     );
-    expect(native, contains('Suppressing native call notification: app is foreground'));
+    expect(
+      native,
+      contains('Suppressing native call notification: app is foreground'),
+    );
     expect(native, contains('ActivityManager.getMyMemoryState(processInfo)'));
     expect(native, contains('IMPORTANCE_FOREGROUND'));
   });
@@ -85,14 +101,19 @@ void main() {
       'android/app/src/main/kotlin/com/zerolog/app/ZeroLogFirebaseMessagingService.kt',
     );
     expect(native, contains('KeyguardManager'));
-    expect(native, contains('val deviceLocked = keyguardManager?.isKeyguardLocked == true'));
+    expect(
+      native,
+      contains('val deviceLocked = keyguardManager?.isKeyguardLocked == true'),
+    );
     expect(native, contains('if (foreground && !deviceLocked)'));
     expect(native, contains('setTimeoutAfter(60_000L)'));
 
     final server = source('server/server.js');
     expect(
       server,
-      contains("priority:'high',\n          // The signaling call itself expires after 60 seconds."),
+      contains(
+        "priority:'high',\n          // The signaling call itself expires after 60 seconds.",
+      ),
     );
     expect(server, contains('ttl:60000'));
     expect(server, contains('if(callNotificationsEnabled(to)){'));
@@ -101,7 +122,10 @@ void main() {
   test('WebSocket reconnect ignores stale socket callbacks', () {
     final networking = source('lib/networking.dart');
     expect(networking, contains('int _connectionGeneration = 0;'));
-    expect(networking, contains('final connectionGeneration = ++_connectionGeneration;'));
+    expect(
+      networking,
+      contains('final connectionGeneration = ++_connectionGeneration;'),
+    );
     expect(
       networking,
       contains('if (connectionGeneration != _connectionGeneration) return;'),
@@ -120,8 +144,14 @@ void main() {
 
   test('reconnect cannot remain blocked by a dead WebSocket close', () {
     final networking = source('lib/networking.dart');
-    expect(networking, contains("sink.close().timeout(const Duration(seconds: 2))"));
-    expect(networking, contains('socket close timed out; forcing local cleanup'));
+    expect(
+      networking,
+      contains("sink.close().timeout(const Duration(seconds: 2))"),
+    );
+    expect(
+      networking,
+      contains('socket close timed out; forcing local cleanup'),
+    );
   });
 
   test('connection banner follows the live WebSocket state', () {
@@ -132,16 +162,22 @@ void main() {
 
   test('call watchdog starts before the offer is available', () {
     final call = source('lib/call_screen.dart');
-    expect(call, contains('Cover the whole acceptance -> peer creation -> offer -> answer path'));
+    expect(
+      call,
+      contains(
+        'Cover the whole acceptance -> peer creation -> offer -> answer path',
+      ),
+    );
     expect(call, contains('Cover the whole acceptance -> peer creation'));
   });
 
-  test('PIN auto-submits the first complete PIN and later failures require explicit submit', () {
+  test('PIN doğrulaması klavye yarışına girmeden kontrollü gönderilir', () {
     final privacy = source('lib/privacy_lock.dart');
-    expect(privacy, contains('var autoSubmitPending = true;'));
-    expect(privacy, contains('onChanged: (value)'));
-    expect(privacy, contains('value.trim().length != 6'));
-    expect(privacy, contains('autoSubmitPending = false;'));
+    expect(privacy, contains('final pinFocusNode = FocusNode();'));
+    expect(privacy, contains('focusRequested = false;'));
+    expect(privacy, contains('autofocus: false'));
+    expect(privacy, contains('textInputAction: TextInputAction.done'));
+    expect(privacy, contains('pinFocusNode.requestFocus();'));
     expect(privacy, contains('onSubmitted: (_) async'));
     expect(privacy, contains('var verifyingPin = false;'));
     expect(privacy, contains('if (verifyingPin) return;'));
@@ -172,24 +208,26 @@ void main() {
     );
   });
 
-  test('PIN first complete entry auto-submits but failed entry needs explicit confirmation', () {
-    final privacy = source('lib/privacy_lock.dart');
-    expect(privacy, contains('var autoSubmitPending = true;'));
-    expect(
-      privacy,
-      contains('unawaited(verifyEnteredPin(setState, dialogContext));'),
-    );
-    expect(privacy, contains('autoSubmitPending = false;'));
-    expect(privacy, contains('onSubmitted: (_) async'));
-    expect(privacy, contains("label: const Text('Doğrula')"));
-  });
+  test(
+    'PIN ilk girişte otomatik klavye yarışını önler ve butonla doğrulanır',
+    () {
+      final privacy = source('lib/privacy_lock.dart');
+      expect(privacy, contains('final pinFocusNode = FocusNode();'));
+      expect(privacy, contains('autofocus: false'));
+      expect(privacy, contains('focusRequested = false;'));
+      expect(privacy, contains('onSubmitted: (_) async'));
+      expect(privacy, contains("label: const Text('Doğrula')"));
+    },
+  );
 
-  test('call acceptance has a watchdog before SDP offer and a recovery grace timer', () {
-    final call = source('lib/call_screen.dart');
-    expect(call, contains('_startCallConnectionWatchdog();'));
-    expect(call, contains('Duration(seconds: 45)'));
-    expect(call, contains('Duration(seconds: 12)'));
-    expect(call, contains('_finish(sendSignal: false)'));
-  });
-
+  test(
+    'call acceptance has a watchdog before SDP offer and a recovery grace timer',
+    () {
+      final call = source('lib/call_screen.dart');
+      expect(call, contains('_startCallConnectionWatchdog();'));
+      expect(call, contains('Duration(seconds: 45)'));
+      expect(call, contains('Duration(seconds: 12)'));
+      expect(call, contains('_finish(sendSignal: false)'));
+    },
+  );
 }

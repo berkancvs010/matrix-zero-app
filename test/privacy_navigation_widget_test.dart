@@ -66,6 +66,7 @@ void main() {
   Future<void> verifyWithPin(WidgetTester tester) async {
     expect(find.text('Gizlilik Merkezi kilitli'), findsOneWidget);
     await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Doğrula').last);
     await pumpFrames(tester);
   }
 

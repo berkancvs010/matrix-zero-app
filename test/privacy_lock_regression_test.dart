@@ -22,6 +22,8 @@ void main() {
     );
     expect(privacy, contains('await route.completed;'));
     expect(privacy, contains('_showDialogAndWaitForRemoval<bool>('));
+    expect(privacy, contains('final pinFocusNode = FocusNode();'));
+    expect(privacy, contains('autofocus: false'));
   });
 
   test(

@@ -692,7 +692,7 @@ class FileTransfer {
 
     if (id.isEmpty || from.toLowerCase() != peer.toLowerCase() ||
         (to.isNotEmpty && to.toLowerCase() != me.toLowerCase()) ||
-        size <= 0 || size > _maxFileSize || name.isEmpty) {
+        size <= 0 || size > _maxFileSize || name.isEmpty || !_validSha(sha)) {
       return;
     }
 
@@ -1184,10 +1184,25 @@ class FileTransfer {
     await dir.create(recursive: true);
     final temp = File('${dir.path}/${_sanitizeId(id)}.part');
     final manifest = await _readReceiveManifest(id);
-    if (manifest != null) {
+    final manifestMatches = manifest != null &&
+        manifest['transferId']?.toString() == id &&
+        manifest['fileName']?.toString() == _fileName &&
+        _asInt(manifest['fileSize']) == _fileSize &&
+        (manifest['sha256'] ?? '').toString().trim().toLowerCase() ==
+            (_sourceSha256 ?? '').trim().toLowerCase();
+
+    if (manifest != null && !manifestMatches) {
+      // Never resume a partial file with metadata from another transfer.
+      // Reusing it causes false out-of-order/hash failures after a retry.
+      await _deleteReceiveManifest(id);
+      if (await temp.exists()) await temp.delete();
+    }
+
+    if (manifestMatches) {
       final seq = _asInt(manifest['lastReceivedSeq']);
       final bytes = _asInt(manifest['receivedBytes']);
-      if (seq >= -1 && bytes >= 0 && bytes <= _fileSize) {
+      final maxSeq = (_fileSize + _chunkSize - 1) ~/ _chunkSize - 1;
+      if (seq >= -1 && seq <= maxSeq && bytes >= 0 && bytes <= _fileSize) {
         _lastReceivedSeq = seq;
         _receivedBytes = bytes;
       }

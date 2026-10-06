@@ -313,9 +313,10 @@ class ZeroLogPrivacyLock {
 
   static Future<bool> _showPinPrompt(BuildContext context) async {
     final controller = TextEditingController();
+    final pinFocusNode = FocusNode();
     var error = '';
-    var autoSubmitPending = true;
     var verifyingPin = false;
+    var focusRequested = false;
     var attempts =
         int.tryParse(await _storage.read(key: _failedAttemptsKey) ?? '0') ?? 0;
     var lockUntilMs =
@@ -371,10 +372,6 @@ class ZeroLogPrivacyLock {
         await persistFailure();
         if (!dialogContext.mounted) return;
         controller.clear();
-        // After a failed automatic 6-digit attempt, require an explicit
-        // keyboard/button confirmation for the next attempt. This prevents
-        // duplicate attempts when TextField onChanged and onSubmitted race.
-        autoSubmitPending = false;
         setState(() {
           error = attempts >= _maxAttemptsBeforeDelay
               ? 'PIN hatalı. Güvenlik kilidi devreye girdi.'
@@ -400,6 +397,22 @@ class ZeroLogPrivacyLock {
                   )
                 : Duration.zero;
             final locked = remaining > Duration.zero;
+
+            // Do not use TextField.autofocus here. On Android, requesting the
+            // IME while the lock dialog is still entering can race with the
+            // overlay Navigator and produce an open-then-immediate-close
+            // keyboard. Request focus once, after the route is painted.
+            if (!locked && !focusRequested) {
+              focusRequested = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!dialogContext.mounted) return;
+                Future<void>.delayed(const Duration(milliseconds: 250), () {
+                  if (dialogContext.mounted && !verifyingPin) {
+                    pinFocusNode.requestFocus();
+                  }
+                });
+              });
+            }
 
             if (locked && ticker == null) {
               ticker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -453,23 +466,13 @@ class ZeroLogPrivacyLock {
                     const SizedBox(height: 18),
                     TextField(
                       controller: controller,
-                      autofocus: true,
+                      focusNode: pinFocusNode,
+                      autofocus: false,
                       keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
                       obscureText: true,
                       maxLength: 6,
-                      onChanged: (value) {
-                        if (!autoSubmitPending ||
-                            value.trim().length != 6 ||
-                            !dialogContext.mounted ||
-                            verifyingPin) {
-                          return;
-                        }
-
-                        autoSubmitPending = false;
-                        unawaited(verifyEnteredPin(setState, dialogContext));
-                      },
                       onSubmitted: (_) async {
-                        autoSubmitPending = false;
                         await verifyEnteredPin(setState, dialogContext);
                       },
                       decoration: InputDecoration(
@@ -495,7 +498,6 @@ class ZeroLogPrivacyLock {
                     onPressed: verifyingPin
                         ? null
                         : () async {
-                            autoSubmitPending = false;
                             await verifyEnteredPin(setState, dialogContext);
                           },
                     icon: const Icon(Icons.lock_open_rounded),
@@ -509,6 +511,7 @@ class ZeroLogPrivacyLock {
     );
 
     ticker?.cancel();
+    pinFocusNode.dispose();
     controller.dispose();
     return result == true;
   }
