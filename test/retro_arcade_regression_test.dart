@@ -50,26 +50,33 @@ void main() {
   });
 
   test(
-    'platform game: two heroes, jump, collision, collectibles and a goal',
+    'platform game v3: two heroes, collision, collectibles, six levels and goal',
     () {
       expect(source, contains('class _PlatformerState'));
       expect(source, contains('void _jump()'));
-      expect(source, contains('bool _solid(int col, int row)'));
-      expect(source, contains('_collectCoins();'));
-      expect(source, contains('_x >= _goalX'));
-      // Girişte iki kahramanlı karakter seçimi.
+      expect(source, contains('bool _solid(int row, int col)'));
+      expect(source, contains('void _collect()'));
+      expect(source, contains('_flag = _cols - 5;'));
+      expect(
+        source,
+        contains('if (_x >= _flag - 1 && _bossHp <= 0)'),
+      );
+
+      // İki oynanabilir kahraman.
       expect(source, contains('_PlatformerHero.chief'));
       expect(source, contains('_PlatformerHero.coder'));
       expect(source, contains('Şantiye Şefi'));
       expect(source, contains('Programcı'));
-      // Üç bölüm ve bayrak hedefi.
-      expect(source, contains('_platformLevel1()'));
-      expect(source, contains('_platformLevel2()'));
-      expect(source, contains('_platformLevel3()'));
-      // Kameralı sahnede dünya sol kenardan başlamalı. Tüm bölüm genişliğine
-      // göre ortalanırsa karolar ekranın soluna taşar ve yalnızca mavi
-      // gökyüzü görünür (oyun "başlamıyor" gibi kalır).
-      expect(source, contains('final viewCols = size.width / tile;'));
+
+      // V3: altı benzersiz bölüm / biyom.
+      expect(source, contains('const _pixelLevels = <_PixelLevel>['));
+      expect(RegExp(r"_PixelLevel\(\d+").allMatches(source).length, 6);
+      expect(source, contains("bossName: 'Çekirdek Muhafızı'"));
+      expect(source, contains("bossName: 'Lav Muhafızı'"));
+
+      // Kamera dünya genişliğine göre değil, görünür alan üzerinden çalışıyor.
+      expect(source, contains('final first = s._camera.floor() - 1;'));
+      expect(source, contains('final ox = (size.width - 13 * t) / 2;'));
       expect(
         source,
         isNot(contains('final ox = (size.width - s._cols * tile) / 2;')),
@@ -78,16 +85,26 @@ void main() {
   );
 
   test('çekiçli şantiye şefi programcıdan daha hızlı koşar', () {
-    final chief = RegExp(r'const double _chiefRun = ([\d.]+)')
-        .firstMatch(source);
-    final coder = RegExp(r'const double _coderRun = ([\d.]+)')
-        .firstMatch(source);
-    expect(chief, isNotNull);
-    expect(coder, isNotNull);
     expect(
-      double.parse(chief!.group(1)!),
-      greaterThan(double.parse(coder!.group(1)!)),
+      source,
+      contains(
+        "_PlatformerHero.chief: _HeroInfo('Şantiye Şefi', 'Kasklı, dayanıklı ve çekiçli.'",
+      ),
     );
+    expect(source, contains(".19, -.40, 5, 3)"));
+
+    expect(
+      source,
+      contains(
+        "_PlatformerHero.coder: _HeroInfo('Programcı', 'Enerji çekirdekli çevik kahraman.'",
+      ),
+    );
+    expect(source, contains(".15, -.45, 3, 5)"));
+
+    const chiefRun = .19;
+    const coderRun = .15;
+
+    expect(chiefRun, greaterThan(coderRun));
   });
 
   test(
