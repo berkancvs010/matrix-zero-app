@@ -1006,6 +1006,7 @@ class _PlatformerState extends State<_PlatformerGame> {
   bool _jumpHeld = false, _jumpCut = false;
   bool _holdLeft = false, _holdRight = false;
   double _camera = 0;
+  double _viewCols = 13;
 
   final List<_Walker> _walkers = [];
   final List<_Spark> _sparks = [];
@@ -1496,7 +1497,7 @@ class _PlatformerState extends State<_PlatformerGame> {
 
   void _tickCamera() {
     final target =
-        (_x - 5.2).clamp(0.0, math.max(0.0, _cols - 13.0)).toDouble();
+        (_x - 5.2).clamp(0.0, math.max(0.0, _cols - _viewCols)).toDouble();
     _camera += (target - _camera) * .18;
     if ((target - _camera).abs() < .01) _camera = target;
   }
@@ -1686,7 +1687,13 @@ class _PlatformPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, sky);
 
     final tile = math.min(size.width / 13, size.height / _PlatformerState._rows);
-    final ox = (size.width - s._cols * tile) / 2;
+    if (tile <= 0) return;
+    // Kamera yatayda kaydığı için dünya sol kenardan başlar; yalnızca bölüm
+    // ekrandan darsa ortalanır. Tüm bölüm genişliğine göre ortalamak, kameraya
+    // göre çizilen karoları ekran dışına taşıyıp sadece mavi gökyüzü bırakır.
+    final viewCols = size.width / tile;
+    s._viewCols = viewCols;
+    final ox = s._cols <= viewCols ? (size.width - s._cols * tile) / 2 : 0.0;
     final oy = (size.height - _PlatformerState._rows * tile) / 2;
 
     canvas.save();

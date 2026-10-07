@@ -66,6 +66,14 @@ void main() {
       expect(source, contains('_platformLevel1()'));
       expect(source, contains('_platformLevel2()'));
       expect(source, contains('_platformLevel3()'));
+      // Kameralı sahnede dünya sol kenardan başlamalı. Tüm bölüm genişliğine
+      // göre ortalanırsa karolar ekranın soluna taşar ve yalnızca mavi
+      // gökyüzü görünür (oyun "başlamıyor" gibi kalır).
+      expect(source, contains('final viewCols = size.width / tile;'));
+      expect(
+        source,
+        isNot(contains('final ox = (size.width - s._cols * tile) / 2;')),
+      );
     },
   );
 
