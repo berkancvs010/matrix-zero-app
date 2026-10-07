@@ -50,15 +50,37 @@ void main() {
   });
 
   test(
-    'platform game has jump, collision, collectibles and a finish state',
+    'platform game: two heroes, jump, collision, collectibles and a goal',
     () {
       expect(source, contains('class _PlatformerState'));
       expect(source, contains('void _jump()'));
       expect(source, contains('bool _solid(int col, int row)'));
       expect(source, contains('_collectCoins();'));
-      expect(source, contains('_x >= 46.2'));
+      expect(source, contains('_x >= _goalX'));
+      // Girişte iki kahramanlı karakter seçimi.
+      expect(source, contains('_PlatformerHero.chief'));
+      expect(source, contains('_PlatformerHero.coder'));
+      expect(source, contains('Şantiye Şefi'));
+      expect(source, contains('Programcı'));
+      // Üç bölüm ve bayrak hedefi.
+      expect(source, contains('_platformLevel1()'));
+      expect(source, contains('_platformLevel2()'));
+      expect(source, contains('_platformLevel3()'));
     },
   );
+
+  test('çekiçli şantiye şefi programcıdan daha hızlı koşar', () {
+    final chief = RegExp(r'const double _chiefRun = ([\d.]+)')
+        .firstMatch(source);
+    final coder = RegExp(r'const double _coderRun = ([\d.]+)')
+        .firstMatch(source);
+    expect(chief, isNotNull);
+    expect(coder, isNotNull);
+    expect(
+      double.parse(chief!.group(1)!),
+      greaterThan(double.parse(coder!.group(1)!)),
+    );
+  });
 
   test(
     'tank battle includes player shots, enemy shots, cover and terminal states',
