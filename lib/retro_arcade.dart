@@ -694,285 +694,145 @@ class _VirtualGamepad extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Piksel Macerası: Super Mario tarzı yan kaydırmalı platform oyunu.
-// Girişte karakter seçimi (Şantiye Şefi / Programcı), üç bölüm, altın,
-// soru blokları, düşmanlar, can ve bayrak hedefi.
+// Piksel Macerası v3: 6 benzersiz bölüm, 6 biyom, 7 düşman sınıfı + boss,
+// rastgele ganimet, envanter, kalkan, dash, doğal hareket, coyote time,
+// jump buffer, değişken zıplama, gizli/alternatif yollar ve güçlü feedback.
 // ---------------------------------------------------------------------------
 enum _PlatformerHero { chief, coder }
-
-// Çekiçli şef daha hızlı koşar; programcı daha yükseğe zıplar.
-const double _chiefRun = .175;
-const double _coderRun = .128;
-const double _chiefJump = -.38;
-const double _coderJump = -.42;
-
-class _HeroInfo {
-  final String name;
-  final String tagline;
-  final String ability;
-  final double runSpeed;
-  final double jumpSpeed;
-  final double runStat;
-  final double jumpStat;
-  const _HeroInfo(
-    this.name,
-    this.tagline,
-    this.ability,
-    this.runSpeed,
-    this.jumpSpeed,
-    this.runStat,
-    this.jumpStat,
-  );
-}
-
-const Map<_PlatformerHero, _HeroInfo> _heroInfo = {
-  _PlatformerHero.chief: _HeroInfo(
-    'Şantiye Şefi',
-    'Kasklı ve yelekli; elinde çekiç.',
-    'Daha hızlı koşar · çekiçle tuğla kırar, düşman ezer',
-    _chiefRun,
-    _chiefJump,
-    5,
-    3,
-  ),
-  _PlatformerHero.coder: _HeroInfo(
-    'Programcı',
-    'Kapüşonlu ve gözlüklü; elinde USB bellek.',
-    'Daha yükseğe zıplar · USB kıvılcımı ile uzaktan vurur',
-    _coderRun,
-    _coderJump,
-    3,
-    5,
-  ),
-};
-
+enum _PixelWorld { valley, cave, factory, cloud, ruins, volcano }
+enum _EnemyKind { walker, spike, shooter, flyer, charger, brute, bomber, boss }
+enum _LootKind { coin, heart, bomb, ammo, weapon, shield, speed, jump, gem }
 enum _Phase { select, ready, playing, dying, clear, gameover, win }
 
-class _Walker {
-  double x;
-  double y;
-  double vy = 0;
-  int dir = -1;
-  final bool spiky;
-  bool dead = false;
-  bool remove = false;
-  int deadTicks = 0;
-  _Walker(this.x, this.y, this.spiky);
+class _HeroInfo {
+  final String name, tagline, ability;
+  final double runSpeed, jumpSpeed, runStat, jumpStat;
+  const _HeroInfo(this.name, this.tagline, this.ability, this.runSpeed,
+      this.jumpSpeed, this.runStat, this.jumpStat);
 }
 
-class _Spark {
-  double x;
-  final double y;
-  final double vx;
-  int life = 70;
-  bool dead = false;
-  _Spark(this.x, this.y, this.vx);
+const _heroInfo = <_PlatformerHero, _HeroInfo>{
+  _PlatformerHero.chief: _HeroInfo('Şantiye Şefi', 'Kasklı, dayanıklı ve çekiçli.',
+      'Çekiç yakın düşmanları ezer; tuğlaları kırar.', .19, -.40, 5, 3),
+  _PlatformerHero.coder: _HeroInfo('Programcı', 'Enerji çekirdekli çevik kahraman.',
+      'Enerji atışı uzaktan vurur; daha yüksek zıplar.', .15, -.45, 3, 5),
+};
+
+class _PixelPlatform {
+  final int row, x, length;
+  const _PixelPlatform(this.row, this.x, this.length);
 }
 
-class _PopFx {
-  final double x;
-  double y;
+class _PixelEnemy {
+  double x, y, vx;
+  final _EnemyKind kind;
+  int hp, cooldown = 0;
+  bool dead = false;
+  _PixelEnemy(this.x, this.y, this.kind, {this.vx = -.035, this.hp = 1});
+}
+
+class _PixelShot {
+  double x, y, vx, vy;
+  int life;
+  final bool bomb;
+  final int damage;
+  _PixelShot(this.x, this.y, this.vx, this.vy, {this.life = 70, this.bomb = false, this.damage = 1});
+}
+
+class _PixelLoot {
+  double x, y, vy = 0;
+  final _LootKind kind;
+  bool taken = false;
+  _PixelLoot(this.x, this.y, this.kind);
+}
+
+class _PixelParticle {
+  double x, y, vx, vy, size;
+  int life;
+  final Color color;
+  _PixelParticle(this.x, this.y, this.vx, this.vy, this.size, this.life, this.color);
+}
+
+class _PixelText {
+  double x, y;
   final String text;
   final Color color;
-  int life = 28;
-  _PopFx(this.x, this.y, this.text, this.color);
+  int life = 30;
+  _PixelText(this.x, this.y, this.text, this.color);
 }
 
-class _Debris {
-  double x;
-  double y;
-  final double vx;
-  double vy;
-  int life = 32;
-  _Debris(this.x, this.y, this.vx, this.vy);
+class _EnemySpawn {
+  final int x;
+  final _EnemyKind kind;
+  const _EnemySpawn(this.x, this.kind);
 }
 
-/// 14 satırlık ASCII seviye üretici.
-/// '#' zemin, '=' platform, 'B' tuğla, '?' soru bloğu, 'H' can bloğu,
-/// 'P' boru, 'o' altın, 'E' yürüyen düşman, 'S' dikenli düşman,
-/// 'F' bayrak, '@' doğuş noktası.
-class _LevelBuilder {
-  final List<String> rows;
-  _LevelBuilder(int cols) : rows = List.filled(14, '.' * cols);
-
-  void put(int row, int col, String ch) {
-    if (row < 0 || row >= rows.length || col < 0 || col >= rows[row].length) {
-      return;
-    }
-    rows[row] = rows[row].substring(0, col) + ch + rows[row].substring(col + 1);
-  }
-
-  void fillRange(int row, int from, int to, String ch) {
-    for (var col = from; col <= to; col++) {
-      put(row, col, ch);
-    }
-  }
-
-  void ground(int from, int to) {
-    fillRange(12, from, to, '#');
-    fillRange(13, from, to, '#');
-  }
-
-  void coins(int row, Iterable<int> cols) {
-    for (final col in cols) {
-      put(row, col, 'o');
-    }
-  }
-
-  void pipe(int col) {
-    fillRange(11, col, col + 1, 'P');
-    fillRange(10, col, col + 1, 'P');
-  }
-
-  void stairsUp(int from, int steps) {
-    for (var i = 0; i < steps; i++) {
-      for (var r = 0; r <= i; r++) {
-        put(11 - r, from + i, '#');
-      }
-    }
-  }
+class _PixelLevel {
+  final int no, length;
+  final _PixelWorld world;
+  final String name, objective;
+  final List<int> gaps, blocks, secrets, spikes;
+  final List<_PixelPlatform> platforms;
+  final List<_EnemySpawn> enemies;
+  final bool boss;
+  final String bossName;
+  const _PixelLevel(this.no, this.length, this.world, this.name, this.objective,
+      this.gaps, this.blocks, this.secrets, this.spikes, this.platforms,
+      this.enemies, {this.boss = false, this.bossName = ''});
 }
 
-List<String> _buildPlatformLevel(int index) {
-  switch (index) {
-    case 1:
-      return _platformLevel2();
-    case 2:
-      return _platformLevel3();
-    default:
-      return _platformLevel1();
-  }
-}
-
-List<String> _platformLevel1() {
-  final b = _LevelBuilder(92);
-  b.ground(0, 29);
-  b.ground(33, 54);
-  b.ground(58, 77);
-  b.ground(81, 91);
-  b.fillRange(8, 10, 10, '?');
-  b.fillRange(8, 11, 11, 'B');
-  b.fillRange(8, 12, 12, '?');
-  b.fillRange(8, 20, 20, 'H');
-  b.fillRange(8, 21, 22, 'B');
-  b.fillRange(5, 17, 19, 'B');
-  b.fillRange(9, 26, 28, '=');
-  b.fillRange(8, 33, 35, '=');
-  b.fillRange(9, 40, 42, '=');
-  b.fillRange(9, 50, 52, '=');
-  b.pipe(45);
-  b.pipe(70);
-  b.stairsUp(85, 3);
-  b.coins(11, [6, 7, 8]);
-  b.coins(4, [18]);
-  b.coins(7, [33, 34, 35]);
-  b.coins(8, [26, 27, 28]);
-  b.coins(8, [50, 52]);
-  b.coins(10, [30, 31, 32]);
-  b.coins(10, [55, 56, 57]);
-  b.coins(10, [78, 79, 80]);
-  b.put(11, 16, 'E');
-  b.put(11, 36, 'E');
-  b.put(11, 50, 'E');
-  b.put(11, 62, 'E');
-  b.put(11, 84, 'E');
-  b.put(11, 2, '@');
-  b.put(6, 89, 'F');
-  return b.rows;
-}
-
-List<String> _platformLevel2() {
-  final b = _LevelBuilder(100);
-  b.ground(0, 19);
-  b.ground(24, 39);
-  b.ground(44, 63);
-  b.ground(68, 87);
-  b.ground(92, 99);
-  b.fillRange(8, 6, 7, 'B');
-  b.fillRange(8, 8, 8, '?');
-  b.fillRange(8, 9, 9, 'B');
-  b.fillRange(8, 13, 13, 'H');
-  b.fillRange(5, 15, 17, '=');
-  b.fillRange(9, 26, 27, 'B');
-  b.fillRange(9, 28, 28, '?');
-  b.pipe(32);
-  b.fillRange(8, 36, 38, '=');
-  b.fillRange(9, 46, 48, '=');
-  b.fillRange(7, 50, 52, '=');
-  b.fillRange(8, 56, 56, '?');
-  b.fillRange(8, 57, 57, 'B');
-  b.fillRange(8, 58, 58, '?');
-  b.pipe(74);
-  b.fillRange(9, 78, 80, 'B');
-  b.fillRange(6, 83, 85, '=');
-  b.stairsUp(93, 3);
-  b.coins(11, [3, 4]);
-  b.coins(4, [15, 17]);
-  b.coins(7, [36, 37, 38]);
-  b.coins(6, [50, 52]);
-  b.coins(5, [84]);
-  b.coins(10, [20, 21, 22, 23]);
-  b.coins(10, [40, 41, 42, 43]);
-  b.coins(10, [64, 65, 66, 67]);
-  b.coins(10, [88, 89, 90, 91]);
-  b.put(11, 10, 'E');
-  b.put(11, 30, 'E');
-  b.put(11, 47, 'E');
-  b.put(11, 55, 'S');
-  b.put(11, 72, 'E');
-  b.put(11, 83, 'S');
-  b.put(11, 86, 'E');
-  b.put(11, 2, '@');
-  b.put(6, 97, 'F');
-  return b.rows;
-}
-
-List<String> _platformLevel3() {
-  final b = _LevelBuilder(110);
-  b.ground(0, 17);
-  b.ground(22, 37);
-  b.ground(42, 57);
-  b.ground(62, 75);
-  b.ground(80, 95);
-  b.ground(100, 109);
-  b.fillRange(8, 5, 5, '?');
-  b.fillRange(8, 6, 7, 'B');
-  b.fillRange(5, 10, 12, '=');
-  b.fillRange(9, 24, 25, 'B');
-  b.fillRange(9, 26, 26, '?');
-  b.fillRange(9, 27, 27, 'B');
-  b.fillRange(7, 30, 32, '=');
-  b.fillRange(8, 34, 34, 'H');
-  b.pipe(48);
-  b.fillRange(9, 52, 54, '=');
-  b.fillRange(7, 55, 57, '=');
-  b.fillRange(9, 64, 66, '=');
-  b.pipe(70);
-  b.fillRange(8, 84, 85, 'B');
-  b.fillRange(8, 86, 86, '?');
-  b.fillRange(6, 90, 92, '=');
-  b.stairsUp(101, 4);
-  b.coins(4, [10, 12]);
-  b.coins(6, [30, 31, 32]);
-  b.coins(8, [52, 54]);
-  b.coins(8, [65]);
-  b.coins(5, [91]);
-  b.coins(10, [18, 19, 20, 21]);
-  b.coins(10, [38, 39, 40, 41]);
-  b.coins(10, [58, 59, 60, 61]);
-  b.coins(9, [76, 77, 78, 79]);
-  b.coins(10, [96, 97, 98, 99]);
-  b.put(11, 8, 'E');
-  b.put(11, 30, 'E');
-  b.put(11, 45, 'E');
-  b.put(11, 52, 'S');
-  b.put(11, 66, 'E');
-  b.put(11, 87, 'E');
-  b.put(11, 93, 'S');
-  b.put(11, 2, '@');
-  b.put(6, 107, 'F');
-  return b.rows;
-}
+const _pixelLevels = <_PixelLevel>[
+  _PixelLevel(1, 138, _PixelWorld.valley, 'Yeşil Vadi',
+      'Alternatif patikaları keşfet.',
+      [22, 23, 50, 51, 79, 80, 109, 110],
+      [11, 12, 13, 31, 32, 58, 59, 88, 89, 117, 118],
+      [17, 43, 72, 99, 125],
+      [27, 28, 61, 62, 94, 95, 121],
+      [_PixelPlatform(9, 14, 5), _PixelPlatform(7, 42, 5), _PixelPlatform(10, 70, 6), _PixelPlatform(8, 101, 5), _PixelPlatform(6, 118, 6)],
+      [_EnemySpawn(18, _EnemyKind.walker), _EnemySpawn(36, _EnemyKind.spike), _EnemySpawn(57, _EnemyKind.walker), _EnemySpawn(74, _EnemyKind.charger), _EnemySpawn(101, _EnemyKind.walker), _EnemySpawn(124, _EnemyKind.spike)]),
+  _PixelLevel(2, 154, _PixelWorld.cave, 'Kristal Mağarası',
+      'Kristal tünellerde yükseği hedefle.',
+      [25, 26, 55, 56, 85, 86, 118, 119, 142],
+      [9, 10, 11, 35, 36, 64, 65, 91, 92, 121, 122, 135, 136],
+      [18, 48, 77, 103, 131],
+      [30, 31, 69, 70, 97, 98, 127],
+      [_PixelPlatform(9, 14, 5), _PixelPlatform(7, 45, 6), _PixelPlatform(10, 73, 5), _PixelPlatform(7, 101, 6), _PixelPlatform(5, 126, 6)],
+      [_EnemySpawn(19, _EnemyKind.flyer), _EnemySpawn(39, _EnemyKind.shooter), _EnemySpawn(60, _EnemyKind.flyer), _EnemySpawn(82, _EnemyKind.spike), _EnemySpawn(104, _EnemyKind.shooter), _EnemySpawn(129, _EnemyKind.flyer)]),
+  _PixelLevel(3, 168, _PixelWorld.factory, 'Neon Fabrika',
+      'Enerji hatlarını aş, çekirdeğe ulaş.',
+      [27, 28, 57, 58, 88, 89, 121, 122, 150, 151],
+      [8, 9, 10, 37, 38, 66, 67, 96, 97, 128, 129, 157, 158],
+      [18, 47, 78, 106, 137],
+      [31, 32, 70, 71, 103, 104, 143, 144],
+      [_PixelPlatform(10, 13, 6), _PixelPlatform(7, 40, 5), _PixelPlatform(9, 68, 6), _PixelPlatform(6, 99, 7), _PixelPlatform(8, 128, 6)],
+      [_EnemySpawn(17, _EnemyKind.shooter), _EnemySpawn(42, _EnemyKind.bomber), _EnemySpawn(61, _EnemyKind.charger), _EnemySpawn(81, _EnemyKind.shooter), _EnemySpawn(109, _EnemyKind.bomber), _EnemySpawn(133, _EnemyKind.charger)],
+      boss: true, bossName: 'Çekirdek Muhafızı'),
+  _PixelLevel(4, 176, _PixelWorld.cloud, 'Bulut Şehri',
+      'Rüzgâr koridorlarında gökyüzüne tırman.',
+      [18, 19, 38, 39, 59, 60, 83, 84, 107, 108, 135, 136, 158],
+      [14, 15, 16, 32, 33, 53, 54, 76, 77, 100, 101, 125, 126, 145, 146, 166],
+      [24, 45, 68, 91, 116, 149],
+      [29, 30, 71, 72, 112, 113, 153],
+      [_PixelPlatform(10, 10, 5), _PixelPlatform(8, 28, 6), _PixelPlatform(6, 49, 6), _PixelPlatform(9, 67, 5), _PixelPlatform(5, 89, 7), _PixelPlatform(8, 114, 6), _PixelPlatform(6, 140, 6), _PixelPlatform(9, 160, 5)],
+      [_EnemySpawn(17, _EnemyKind.flyer), _EnemySpawn(41, _EnemyKind.flyer), _EnemySpawn(63, _EnemyKind.charger), _EnemySpawn(83, _EnemyKind.shooter), _EnemySpawn(105, _EnemyKind.flyer), _EnemySpawn(130, _EnemyKind.charger), _EnemySpawn(150, _EnemyKind.shooter), _EnemySpawn(166, _EnemyKind.flyer)]),
+  _PixelLevel(5, 188, _PixelWorld.ruins, 'Antik Harabeler',
+      'Yıkıntıların altındaki gizli yolu bul.',
+      [31, 32, 62, 63, 95, 96, 128, 129, 163, 164],
+      [12, 13, 14, 41, 42, 71, 72, 103, 104, 136, 137, 171, 172],
+      [22, 52, 84, 116, 147, 178],
+      [35, 36, 77, 78, 111, 112, 156],
+      [_PixelPlatform(10, 17, 5), _PixelPlatform(8, 47, 6), _PixelPlatform(6, 81, 7), _PixelPlatform(9, 108, 5), _PixelPlatform(7, 140, 6), _PixelPlatform(5, 169, 7)],
+      [_EnemySpawn(20, _EnemyKind.walker), _EnemySpawn(45, _EnemyKind.brute), _EnemySpawn(69, _EnemyKind.shooter), _EnemySpawn(89, _EnemyKind.charger), _EnemySpawn(116, _EnemyKind.brute), _EnemySpawn(139, _EnemyKind.walker), _EnemySpawn(161, _EnemyKind.bomber), _EnemySpawn(178, _EnemyKind.brute)]),
+  _PixelLevel(6, 205, _PixelWorld.volcano, 'Volkan Kalesi',
+      'Lav gölünü geç ve kalenin çekirdeğini yok et.',
+      [26, 27, 56, 57, 87, 88, 120, 121, 151, 152, 181, 182],
+      [10, 11, 12, 43, 44, 73, 74, 102, 103, 133, 134, 164, 165, 193, 194],
+      [20, 49, 80, 111, 143, 174],
+      [30, 31, 64, 65, 95, 96, 128, 129, 158, 159, 187],
+      [_PixelPlatform(9, 14, 5), _PixelPlatform(7, 40, 6), _PixelPlatform(10, 67, 5), _PixelPlatform(8, 95, 7), _PixelPlatform(6, 122, 6), _PixelPlatform(9, 150, 6), _PixelPlatform(7, 178, 7)],
+      [_EnemySpawn(18, _EnemyKind.charger), _EnemySpawn(37, _EnemyKind.bomber), _EnemySpawn(67, _EnemyKind.brute), _EnemySpawn(91, _EnemyKind.shooter), _EnemySpawn(118, _EnemyKind.bomber), _EnemySpawn(140, _EnemyKind.brute), _EnemySpawn(165, _EnemyKind.charger), _EnemySpawn(184, _EnemyKind.bomber)],
+      boss: true, bossName: 'Lav Muhafızı'),
+];
 
 class _PlatformerGame extends StatefulWidget {
   final bool showPad;
@@ -982,41 +842,29 @@ class _PlatformerGame extends StatefulWidget {
 }
 
 class _PlatformerState extends State<_PlatformerGame> {
-  static const int _rows = 14;
-  static const double _pw = .72;
-  static const double _ph = .88;
-  static const double _gravity = .016;
-  static const double _maxFall = .30;
-  static const int _levelCount = 3;
-
+  static const _rows = 14, _pw = .72, _ph = .88, _gravity = .018, _maxFall = .34;
+  final _levels = _pixelLevels;
+  final _enemies = <_PixelEnemy>[];
+  final _shots = <_PixelShot>[];
+  final _loot = <_PixelLoot>[];
+  final _texts = <_PixelText>[];
+  final _particles = <_PixelParticle>[];
+  final _rng = math.Random();
+  Timer? _timer;
   _Phase _phase = _Phase.select;
   _PlatformerHero? _hero;
-  int _levelIndex = 0;
+  int _level = 0, _score = 0, _coins = 0, _lives = 3, _hp = 3;
+  int _ammo = 8, _bombs = 2, _weapon = 1, _time = 210;
+  int _clock = 0, _phaseTicks = 0, _timeTicks = 0, _invuln = 0;
+  int _jumpBuffer = 0, _coyote = 0, _attackCd = 0, _dashCd = 0, _dashTicks = 0;
+  int _shield = 0, _speed = 0, _jumpBoost = 0, _bossHp = 0, _shake = 0;
+  bool _left = false, _right = false, _jumpHeld = false;
+  double _x = 1.2, _y = 11, _vx = 0, _vy = 0, _camera = 0;
+  int _facing = 1, _flag = 0, _cols = 0;
   List<String> _grid = const [];
-  int _cols = 0;
-  int _flagCol = 0;
-  double _goalX = 1;
-
-  double _x = 0, _y = 0, _vx = 0, _vy = 0;
-  int _facing = 1;
-  bool _grounded = false;
-  int _score = 0, _coinCount = 0, _lives = 3, _time = 150;
-  int _clock = 0, _phaseTicks = 0, _timeTicks = 0, _clearBonus = 0;
-  int _invuln = 0, _jumpBuffer = 0, _attackAnim = 0, _attackCd = 0;
-  bool _jumpHeld = false, _jumpCut = false;
-  bool _holdLeft = false, _holdRight = false;
-  double _camera = 0;
-  double _viewCols = 13;
-
-  final List<_Walker> _walkers = [];
-  final List<_Spark> _sparks = [];
-  final List<_PopFx> _pops = [];
-  final List<_Debris> _debris = [];
-  final Map<String, int> _bumps = {};
-
-  Timer? _timer;
 
   _HeroInfo? get _info => _hero == null ? null : _heroInfo[_hero];
+  bool get _grounded => _hitY(_x, _y + .025, _pw, _ph) != null;
 
   @override
   void initState() {
@@ -1030,513 +878,656 @@ class _PlatformerState extends State<_PlatformerGame> {
     super.dispose();
   }
 
-  // --- kurulum -------------------------------------------------------------
-
-  void _loadLevel(int index) {
-    final grid = _buildPlatformLevel(index);
-    _levelIndex = index;
-    _grid = grid;
-    _cols = grid.first.length;
-    _walkers.clear();
-    _sparks.clear();
-    _pops.clear();
-    _debris.clear();
-    _bumps.clear();
-    _flagCol = 0;
-    var spawnCol = 1, spawnRow = 11;
-    for (var row = 0; row < _rows; row++) {
-      for (var col = 0; col < _cols; col++) {
-        final ch = _grid[row][col];
-        if (ch == 'E' || ch == 'S') {
-          _walkers.add(_Walker(col + .14, row + 1 - .78, ch == 'S'));
-          _setTile(row, col, '.');
-        } else if (ch == 'F') {
-          _flagCol = col;
-          _setTile(row, col, '.');
-        } else if (ch == '@') {
-          spawnCol = col;
-          spawnRow = row;
-          _setTile(row, col, '.');
-        }
-      }
-    }
-    _goalX = math.max(1.0, _flagCol - .3);
-    _x = spawnCol + .14;
-    _y = spawnRow + 1 - _ph;
-    _vx = 0;
-    _vy = 0;
-    _facing = 1;
-    _grounded = false;
-    _time = 150;
-    _timeTicks = 0;
-    _invuln = 90;
-    _attackAnim = 0;
-    _attackCd = 0;
-    _jumpBuffer = 0;
-    _jumpCut = false;
-    _camera = 0;
-    _phase = _Phase.ready;
-    _phaseTicks = 80;
-  }
-
-  void _chooseHero(_PlatformerHero hero) {
+  void _choose(_PlatformerHero h) {
     setState(() {
-      _hero = hero;
+      _hero = h;
       _score = 0;
-      _coinCount = 0;
+      _coins = 0;
       _lives = 3;
-      _holdLeft = false;
-      _holdRight = false;
-      _jumpHeld = false;
-      _loadLevel(0);
+      _hp = 3;
+      _ammo = 8;
+      _bombs = 2;
+      _weapon = 1;
+      _shield = 0;
+      _speed = 0;
+      _jumpBoost = 0;
+      _load(0);
     });
   }
 
-  // --- karo ve çarpışma ----------------------------------------------------
+  void _load(int n) {
+    final d = _levels[n];
+    _level = n;
+    _cols = d.length;
+    _grid = List.generate(_rows, (_) => List.filled(_cols, '.').join());
+    for (var x = 0; x < _cols; x++) {
+      if (!d.gaps.contains(x)) {
+        _set(12, x, '#');
+        _set(13, x, '#');
+      }
+    }
+    for (final p in d.platforms) {
+      for (var x = 0; x < p.length; x++) {
+        _set(p.row, p.x + x, '=');
+      }
+    }
+    for (final x in d.blocks) {
+      _set(8, x, x % 5 == 0 ? '?' : 'B');
+      if (x + 1 < _cols && x % 3 == 0) _set(8, x + 1, 'B');
+    }
+    for (var x = 7; x < _cols - 7; x += 19) {
+      _set(10, x, 'o');
+      if (x + 1 < _cols) _set(9, x + 1, 'o');
+      if (x + 2 < _cols && x % 2 == 0) _set(8, x + 2, 'o');
+    }
+    for (final x in d.secrets) {
+      _set(7, x, 'H');
+      if (x + 1 < _cols) _set(7, x + 1, 'H');
+    }
+    for (final x in d.spikes) {
+      _set(11, x, '^');
+    }
+    for (var x = 16; x < _cols - 12; x += 31) {
+      _set(6, x, 'H');
+      _set(6, x + 1, 'H');
+      _set(6, x + 2, 'H');
+    }
+    _flag = _cols - 5;
+    _set(6, _flag, 'F');
 
-  String _tileAt(int row, int col) {
-    if (row < 0 || row >= _rows || col < 0 || col >= _cols) return '.';
-    return _grid[row][col];
+    _enemies.clear();
+    for (final e in d.enemies) {
+      final hp = switch (e.kind) {
+        _EnemyKind.brute => 3,
+        _EnemyKind.shooter => 2,
+        _EnemyKind.bomber => 2,
+        _ => 1,
+      };
+      final y = e.kind == _EnemyKind.flyer ? 5.6 : 11.05;
+      _enemies.add(_PixelEnemy(e.x.toDouble(), y, e.kind, hp: hp));
+    }
+    _bossHp = d.boss ? 12 : 0;
+    if (d.boss) {
+      _enemies.add(_PixelEnemy((_cols - 14).toDouble(), 10.55, _EnemyKind.boss,
+          hp: 12, vx: -.018));
+    }
+
+    _loot.clear();
+    for (final x in [14, 44, 71, 101, 132, _cols - 20]) {
+      if (x > 3 && x < _cols - 2) _loot.add(_PixelLoot(x.toDouble(), 10.45, _LootKind.coin));
+    }
+    _loot.add(_PixelLoot((_cols * .40).floorToDouble(), 6.35, _LootKind.ammo));
+    _loot.add(_PixelLoot((_cols * .55).floorToDouble(), 6.35, _LootKind.bomb));
+    _loot.add(_PixelLoot((_cols * .68).floorToDouble(), 6.35, _LootKind.shield));
+    _loot.add(_PixelLoot((_cols * .82).floorToDouble(), 6.35, _LootKind.jump));
+
+    _shots.clear();
+    _texts.clear();
+    _particles.clear();
+    _x = 1.2;
+    _y = 11;
+    _vx = 0;
+    _vy = 0;
+    _camera = 0;
+    _facing = 1;
+    _time = 210;
+    _timeTicks = 0;
+    _invuln = 75;
+    _jumpBuffer = 0;
+    _coyote = 0;
+    _attackCd = 0;
+    _dashCd = 0;
+    _dashTicks = 0;
+    _shake = 0;
+    _phase = _Phase.ready;
+    _phaseTicks = 75;
   }
 
-  void _setTile(int row, int col, String ch) {
+  void _set(int row, int col, String ch) {
+    if (row < 0 || row >= _rows || col < 0 || col >= _cols) return;
     final r = _grid[row];
     _grid[row] = r.substring(0, col) + ch + r.substring(col + 1);
   }
 
-  bool _solid(int col, int row) {
-    if (_grid.isEmpty) return false;
+  String _tile(int row, int col) => row < 0 || row >= _rows || col < 0 || col >= _cols ? '.' : _grid[row][col];
+
+  bool _solid(int row, int col) {
     if (col < 0 || col >= _cols) return true;
-    switch (_tileAt(row, col)) {
-      case '#':
-      case '=':
-      case 'B':
-      case '?':
-      case 'H':
-      case 'U':
-      case 'P':
-        return true;
-      default:
-        return false;
-    }
+    final c = _tile(row, col);
+    return c == '#' || c == 'B' || c == '?' || c == 'U' || c == '=' || c == 'H';
   }
 
-  int? _boxRow(double x, double y, double w, double h) {
-    final left = x.floor();
-    final right = (x + w - .002).floor();
-    final top = y.floor();
-    final bottom = (y + h - .002).floor();
-    for (var row = top; row <= bottom; row++) {
-      for (var col = left; col <= right; col++) {
-        if (_solid(col, row)) return row;
+  int? _hitY(double x, double y, double w, double h) {
+    final l = x.floor();
+    final r = (x + w - .002).floor();
+    final t = y.floor();
+    final b = (y + h - .002).floor();
+    for (var row = t; row <= b; row++) {
+      for (var col = l; col <= r; col++) {
+        if (_solid(row, col)) return row;
       }
     }
     return null;
   }
 
-  int? _boxCol(double x, double y, double w, double h) {
-    final left = x.floor();
-    final right = (x + w - .002).floor();
-    final top = y.floor();
-    final bottom = (y + h - .002).floor();
-    for (var col = left; col <= right; col++) {
-      for (var row = top; row <= bottom; row++) {
-        if (_solid(col, row)) return col;
+  int? _hitX(double x, double y, double w, double h) {
+    final l = x.floor();
+    final r = (x + w - .002).floor();
+    final t = y.floor();
+    final b = (y + h - .002).floor();
+    for (var col = l; col <= r; col++) {
+      for (var row = t; row <= b; row++) {
+        if (_solid(row, col)) return col;
       }
     }
     return null;
   }
 
-  double get _maxX => math.max(0.0, _cols - _pw);
+  double get _maxX => math.max(0, _cols - _pw);
 
-  void _moveX(double vx) {
-    if (vx == 0) return;
-    final next = _x + vx;
-    final hit = _boxCol(next, _y, _pw, _ph);
+  void _moveX(double dx) {
+    if (dx == 0) return;
+    final nx = _x + dx;
+    final hit = _hitX(nx, _y, _pw, _ph);
     if (hit == null) {
-      _x = next.clamp(0.0, _maxX).toDouble();
-      return;
+      _x = nx.clamp(0, _maxX).toDouble();
+    } else {
+      _x = (dx > 0 ? hit - _pw - .002 : hit + 1.002).clamp(0, _maxX).toDouble();
+      _vx = 0;
     }
-    _x = (vx > 0 ? hit - _pw - .002 : hit + 1 + .002)
-        .clamp(0.0, _maxX)
-        .toDouble();
   }
 
-  void _moveY(double vy) {
-    final next = _y + vy;
-    final hit = _boxRow(_x, next, _pw, _ph);
+  void _moveY(double dy) {
+    final ny = _y + dy;
+    final hit = _hitY(_x, ny, _pw, _ph);
     if (hit == null) {
-      _y = next;
-      _grounded = false;
+      _y = ny;
       return;
     }
-    if (vy > 0) {
+    if (dy > 0) {
       _y = hit - _ph - .002;
-      _grounded = true;
       _vy = 0;
     } else {
-      _y = hit + 1 + .002;
+      _y = hit + 1.002;
       _vy = 0;
-      _headBump(hit);
+      _bump(hit);
     }
   }
 
-  void _headBump(int row) {
-    final left = _x.floor();
-    final right = (_x + _pw - .002).floor();
-    final hits = <int>[];
-    for (var col = left; col <= right; col++) {
-      if (_solid(col, row)) hits.add(col);
-    }
-    if (hits.isEmpty) return;
-    final cx = _x + _pw / 2;
-    hits.sort((a, b) => (a + .5 - cx).abs().compareTo((b + .5 - cx).abs()));
-    _bumpBlock(hits.first, row);
-  }
-
-  void _bumpBlock(int col, int row) {
-    final ch = _tileAt(row, col);
-    if (ch == '?') {
-      _setTile(row, col, 'U');
-      _bumps['$col:$row'] = 10;
-      _coinCount++;
-      _score += 10;
-      _pops.add(_PopFx(col.toDouble(), row - .7, '+10', const Color(0xffffd66b)));
-    } else if (ch == 'H') {
-      _setTile(row, col, 'U');
-      _bumps['$col:$row'] = 10;
-      _lives = math.min(5, _lives + 1);
-      _pops.add(
-        _PopFx(col.toDouble(), row - .7, '+1 CAN', const Color(0xffff8a9b)),
-      );
-    } else if (ch == 'B') {
-      _bumps['$col:$row'] = 8;
+  void _bump(int row) {
+    final c = (_x + _pw / 2).floor();
+    for (final col in [c, c - 1, c + 1]) {
+      final ch = _tile(row, col);
+      if (ch == '?' || ch == 'H') {
+        _set(row, col, 'U');
+        _coins++;
+        _score += 25;
+        _burst(col + .5, row - .2, const Color(0xffffd166), 8);
+        if (_rng.nextInt(100) < 35) _loot.add(_PixelLoot(col.toDouble(), row - 1.15, _randomLoot()));
+        return;
+      }
+      if (ch == 'B' && _hero == _PlatformerHero.chief) {
+        _set(row, col, '.');
+        _score += 15;
+        _burst(col + .5, row + .3, const Color(0xffe8a07b), 10);
+        return;
+      }
     }
   }
-
-  // --- girdi ve yetenekler -------------------------------------------------
 
   void _jump() {
-    if (_phase != _Phase.playing) return;
-    _jumpBuffer = 10;
+    if (_phase == _Phase.playing) _jumpBuffer = 8;
   }
 
   void _attack() {
-    if (_phase != _Phase.playing || _attackCd > 0 || _hero == null) return;
+    if (_phase != _Phase.playing || _attackCd > 0) return;
     if (_hero == _PlatformerHero.chief) {
-      _attackAnim = 9;
-      _attackCd = 16;
-      _hammerHit();
-    } else {
-      if (_sparks.length >= 2) return;
-      _attackAnim = 6;
-      _attackCd = 18;
-      _sparks.add(
-        _Spark(_x + (_facing > 0 ? _pw + .05 : -.25), _y + .28, _facing * .22),
-      );
-    }
-  }
-
-  void _hammerHit() {
-    final cx = _x + _pw / 2;
-    for (final w in _walkers) {
-      if (w.dead) continue;
-      final dx = w.x + .36 - cx;
-      if (dx * _facing >= -.35 && dx.abs() < 1.45 && (w.y - _y).abs() < 1.0) {
-        _killWalker(w, 30);
+      _attackCd = 13;
+      final reach = 1.45 + _weapon * .08;
+      for (final e in _enemies) {
+        final ahead = (e.x - _x) * _facing > -.42;
+        if (!e.dead && ahead && (e.x - _x).abs() < reach && (e.y - _y).abs() < 1.25) {
+          _damage(e, 1 + (_weapon ~/ 2));
+        }
       }
-    }
-    final col = (cx + _facing * .95).floor();
-    for (final row in [(_y + .2).floor(), (_y + _ph - .1).floor()]) {
-      if (_tileAt(row, col) == 'B') {
-        _setTile(row, col, '.');
-        _score += 5;
-        _breakFx(col, row);
+      _burst(_x + _facing * .85, _y + .35, const Color(0xffffdc6e), 5);
+    } else if (_ammo > 0) {
+      _ammo--;
+      _attackCd = 10;
+      final damage = 1 + (_weapon ~/ 2);
+      final speed = .30 + _weapon * .015;
+      for (var i = 0; i < (_weapon >= 4 ? 2 : 1); i++) {
+        _shots.add(_PixelShot(_x + (_facing > 0 ? .66 : -.2), _y + .3 + i * .08,
+            _facing * speed, 0, life: 65, damage: damage));
       }
     }
   }
 
-  void _killWalker(_Walker w, int points) {
-    w.dead = true;
-    w.deadTicks = 20;
-    _score += points;
-    _pops.add(_PopFx(w.x, w.y - .3, '+$points', const Color(0xffffd66b)));
+  void _bomb() {
+    if (_phase != _Phase.playing || _bombs <= 0) return;
+    _bombs--;
+    _shots.add(_PixelShot(_x + (_facing > 0 ? .65 : -.2), _y + .1,
+        _facing * .17, -.21, life: 75, bomb: true, damage: 2 + _weapon ~/ 2));
+    _burst(_x + _facing * .5, _y + .3, const Color(0xffff7b00), 4);
   }
 
-  void _breakFx(int col, int row) {
-    _debris.add(_Debris(col + .15, row + .15, -.07, -.14));
-    _debris.add(_Debris(col + .6, row + .15, .07, -.14));
-    _debris.add(_Debris(col + .15, row + .6, -.05, -.06));
-    _debris.add(_Debris(col + .6, row + .6, .05, -.06));
+  void _dash() {
+    if (_phase != _Phase.playing || _dashCd > 0) return;
+    _dashCd = 52;
+    _dashTicks = 8;
+    _invuln = math.max(_invuln, 15);
+    _burst(_x + .35, _y + .45, const Color(0xff67e8f9), 7);
   }
 
-  // --- oyun döngüsü --------------------------------------------------------
+  void _damage(_PixelEnemy e, int amount) {
+    if (e.dead) return;
+    e.hp -= amount;
+    _score += 20;
+    _shake = math.max(_shake, 3);
+    _burst(e.x + .35, e.y + .35, _enemyColor(e.kind), 8);
+    _texts.add(_PixelText(e.x, e.y - .2, '-$amount', const Color(0xffffe28a)));
+    if (e.hp <= 0) {
+      e.dead = true;
+      _score += e.kind == _EnemyKind.boss ? 900 : 60;
+      if (e.kind == _EnemyKind.boss) _bossHp = 0;
+      _dropLoot(e.x, e.y);
+      _burst(e.x + .35, e.y + .35, _enemyColor(e.kind), e.kind == _EnemyKind.boss ? 28 : 12);
+    }
+  }
+
+  void _dropLoot(double x, double y) {
+    final count = _rng.nextInt(100) < 22 ? 2 : 1;
+    for (var i = 0; i < count; i++) {
+      _loot.add(_PixelLoot(x + (i * .28), y - .15, _randomLoot()));
+    }
+  }
+
+  _LootKind _randomLoot() {
+    final roll = _rng.nextInt(100);
+    if (roll < 12) return _LootKind.weapon;
+    if (roll < 25) return _LootKind.ammo;
+    if (roll < 36) return _LootKind.bomb;
+    if (roll < 46) return _LootKind.heart;
+    if (roll < 56) return _LootKind.shield;
+    if (roll < 66) return _LootKind.speed;
+    if (roll < 76) return _LootKind.jump;
+    if (roll < 96) return _LootKind.coin;
+    return _LootKind.gem;
+  }
+
+  void _hurt() {
+    if (_invuln > 0 || _phase != _Phase.playing) return;
+    if (_shield > 0) {
+      _shield = 0;
+      _invuln = 35;
+      _shake = 6;
+      _texts.add(_PixelText(_x, _y - .2, 'KALKAN!', const Color(0xff60a5fa)));
+      _burst(_x + .35, _y + .4, const Color(0xff60a5fa), 18);
+      return;
+    }
+    _hp--;
+    _invuln = 70;
+    _shake = 8;
+    _burst(_x + .35, _y + .4, const Color(0xffff5d73), 14);
+    if (_hp <= 0) {
+      _lives--;
+      if (_lives <= 0) {
+        _phase = _Phase.gameover;
+      } else {
+        _phase = _Phase.dying;
+        _phaseTicks = 55;
+        _vy = -.30;
+      }
+    }
+  }
+
+  void _collect() {
+    for (final l in _loot) {
+      if (l.taken) continue;
+      if ((l.x - _x).abs() < .78 && (l.y - _y).abs() < .92) {
+        l.taken = true;
+        _score += 10;
+        switch (l.kind) {
+          case _LootKind.coin:
+            _coins++;
+            break;
+          case _LootKind.heart:
+            _hp = math.min(3, _hp + 1);
+            break;
+          case _LootKind.bomb:
+            _bombs = math.min(12, _bombs + 2);
+            break;
+          case _LootKind.ammo:
+            _ammo = math.min(60, _ammo + 8);
+            break;
+          case _LootKind.weapon:
+            _weapon = math.min(5, _weapon + 1);
+            _score += 80;
+            break;
+          case _LootKind.shield:
+            _shield = 520;
+            break;
+          case _LootKind.speed:
+            _speed = 520;
+            break;
+          case _LootKind.jump:
+            _jumpBoost = 520;
+            break;
+          case _LootKind.gem:
+            _score += 300;
+            break;
+        }
+        _texts.add(_PixelText(l.x, l.y - .15, _lootLabel(l.kind), _lootColor(l.kind)));
+        _burst(l.x + .3, l.y + .3, _lootColor(l.kind), l.kind == _LootKind.gem ? 18 : 7);
+      }
+    }
+    _loot.removeWhere((l) => l.taken);
+  }
+
+  String _lootLabel(_LootKind k) => switch (k) {
+        _LootKind.weapon => 'SİLAH +1',
+        _LootKind.ammo => 'MERMİ',
+        _LootKind.bomb => 'BOMBA',
+        _LootKind.heart => 'CAN',
+        _LootKind.shield => 'KALKAN',
+        _LootKind.speed => 'HIZ',
+        _LootKind.jump => 'ZIPLAMA',
+        _LootKind.coin => '+ALTIN',
+        _LootKind.gem => 'NADİR KRİSTAL',
+      };
+
+  Color _lootColor(_LootKind k) => switch (k) {
+        _LootKind.weapon => const Color(0xffff8a3d),
+        _LootKind.ammo => const Color(0xff67e8f9),
+        _LootKind.bomb => const Color(0xfff59e0b),
+        _LootKind.heart => const Color(0xffff5d73),
+        _LootKind.shield => const Color(0xff60a5fa),
+        _LootKind.speed => const Color(0xffa78bfa),
+        _LootKind.jump => const Color(0xff34d399),
+        _LootKind.coin => const Color(0xffffd166),
+        _LootKind.gem => const Color(0xfff0abfc),
+      };
+
+  Color _enemyColor(_EnemyKind k) => switch (k) {
+        _EnemyKind.walker => const Color(0xffef4444),
+        _EnemyKind.spike => const Color(0xff8b5cf6),
+        _EnemyKind.shooter => const Color(0xfffb7185),
+        _EnemyKind.flyer => const Color(0xff38bdf8),
+        _EnemyKind.charger => const Color(0xfff59e0b),
+        _EnemyKind.brute => const Color(0xff7c3aed),
+        _EnemyKind.bomber => const Color(0xff94a3b8),
+        _EnemyKind.boss => const Color(0xfff43f5e),
+      };
+
+  void _burst(double x, double y, Color color, int count) {
+    for (var i = 0; i < count; i++) {
+      final a = _rng.nextDouble() * math.pi * 2;
+      final speed = .025 + _rng.nextDouble() * .12;
+      _particles.add(_PixelParticle(x, y, math.cos(a) * speed,
+          math.sin(a) * speed - .03, .045 + _rng.nextDouble() * .08,
+          18 + _rng.nextInt(16), color));
+    }
+  }
 
   void _tick() {
     if (!mounted) return;
-    if (_phase == _Phase.select ||
-        _phase == _Phase.gameover ||
-        _phase == _Phase.win) {
-      return;
-    }
+    if (_phase == _Phase.select || _phase == _Phase.gameover || _phase == _Phase.win) return;
     setState(() {
       _clock++;
-      switch (_phase) {
-        case _Phase.ready:
-          _tickFx();
-          _phaseTicks--;
-          if (_phaseTicks <= 0) _phase = _Phase.playing;
-          break;
-        case _Phase.playing:
-          _tickPlaying();
-          break;
-        case _Phase.dying:
-          _tickFx();
-          _y += _vy;
-          _vy = math.min(.42, _vy + .02);
-          _phaseTicks--;
-          if (_phaseTicks <= 0) {
-            if (_lives > 0) {
-              _loadLevel(_levelIndex);
-            } else {
-              _phase = _Phase.gameover;
-            }
-          }
-          break;
-        case _Phase.clear:
-          _tickFx();
-          if (_phaseTicks % 14 == 0) {
-            _pops.add(
-              _PopFx(
-                _camera + 3 + (_phaseTicks % 7),
-                3 + (_phaseTicks % 5) * .6,
-                '★',
-                const Color(0xff9be38a),
-              ),
-            );
-          }
-          _phaseTicks--;
-          if (_phaseTicks <= 0) {
-            if (_levelIndex + 1 < _levelCount) {
-              _loadLevel(_levelIndex + 1);
-            } else {
-              _phase = _Phase.win;
-            }
-          }
-          break;
-        default:
-          break;
+      if (_phase == _Phase.ready) {
+        if (--_phaseTicks <= 0) _phase = _Phase.playing;
+        return;
       }
+      if (_phase == _Phase.dying) {
+        _y += _vy;
+        _vy += .018;
+        if (--_phaseTicks <= 0) _load(_level);
+        return;
+      }
+      if (_phase == _Phase.clear) {
+        if (--_phaseTicks <= 0) {
+          if (_level + 1 < _levels.length) {
+            _load(_level + 1);
+          } else {
+            _phase = _Phase.win;
+          }
+        }
+        return;
+      }
+      _play();
     });
   }
 
-  void _tickPlaying() {
-    final info = _info;
-    if (info == null) return;
-    _timeTicks++;
-    if (_timeTicks >= 40) {
+  void _play() {
+    if (++_timeTicks >= 40) {
       _timeTicks = 0;
-      if (_time > 0) _time--;
-      if (_time == 0) {
-        _die();
-        return;
+      if (--_time <= 0) {
+        _hurt();
+        _time = 35;
       }
     }
+    if (_invuln > 0) _invuln--;
+    if (_attackCd > 0) _attackCd--;
+    if (_dashCd > 0) _dashCd--;
+    if (_shield > 0) _shield--;
+    if (_speed > 0) _speed--;
+    if (_jumpBoost > 0) _jumpBoost--;
+    if (_shake > 0) _shake--;
 
-    final dir = (_holdRight ? 1 : 0) - (_holdLeft ? 1 : 0);
-    _vx = dir * info.runSpeed;
-    if (dir != 0) _facing = dir;
+    final dir = (_right ? 1 : 0) - (_left ? 1 : 0);
+    final info = _info!;
+    final maxSpeed = info.runSpeed * (_speed > 0 ? 1.35 : 1);
+    const accel = .032;
+    const friction = .022;
+    if (dir != 0) {
+      _vx += dir * accel;
+      _vx = _vx.clamp(-maxSpeed, maxSpeed).toDouble();
+      _facing = dir;
+    } else if (_vx.abs() > friction) {
+      _vx -= _vx.sign * friction;
+    } else {
+      _vx = 0;
+    }
+    if (_dashTicks > 0) {
+      _dashTicks--;
+      _vx = _facing * .42;
+    }
     _moveX(_vx);
 
-    if (_grounded && _jumpBuffer > 0) {
-      _vy = info.jumpSpeed;
-      _grounded = false;
+    final groundedBefore = _grounded;
+    if (groundedBefore) _coyote = 7;
+    if (_jumpBuffer > 0 && (groundedBefore || _coyote > 0)) {
+      _vy = info.jumpSpeed * (_jumpBoost > 0 ? 1.18 : 1);
       _jumpBuffer = 0;
-      _jumpCut = false;
+      _coyote = 0;
+      _burst(_x + .35, _y + .85, const Color(0xffdff7ff), 4);
     }
-    if (!_jumpHeld && _vy < 0 && !_jumpCut) {
-      _vy *= .5;
-      _jumpCut = true;
-    }
+    if (!_jumpHeld && _vy < -.10) _vy *= .55;
     _vy = math.min(_maxFall, _vy + _gravity);
     _moveY(_vy);
+    if (_grounded) {
+      _coyote = 7;
+    } else if (_coyote > 0) {
+      _coyote--;
+    }
     if (_jumpBuffer > 0) _jumpBuffer--;
 
-    // Boşluğa düşen oyuncu bir can kaybeder.
+    _hazardTick();
     if (_y > _rows + 1) {
-      _die();
+      _hurt();
+      if (_phase == _Phase.playing) _load(_level);
       return;
     }
-
-    _collectCoins();
-    _tickWalkers();
-    _tickSparks();
-    _playerVsWalkers();
-    _tickFx();
-    _tickCamera();
-
-    if (_phase == _Phase.playing && _x >= _goalX) _clearLevel();
-  }
-
-  void _collectCoins() {
-    final left = _x.floor();
-    final right = (_x + _pw - .002).floor();
-    final top = _y.floor();
-    final bottom = (_y + _ph - .002).floor();
-    for (var row = top; row <= bottom; row++) {
-      for (var col = left; col <= right; col++) {
-        if (_tileAt(row, col) == 'o') {
-          _setTile(row, col, '.');
-          _coinCount++;
-          _score += 10;
-          _pops.add(
-            _PopFx(col.toDouble(), row - .2, '+10', const Color(0xffffd66b)),
-          );
-        }
-      }
+    _collect();
+    _enemiesTick();
+    _shotsTick();
+    _particlesTick();
+    _textsTick();
+    _cameraTick();
+    if (_x >= _flag - 1 && _bossHp <= 0) {
+      _score += _time * 4;
+      _phase = _Phase.clear;
+      _phaseTicks = 90;
+      _burst(_x + .3, _y + .4, const Color(0xff43d17d), 18);
     }
   }
 
-  void _tickWalkers() {
-    for (final w in _walkers) {
-      if (w.dead) {
-        w.deadTicks--;
-        continue;
-      }
-      w.vy = math.min(_maxFall, w.vy + _gravity);
-      final nextY = w.y + w.vy;
-      final hitRow = _boxRow(w.x, nextY, .72, .78);
-      if (hitRow == null) {
-        w.y = nextY;
-      } else if (w.vy > 0) {
-        w.y = hitRow - .78 - .002;
-        w.vy = 0;
-      } else {
-        w.y = hitRow + 1 + .002;
-        w.vy = 0;
-      }
-      if (w.y > _rows + 2) {
-        w.remove = true;
-        continue;
-      }
-      final nx = w.x + w.dir * .045;
-      if (_boxCol(nx, w.y, .72, .78) != null) {
-        w.dir = -w.dir;
-      } else {
-        w.x = nx;
-      }
-    }
-    _walkers.removeWhere((w) => w.remove || (w.dead && w.deadTicks <= 0));
-  }
-
-  void _tickSparks() {
-    for (final spark in _sparks) {
-      spark.x += spark.vx;
-      spark.life--;
-      if (spark.life <= 0 ||
-          _solid((spark.x + .15).floor(), (spark.y + .15).floor())) {
-        spark.dead = true;
-        continue;
-      }
-      for (final w in _walkers) {
-        if (w.dead) continue;
-        if ((w.x + .36 - spark.x).abs() < .58 &&
-            (w.y + .39 - spark.y).abs() < .62) {
-          _killWalker(w, 30);
-          spark.dead = true;
-          break;
-        }
-      }
-    }
-    _sparks.removeWhere((spark) => spark.dead);
-  }
-
-  void _playerVsWalkers() {
-    for (final w in _walkers) {
-      if (w.dead) continue;
-      final dx = _x + _pw / 2 - (w.x + .36);
-      final dy = _y + _ph / 2 - (w.y + .39);
-      if (dx.abs() > .70 || dy.abs() > .82) continue;
-      final stomping = _vy > 0 && (_y + _ph) - w.y < .55;
-      if (stomping && !w.spiky) {
-        _killWalker(w, 25);
-        _vy = -.23;
-        _grounded = false;
-      } else if (_invuln <= 0) {
-        _die();
+  void _hazardTick() {
+    final l = _x.floor();
+    final r = (_x + _pw - .02).floor();
+    for (final col in [l, r]) {
+      if (_tile(11, col) == '^' && _y > 10.2) {
+        _hurt();
         return;
       }
     }
   }
 
-  void _tickFx() {
-    for (final p in _pops) {
-      p.y -= .024;
-      p.life--;
-    }
-    _pops.removeWhere((p) => p.life <= 0);
-    for (final d in _debris) {
-      d.x += d.vx;
-      d.y += d.vy;
-      d.vy += .02;
-      d.life--;
-    }
-    _debris.removeWhere((d) => d.life <= 0);
-    for (final key in _bumps.keys.toList()) {
-      final value = _bumps[key]! - 1;
-      if (value <= 0) {
-        _bumps.remove(key);
-      } else {
-        _bumps[key] = value;
+  void _enemiesTick() {
+    for (final e in _enemies) {
+      if (e.dead) continue;
+      e.cooldown--;
+      switch (e.kind) {
+        case _EnemyKind.flyer:
+          e.y = 5.4 + math.sin((_clock + e.x * 7) * .055) * .9;
+          e.x += e.vx;
+          break;
+        case _EnemyKind.shooter:
+          if (e.cooldown <= 0 && (e.x - _x).abs() < 12) {
+            e.cooldown = 58;
+            _shots.add(_PixelShot(e.x, e.y, _x < e.x ? -.15 : .15, 0, life: 78,
+                damage: 1));
+          }
+          break;
+        case _EnemyKind.bomber:
+          if (e.cooldown <= 0 && (e.x - _x).abs() < 11) {
+            e.cooldown = 78;
+            _shots.add(_PixelShot(e.x, e.y, _x < e.x ? -.11 : .11, -.18,
+                bomb: true, life: 78, damage: 1));
+          }
+          e.x += e.vx;
+          break;
+        case _EnemyKind.charger:
+          final distance = (_x - e.x).abs();
+          e.vx = distance < 5 ? (_x < e.x ? -.095 : .095) : (e.vx.sign * .035);
+          e.x += e.vx;
+          break;
+        case _EnemyKind.brute:
+          e.x += _x < e.x ? -.024 : .024;
+          break;
+        case _EnemyKind.boss:
+          final near = (_x - e.x).abs() < 7;
+          e.x += _x < e.x ? -.017 : .017;
+          if (e.cooldown <= 0) {
+            e.cooldown = near ? 42 : 30;
+            _shots.add(_PixelShot(e.x, e.y, _x < e.x ? -.14 : .14,
+                near ? -.11 : 0, bomb: true, life: 88, damage: 1));
+            if (e.hp <= 6) {
+            _shots.add(_PixelShot(e.x, e.y - .5, _x < e.x ? -.10 : .10,
+                -.20, bomb: true, life: 80, damage: 1));
+          }
+          }
+          break;
+        case _EnemyKind.walker:
+        case _EnemyKind.spike:
+          e.x += e.vx;
+          break;
+      }
+      if (e.x < 2 || e.x > _cols - 2) e.vx = -e.vx;
+
+      final close = (e.x - _x).abs() < .72 && (e.y - _y).abs() < .86;
+      if (close) {
+        if (_vy > .06 && _y < e.y - .25 && e.kind != _EnemyKind.spike) {
+          _damage(e, 1 + (_weapon >= 3 ? 1 : 0));
+          _vy = -.18;
+        } else {
+          _hurt();
+        }
       }
     }
-    if (_attackAnim > 0) _attackAnim--;
-    if (_attackCd > 0) _attackCd--;
-    if (_invuln > 0) _invuln--;
+    _enemies.removeWhere((e) => e.dead);
   }
 
-  void _tickCamera() {
-    final target =
-        (_x - 5.2).clamp(0.0, math.max(0.0, _cols - _viewCols)).toDouble();
-    _camera += (target - _camera) * .18;
-    if ((target - _camera).abs() < .01) _camera = target;
+  void _shotsTick() {
+    for (final q in _shots) {
+      q.x += q.vx;
+      q.y += q.vy;
+      if (q.bomb) q.vy += .008;
+      q.life--;
+
+      if ((q.x - _x).abs() < .55 && (q.y - _y).abs() < .75) {
+        if (q.bomb) {
+          _explode(q.x, q.y, q.damage);
+        } else {
+          _hurt();
+        }
+        q.life = 0;
+        continue;
+      }
+
+      if (q.bomb && q.y > 10.5) {
+        _explode(q.x, q.y, q.damage);
+        q.life = 0;
+      } else {
+        for (final e in _enemies) {
+          if (!e.dead && (e.x - q.x).abs() < .62 && (e.y - q.y).abs() < .75) {
+            _damage(e, q.damage);
+            q.life = 0;
+            break;
+          }
+        }
+      }
+      if (_solid(q.y.floor(), q.x.floor())) q.life = 0;
+    }
+    _shots.removeWhere((q) => q.life <= 0 || q.x < _camera - 3 || q.x > _camera + 18);
   }
 
-  void _die() {
-    if (_phase != _Phase.playing) return;
-    _phase = _Phase.dying;
-    _phaseTicks = 70;
-    _vy = -.34;
-    _lives--;
+  void _explode(double x, double y, int damage) {
+    _shake = 8;
+    _burst(x, y, const Color(0xffff8a3d), 24);
+    for (final e in _enemies) {
+      if (!e.dead && (e.x - x).abs() < 2.1 && (e.y - y).abs() < 1.55) _damage(e, damage);
+    }
+    if ((x - _x).abs() < 2.1 && (y - _y).abs() < 1.55) _hurt();
   }
 
-  void _clearLevel() {
-    _clearBonus = _time * 2;
-    _score += _clearBonus;
-    _phase = _Phase.clear;
-    _phaseTicks = 130;
+  void _particlesTick() {
+    for (final p in _particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += .003;
+      p.life--;
+    }
+    _particles.removeWhere((p) => p.life <= 0);
   }
 
-  // --- klavye ---------------------------------------------------------------
+  void _textsTick() {
+    for (final t in _texts) {
+      t.y -= .018;
+      t.life--;
+    }
+    _texts.removeWhere((t) => t.life <= 0);
+  }
 
-  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
-    final down = event is KeyDownEvent;
-    final up = event is KeyUpEvent;
+  void _cameraTick() {
+    final target = (_x - 5).clamp(0, math.max(0, _cols - 13)).toDouble();
+    _camera += (target - _camera) * .12;
+  }
+
+  KeyEventResult _key(FocusNode _, KeyEvent e) {
+    final down = e is KeyDownEvent;
+    final up = e is KeyUpEvent;
     if (!down && !up) return KeyEventResult.ignored;
-    final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.keyA) {
-      _holdLeft = down;
+    final k = e.logicalKey;
+    if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.keyA) {
+      _left = down;
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.arrowRight ||
-        key == LogicalKeyboardKey.keyD) {
-      _holdRight = down;
+    if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.keyD) {
+      _right = down;
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.arrowUp ||
-        key == LogicalKeyboardKey.keyW ||
-        key == LogicalKeyboardKey.space ||
-        key == LogicalKeyboardKey.keyZ) {
+    if (k == LogicalKeyboardKey.space || k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyW) {
       if (down) {
         _jumpHeld = true;
         _jump();
@@ -1545,664 +1536,623 @@ class _PlatformerState extends State<_PlatformerGame> {
       }
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.keyX || key == LogicalKeyboardKey.keyK) {
-      if (down) _attack();
+    if (down && (k == LogicalKeyboardKey.keyX || k == LogicalKeyboardKey.keyK)) {
+      _attack();
+      return KeyEventResult.handled;
+    }
+    if (down && k == LogicalKeyboardKey.keyC) {
+      _bomb();
+      return KeyEventResult.handled;
+    }
+    if (down && (k == LogicalKeyboardKey.shiftLeft || k == LogicalKeyboardKey.shiftRight)) {
+      _dash();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
-  // --- arayüz ---------------------------------------------------------------
+  @override
+  Widget build(BuildContext context) => _ArcadeFrame(
+        score: _phase == _Phase.select
+            ? 'KARAKTER SEÇ'
+            : _phase == _Phase.gameover
+                ? 'OYUN BİTTİ • $_score'
+                : _phase == _Phase.win
+                    ? 'ZAFER • $_score'
+                    : '$_score PTS • ALTIN $_coins • CAN $_lives/$_hp • BÖLÜM ${_level + 1}/6 • SİLAH $_weapon • BOMBA $_bombs • MERMİ $_ammo',
+        controls: widget.showPad && _phase != _Phase.select
+            ? _PlatformerControls(
+                onLeft: (v) => _left = v,
+                onRight: (v) => _right = v,
+                onJumpDown: () {
+                  _jumpHeld = true;
+                  _jump();
+                },
+                onJumpUp: () => _jumpHeld = false,
+                onAttack: _attack,
+                onBomb: _bomb,
+                onDash: _dash,
+                attackIcon: _hero == _PlatformerHero.coder ? Icons.bolt : Icons.hardware,
+              )
+            : null,
+        child: _phase == _Phase.select ? _select() : _stage(),
+      );
 
-  String _hudText() {
-    switch (_phase) {
-      case _Phase.select:
-        return 'KARAKTER SEÇ';
-      case _Phase.gameover:
-        return 'OYUN BİTTİ • $_score PTS';
-      case _Phase.win:
-        return 'ZAFER • $_score PTS';
-      default:
-        return '$_score PTS • ALTIN $_coinCount • CAN $_lives • '
-            'BÖLÜM ${_levelIndex + 1}/$_levelCount • SÜRE $_time';
-    }
-  }
+  Widget _stage() => Focus(
+        autofocus: true,
+        onKeyEvent: _key,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) {
+            if (_phase == _Phase.gameover || _phase == _Phase.win) {
+              setState(() => _phase = _Phase.select);
+            }
+          },
+          child: CustomPaint(
+            painter: _PixelAdventurePainter(this),
+            size: Size.infinite,
+          ),
+        ),
+      );
+
+  Widget _select() => SingleChildScrollView(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            const Text('PIKSEL MACERASI',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 21, letterSpacing: 2)),
+            const SizedBox(height: 4),
+            const Text('6 BİYOM • 6 BÖLÜM • 7 DÜŞMAN • BOSS • RASTGELE GANİMET',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 10.5)),
+            const SizedBox(height: 14),
+            _HeroCard(hero: _PlatformerHero.chief, onTap: () => _choose(_PlatformerHero.chief)),
+            const SizedBox(height: 10),
+            _HeroCard(hero: _PlatformerHero.coder, onTap: () => _choose(_PlatformerHero.coder)),
+            const SizedBox(height: 12),
+            const Text('A/D veya ←/→ Hareket • W/↑/Space Zıpla • X Saldır • C Bomba • Shift Dash\nKalkan, hız, zıplama ve silah seviyesini topla. Düşmanlar rastgele ganimet bırakır.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 10.5, height: 1.5)),
+          ],
+        ),
+      );
+}
+
+
+class _HeroCard extends StatelessWidget {
+  final _PlatformerHero hero;
+  final VoidCallback onTap;
+
+  const _HeroCard({
+    required this.hero,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return _ArcadeFrame(
-      score: _hudText(),
-      controls: widget.showPad && _phase != _Phase.select
-          ? _PlatformerControls(
-              onLeft: (v) => _holdLeft = v,
-              onRight: (v) => _holdRight = v,
-              onJumpDown: () {
-                _jumpHeld = true;
-                _jump();
-              },
-              onJumpUp: () => _jumpHeld = false,
-              onAttack: _attack,
-              attackIcon:
-                  _hero == _PlatformerHero.coder ? Icons.bolt : Icons.hardware,
-            )
-          : null,
-      child: _phase == _Phase.select ? _buildSelect() : _buildStage(),
-    );
-  }
+    final info = _heroInfo[hero]!;
 
-  Widget _buildStage() {
-    return Focus(
-      autofocus: true,
-      onKeyEvent: _handleKey,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) {
-          if (_phase == _Phase.gameover || _phase == _Phase.win) {
-            setState(() => _phase = _Phase.select);
-          } else if (_phase == _Phase.playing) {
-            _jumpHeld = true;
-            _jump();
-          }
-        },
-        onTapUp: (_) => _jumpHeld = false,
-        onTapCancel: () => _jumpHeld = false,
-        child: CustomPaint(
-          painter: _PlatformPainter(this),
-          size: Size.infinite,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xff111827),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hero == _PlatformerHero.chief
+                ? const Color(0xffffb703)
+                : const Color(0xff38bdf8),
+            width: 1.4,
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSelect() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Column(
-        children: [
-          const Text(
-            'KARAKTERİNİ SEÇ',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 19,
-              letterSpacing: 2.2,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'İki kahraman, iki farklı oynanış. Bayrağa ilk sen ulaş!',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: .55),
-              fontSize: 11.5,
-            ),
-          ),
-          const SizedBox(height: 14),
-          _HeroCard(
-            hero: _PlatformerHero.chief,
-            onTap: () => _chooseHero(_PlatformerHero.chief),
-          ),
-          const SizedBox(height: 10),
-          _HeroCard(
-            hero: _PlatformerHero.coder,
-            onTap: () => _chooseHero(_PlatformerHero.coder),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .06),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Text(
-              'A zıpla · B saldır (çekiç / USB kıvılcımı)\n'
-              'Klavye: ← → koş · W/Boşluk zıpla · X saldır',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white54,
-                fontSize: 10.5,
-                height: 1.5,
+        child: Row(
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: const Color(0xff0b1220),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                hero == _PlatformerHero.chief
+                    ? Icons.engineering
+                    : Icons.code,
+                color: hero == _PlatformerHero.chief
+                    ? const Color(0xffffb703)
+                    : const Color(0xff38bdf8),
+                size: 30,
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    info.name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    info.tagline,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    info.ability,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 9.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.white54,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _PlatformPainter extends CustomPainter {
+class _PixelAdventurePainter extends CustomPainter {
   final _PlatformerState s;
-  const _PlatformPainter(this.s);
+  const _PixelAdventurePainter(this.s);
+
+  Color _sky(_PixelWorld w) => switch (w) {
+        _PixelWorld.valley => const Color(0xff163b57),
+        _PixelWorld.cave => const Color(0xff1d1932),
+        _PixelWorld.factory => const Color(0xff171827),
+        _PixelWorld.cloud => const Color(0xff7bb7df),
+        _PixelWorld.ruins => const Color(0xff312838),
+        _PixelWorld.volcano => const Color(0xff351824),
+      };
+
+  Color _ground(_PixelWorld w) => switch (w) {
+        _PixelWorld.valley => const Color(0xff6d4728),
+        _PixelWorld.cave => const Color(0xff4d3b63),
+        _PixelWorld.factory => const Color(0xff3f4052),
+        _PixelWorld.cloud => const Color(0xff8797aa),
+        _PixelWorld.ruins => const Color(0xff6b5240),
+        _PixelWorld.volcano => const Color(0xff532c24),
+      };
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas c, Size size) {
     if (s._grid.isEmpty) return;
-    final sky = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xff0e1c40), Color(0xff27407c), Color(0xff4b5ea6)],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ).createShader(Offset.zero & size);
-    canvas.drawRect(Offset.zero & size, sky);
+    final w = s._levels[s._level].world;
+    c.drawRect(Offset.zero & size, Paint()..color = _sky(w));
+    _background(c, size, w);
 
-    final tile = math.min(size.width / 13, size.height / _PlatformerState._rows);
-    if (tile <= 0) return;
-    // Kamera yatayda kaydığı için dünya sol kenardan başlar; yalnızca bölüm
-    // ekrandan darsa ortalanır. Tüm bölüm genişliğine göre ortalamak, kameraya
-    // göre çizilen karoları ekran dışına taşıyıp sadece mavi gökyüzü bırakır.
-    final viewCols = size.width / tile;
-    s._viewCols = viewCols;
-    final ox = s._cols <= viewCols ? (size.width - s._cols * tile) / 2 : 0.0;
-    final oy = (size.height - _PlatformerState._rows * tile) / 2;
+    final t = math.min(size.width / 13, size.height / _PlatformerState._rows);
+    if (t <= 0) return;
+    final ox = (size.width - 13 * t) / 2;
+    final oy = (size.height - _PlatformerState._rows * t) / 2;
+    final shakeX = s._shake > 0 ? math.sin(s._clock * 2.1) * s._shake * .35 : 0;
+    final shakeY = s._shake > 0 ? math.cos(s._clock * 1.7) * s._shake * .22 : 0;
+    c.save();
+    c.translate(ox + shakeX, oy + shakeY);
 
-    canvas.save();
-    canvas.translate(ox, oy);
-    _paintScenery(canvas, tile);
-    _paintTiles(canvas, tile);
-    _paintFlag(canvas, tile);
-    for (final w in s._walkers) {
-      _paintWalker(canvas, w, tile);
-    }
-    for (final spark in s._sparks) {
-      final c = Offset((spark.x - s._camera) * tile, spark.y * tile);
-      canvas.drawCircle(c, tile * .30, Paint()..color = const Color(0x55ffd66b));
-      canvas.drawCircle(c, tile * .15, Paint()..color = const Color(0xffffefad));
-    }
-    for (final d in s._debris) {
-      final alpha = (d.life / 32).clamp(0.0, 1.0).toDouble();
-      canvas.drawRect(
-        Rect.fromLTWH(
-          (d.x - s._camera) * tile,
-          d.y * tile,
-          tile * .24,
-          tile * .24,
-        ),
-        Paint()..color = const Color(0xffc46a2b).withValues(alpha: alpha),
-      );
-    }
-    final blinking =
-        s._invuln > 0 && s._phase == _Phase.playing && (s._clock ~/ 4).isOdd;
-    if (!blinking) {
-      _drawHeroFigure(
-        canvas,
-        Rect.fromLTWH(
-          (s._x - s._camera) * tile,
-          s._y * tile,
-          _PlatformerState._pw * tile,
-          _PlatformerState._ph * tile,
-        ),
-        s._hero ?? _PlatformerHero.chief,
-        s._facing,
-        runPhase: s._grounded && s._vx != 0 ? (s._clock ~/ 5) % 2 : 0,
-        air: !s._grounded,
-        attack: s._attackAnim,
-      );
-    }
-    for (final p in s._pops) {
-      final tp = TextPainter(
-        textDirection: TextDirection.ltr,
-        text: TextSpan(
-          text: p.text,
-          style: TextStyle(
-            color: p.color.withValues(
-              alpha: (p.life / 28).clamp(0.0, 1.0).toDouble(),
-            ),
-            fontWeight: FontWeight.w900,
-            fontSize: tile * .42,
-          ),
-        ),
-      )..layout();
-      tp.paint(
-        canvas,
-        Offset((p.x + .5 - s._camera) * tile - tp.width / 2, p.y * tile),
-      );
-    }
-    canvas.restore();
-
-    switch (s._phase) {
-      case _Phase.ready:
-        _overlay(
-          canvas,
-          size,
-          'BÖLÜM ${s._levelIndex + 1}',
-          '${s._info?.name ?? ''} · HAZIR?',
-        );
-        break;
-      case _Phase.dying:
-        canvas.drawRect(
-          Offset.zero & size,
-          Paint()..color = const Color(0x22000000),
-        );
-        break;
-      case _Phase.clear:
-        _overlay(
-          canvas,
-          size,
-          'BÖLÜM TAMAM!',
-          '+${s._clearBonus} saniye bonusu',
-        );
-        break;
-      case _Phase.gameover:
-        _overlay(
-          canvas,
-          size,
-          'OYUN BİTTİ',
-          'Skor ${s._score} · dokun → karakter seç',
-        );
-        break;
-      case _Phase.win:
-        _overlay(
-          canvas,
-          size,
-          'TEBRİKLER!',
-          'Üç bölüm tamam · Skor ${s._score} · dokun → karakter seç',
-        );
-        break;
-      default:
-        break;
-    }
-  }
-
-  void _paintScenery(Canvas canvas, double tile) {
-    final hill = Paint()..color = const Color(0x33236a4b);
-    for (var i = 0; i < s._cols ~/ 9 + 2; i++) {
-      final wx = i * 9.0 + (i % 3) * 2.2;
-      final x = (wx - s._camera * .55) * tile;
-      if (x < -4 * tile || x > 18 * tile) continue;
-      final r = (1.8 + (i % 2) * .7) * tile;
-      canvas.drawArc(
-        Rect.fromLTWH(x - r, 12 * tile - r, r * 2, r * 2),
-        math.pi,
-        math.pi,
-        true,
-        hill,
-      );
-    }
-    final cloud = Paint()..color = const Color(0x33ffffff);
-    for (var i = 0; i < s._cols ~/ 7 + 2; i++) {
-      final wx = 3 + i * 7.0 + (i % 3) * 1.7;
-      final x = (wx - s._camera * .3) * tile;
-      if (x < -3 * tile || x > 17 * tile) continue;
-      final y = (1.1 + (i % 3) * .7) * tile;
-      canvas.drawOval(Rect.fromLTWH(x, y, 2.4 * tile, .9 * tile), cloud);
-      canvas.drawOval(
-        Rect.fromLTWH(x + .7 * tile, y - .4 * tile, 1.6 * tile, 1.0 * tile),
-        cloud,
-      );
-    }
-  }
-
-  void _paintTiles(Canvas canvas, double tile) {
-    final c0 = s._camera.floor();
+    final first = s._camera.floor() - 1;
     for (var row = 0; row < _PlatformerState._rows; row++) {
-      for (var col = c0 - 1; col <= c0 + 14; col++) {
-        final ch = s._tileAt(row, col);
+      for (var col = first; col <= first + 16; col++) {
+        final ch = s._tile(row, col);
         if (ch == '.') continue;
-        final bump = s._bumps['$col:$row'];
-        final dy = bump == null
-            ? 0.0
-            : -math.sin((10 - bump) / 10 * math.pi) * .22 * tile;
-        final rect = Rect.fromLTWH(
-          (col - s._camera) * tile,
-          row * tile + dy,
-          tile,
-          tile,
-        );
-        switch (ch) {
-          case '#':
-            _ground(canvas, col, row, rect);
-            break;
-          case '=':
-            canvas.drawRect(rect, Paint()..color = const Color(0xff6b7280));
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left, rect.top, tile, tile * .16),
-              Paint()..color = const Color(0xff9ca3af),
-            );
-            canvas.drawRect(
-              Rect.fromLTWH(
-                rect.left,
-                rect.bottom - tile * .12,
-                tile,
-                tile * .12,
-              ),
-              Paint()..color = const Color(0x33000000),
-            );
-            break;
-          case 'B':
-            canvas.drawRect(rect, Paint()..color = const Color(0xffc46a2b));
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left, rect.top, tile, tile * .14),
-              Paint()..color = const Color(0xffe0873f),
-            );
-            final mortar = Paint()..color = const Color(0x55000000);
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left, rect.top + tile * .48, tile, tile * .06),
-              mortar,
-            );
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left + tile * .46, rect.top, tile * .06, tile * .48),
-              mortar,
-            );
-            canvas.drawRect(
-              Rect.fromLTWH(
-                rect.left + tile * .2,
-                rect.top + tile * .54,
-                tile * .06,
-                tile * .46,
-              ),
-              mortar,
-            );
-            canvas.drawRect(
-              Rect.fromLTWH(
-                rect.left + tile * .72,
-                rect.top + tile * .54,
-                tile * .06,
-                tile * .46,
-              ),
-              mortar,
-            );
-            break;
-          case '?':
-            _question(canvas, rect, false);
-            break;
-          case 'H':
-            _question(canvas, rect, true);
-            break;
-          case 'U':
-            canvas.drawRect(rect, Paint()..color = const Color(0xff57534e));
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left, rect.top, tile, tile * .14),
-              Paint()..color = const Color(0xff78716c),
-            );
-            for (final fx in [.3, .7]) {
-              for (final fy in [.35, .7]) {
-                canvas.drawCircle(
-                  Offset(rect.left + tile * fx, rect.top + tile * fy),
-                  tile * .05,
-                  Paint()..color = const Color(0xff37322d),
-                );
-              }
-            }
-            break;
-          case 'P':
-            _pipe(canvas, col, row, rect);
-            break;
-          case 'o':
-            _coin(canvas, col, rect);
-            break;
-          default:
-            break;
+        final r = Rect.fromLTWH((col - s._camera) * t, row * t, t, t);
+        if (ch == '#') {
+          c.drawRect(r, Paint()..color = _ground(w));
+          c.drawRect(Rect.fromLTWH(r.left, r.top, t, t * .15),
+              Paint()..color = _topAccent(w));
+        } else if (ch == 'B' || ch == '?' || ch == 'U') {
+          final colr = ch == '?'
+              ? const Color(0xfff4b63d)
+              : ch == 'U'
+                  ? const Color(0xff6b7280)
+                  : _blockColor(w);
+          c.drawRect(r, Paint()..color = colr);
+          c.drawRect(Rect.fromLTWH(r.left, r.top, t, t * .10), Paint()..color = Colors.white24);
+          if (ch == '?') {
+            final p = TextPainter(
+              text: const TextSpan(text: '?', style: TextStyle(color: Color(0xff5a3b08), fontWeight: FontWeight.w900, fontSize: 22)),
+              textDirection: TextDirection.ltr,
+            )..layout();
+            p.paint(c, Offset(r.left + (t - p.width) / 2, r.top + (t - p.height) / 2));
+          }
+        } else if (ch == '=') {
+          c.drawRRect(RRect.fromRectAndRadius(r.deflate(t * .03), Radius.circular(t * .10)), Paint()..color = _platformColor(w));
+          c.drawRect(Rect.fromLTWH(r.left, r.top, t, t * .12), Paint()..color = Colors.white54);
+        } else if (ch == 'H') {
+          c.drawRect(r, Paint()..color = Colors.white.withValues(alpha: .025));
+          if ((s._clock + col * 3) % 36 < 3) c.drawCircle(r.center, t * .08, Paint()..color = Colors.white24);
+        } else if (ch == '^') {
+          final path = Path()
+            ..moveTo(r.left, r.bottom)
+            ..lineTo(r.center.dx, r.top + t * .08)
+            ..lineTo(r.right, r.bottom)
+            ..close();
+          c.drawPath(path, Paint()..color = const Color(0xffe8edf2));
+        } else if (ch == 'o') {
+          c.drawCircle(r.center, t * .20, Paint()..color = const Color(0xffffd166));
+          c.drawCircle(Offset(r.center.dx - t * .06, r.center.dy - t * .06), t * .06, Paint()..color = Colors.white54);
+        } else if (ch == 'F') {
+          c.drawRect(Rect.fromLTWH(r.center.dx, r.top, t * .07, t * 7.2), Paint()..color = Colors.white70);
+          c.drawRect(Rect.fromLTWH(r.center.dx, r.top, t * 1.45, t), Paint()..color = const Color(0xff43d17d));
         }
       }
     }
-  }
 
-  void _ground(Canvas canvas, int col, int row, Rect rect) {
-    final tile = rect.width;
-    canvas.drawRect(rect, Paint()..color = const Color(0xff7a4a21));
-    canvas.drawRect(
-      Rect.fromLTWH(
-        rect.left + tile * .12,
-        rect.top + tile * .55,
-        tile * .2,
-        tile * .2,
-      ),
-      Paint()..color = const Color(0x33000000),
-    );
-    if (!s._solid(col, row - 1)) {
-      canvas.drawRect(
-        Rect.fromLTWH(rect.left, rect.top, tile, tile * .30),
-        Paint()..color = const Color(0xff3fae5a),
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(rect.left, rect.top + tile * .30, tile, tile * .07),
-        Paint()..color = const Color(0xff2b7d41),
-      );
-    }
-  }
-
-  void _question(Canvas canvas, Rect rect, bool heart) {
-    final tile = rect.width;
-    final base = heart ? const Color(0xffef4444) : const Color(0xfff6b93b);
-    canvas.drawRect(rect, Paint()..color = base);
-    canvas.drawRect(
-      Rect.fromLTWH(rect.left, rect.top, tile, tile * .16),
-      Paint()..color = Colors.white.withValues(alpha: .3),
-    );
-    canvas.drawRect(
-      rect,
-      Paint()
-        ..color = const Color(0x55000000)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
-    );
-    if (heart) {
-      final white = Paint()..color = Colors.white;
-      canvas.drawCircle(
-        Offset(rect.left + tile * .34, rect.top + tile * .42),
-        tile * .14,
-        white,
-      );
-      canvas.drawCircle(
-        Offset(rect.left + tile * .66, rect.top + tile * .42),
-        tile * .14,
-        white,
-      );
-      final path = Path()
-        ..moveTo(rect.left + tile * .12, rect.top + tile * .48)
-        ..lineTo(rect.left + tile * .88, rect.top + tile * .48)
-        ..lineTo(rect.left + tile * .5, rect.top + tile * .84)
-        ..close();
-      canvas.drawPath(path, white);
-    } else {
-      final tp = TextPainter(
-        textDirection: TextDirection.ltr,
-        text: TextSpan(
-          text: '?',
-          style: TextStyle(
-            color: const Color(0xff6b4a06),
-            fontWeight: FontWeight.w900,
-            fontSize: tile * .62,
-          ),
-        ),
-      )..layout();
-      tp.paint(
-        canvas,
-        Offset(
-          rect.left + (tile - tp.width) / 2,
-          rect.top + (tile - tp.height) / 2,
-        ),
-      );
-    }
-  }
-
-  void _pipe(Canvas canvas, int col, int row, Rect rect) {
-    final tile = rect.width;
-    final capped = s._tileAt(row - 1, col) != 'P';
-    canvas.drawRect(rect, Paint()..color = const Color(0xff16a34a));
-    canvas.drawRect(
-      Rect.fromLTWH(rect.left + tile * .14, rect.top, tile * .16, tile),
-      Paint()..color = const Color(0x66bbf7d0),
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(rect.left + tile * .72, rect.top, tile * .28, tile),
-      Paint()..color = const Color(0x33145232),
-    );
-    if (capped) {
-      canvas.drawRect(
-        Rect.fromLTWH(rect.left - tile * .06, rect.top, tile * 1.12, tile * .34),
-        Paint()..color = const Color(0xff22c55e),
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(
-          rect.left - tile * .06,
-          rect.top + tile * .30,
-          tile * 1.12,
-          tile * .05,
-        ),
-        Paint()..color = const Color(0x66145232),
-      );
-    }
-  }
-
-  void _coin(Canvas canvas, int col, Rect rect) {
-    final spin = math.sin(s._clock * .18 + col * .9).abs() * .72 + .28;
-    final center = rect.center;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: center,
-        width: rect.width * .44 * spin,
-        height: rect.height * .5,
-      ),
-      Paint()..color = const Color(0xfff6b93b),
-    );
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: center,
-        width: rect.width * .22 * spin,
-        height: rect.height * .28,
-      ),
-      Paint()..color = const Color(0xfffff3c4),
-    );
-  }
-
-  void _paintFlag(Canvas canvas, double tile) {
-    if (s._flagCol == 0) return;
-    final x = (s._flagCol + .5 - s._camera) * tile;
-    if (x < -2 * tile || x > 15 * tile) return;
-    canvas.drawRect(
-      Rect.fromLTWH(x - tile * .05, 5 * tile, tile * .1, 7 * tile),
-      Paint()..color = const Color(0xffcbd5e1),
-    );
-    canvas.drawCircle(
-      Offset(x, 5 * tile),
-      tile * .14,
-      Paint()..color = const Color(0xfff6b93b),
-    );
-    final wave = math.sin(s._clock * .1) * tile * .16;
-    final path = Path()
-      ..moveTo(x, 5.2 * tile)
-      ..lineTo(x + 1.7 * tile + wave, 5.75 * tile)
-      ..lineTo(x, 6.3 * tile)
-      ..close();
-    canvas.drawPath(path, Paint()..color = const Color(0xff22c55e));
-  }
-
-  void _paintWalker(Canvas canvas, _Walker w, double tile) {
-    if (w.x < s._camera - 1.5 || w.x > s._camera + 15) return;
-    final left = (w.x - s._camera) * tile;
-    final top = w.y * tile;
-    final bodyW = .72 * tile;
-    final bodyH = .78 * tile;
-    if (w.dead) {
-      canvas.drawRect(
-        Rect.fromLTWH(left, top + bodyH * .6, bodyW, bodyH * .4),
-        Paint()..color = const Color(0xff8f4038),
-      );
-      return;
-    }
-    final body = Paint()
-      ..color = w.spiky ? const Color(0xff7c3aed) : const Color(0xffd9574b);
-    if (w.spiky) {
-      final spike = Paint()..color = const Color(0xff4c1d95);
-      for (final fx in [.15, .5, .85]) {
-        final cx = left + bodyW * fx;
+    for (final l in s._loot) {
+      if (l.taken) continue;
+      final p = Offset((l.x - s._camera + .5) * t, l.y * t);
+      final r = Rect.fromCenter(center: p, width: t * .42, height: t * .42);
+      c.drawCircle(p, t * .23, Paint()..color = _lootColor(l.kind));
+      if (l.kind == _LootKind.gem) {
         final path = Path()
-          ..moveTo(cx - tile * .09, top + tile * .1)
-          ..lineTo(cx, top - tile * .16)
-          ..lineTo(cx + tile * .09, top + tile * .1)
+          ..moveTo(p.dx, p.dy - t * .30)
+          ..lineTo(p.dx + t * .22, p.dy)
+          ..lineTo(p.dx, p.dy + t * .30)
+          ..lineTo(p.dx - t * .22, p.dy)
           ..close();
-        canvas.drawPath(path, spike);
+        c.drawPath(path, Paint()..color = const Color(0xfff0abfc));
       }
+      c.drawRect(r.deflate(t * .16), Paint()..color = Colors.white24);
     }
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(left, top, bodyW, bodyH),
-        Radius.circular(tile * .18),
+
+    for (final q in s._shots) {
+      final p = Offset((q.x - s._camera) * t, q.y * t);
+      c.drawCircle(p, t * (q.bomb ? .21 : .11), Paint()..color = q.bomb ? const Color(0xffff7b00) : const Color(0xff67e8f9));
+    }
+
+    for (final p in s._particles) {
+      final a = (p.life / 34).clamp(0.0, 1.0);
+      c.drawRect(Rect.fromCenter(center: Offset((p.x - s._camera) * t, p.y * t), width: p.size * t, height: p.size * t),
+          Paint()..color = p.color.withValues(alpha: a));
+    }
+
+    for (final e in s._enemies.where((x) => !x.dead)) {
+      _enemy(c, e, t);
+    }
+
+    if (!(s._invuln > 0 && (s._clock ~/ 4).isOdd)) {
+      _drawHeroFigure(
+        c,
+        Rect.fromLTWH((s._x - s._camera) * t, s._y * t,
+            _PlatformerState._pw * t, _PlatformerState._ph * t),
+        s._hero ?? _PlatformerHero.chief,
+        s._facing,
+        runPhase: s._clock ~/ 5 % 2,
+        air: !s._grounded,
+        attack: s._attackCd > 0 ? 5 : 0,
+      );
+    }
+    if (s._shield > 0) {
+      c.drawCircle(Offset((s._x - s._camera + .36) * t, (s._y + .42) * t), t * .58,
+          Paint()..style = PaintingStyle.stroke..strokeWidth = t * .06..color = const Color(0xff60a5fa).withValues(alpha: .60));
+    }
+
+    for (final z in s._texts) {
+      final p = TextPainter(
+        text: TextSpan(text: z.text, style: TextStyle(color: z.color.withValues(alpha: z.life / 30), fontWeight: FontWeight.w900, fontSize: t * .31)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      p.paint(c, Offset((z.x - s._camera) * t, z.y * t));
+    }
+    c.restore();
+
+    final d = s._levels[s._level];
+    final h = TextPainter(
+      text: TextSpan(
+        text: '${s._level + 1}/6  ${d.name}   ♥ ${s._hp}  ◆ ${s._bombs}  ⚡ ${s._ammo}  ⬢ ${s._weapon}',
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10),
       ),
-      body,
-    );
-    final eye = Paint()..color = Colors.white;
-    final pupil = Paint()..color = const Color(0xff241f1c);
-    final look = w.dir > 0 ? .1 : -.1;
-    canvas.drawCircle(
-      Offset(left + bodyW * (.32 + look), top + bodyH * .34),
-      tile * .07,
-      eye,
-    );
-    canvas.drawCircle(
-      Offset(left + bodyW * (.66 + look), top + bodyH * .34),
-      tile * .07,
-      eye,
-    );
-    canvas.drawCircle(
-      Offset(left + bodyW * (.32 + look), top + bodyH * .34),
-      tile * .035,
-      pupil,
-    );
-    canvas.drawCircle(
-      Offset(left + bodyW * (.66 + look), top + bodyH * .34),
-      tile * .035,
-      pupil,
-    );
-    final foot = Paint()..color = const Color(0x66000000);
-    final shift = (s._clock ~/ 6) % 2 == 0 ? 0.0 : tile * .1;
-    canvas.drawRect(
-      Rect.fromLTWH(left + shift, top + bodyH, bodyW * .3, tile * .08),
-      foot,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(
-        left + bodyW * .7 - shift,
-        top + bodyH,
-        bodyW * .3,
-        tile * .08,
-      ),
-      foot,
-    );
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: size.width - 20);
+    h.paint(c, const Offset(10, 10));
+
+    if (s._shield > 0) _chip(c, size, 10, 28, 'KALKAN', const Color(0xff60a5fa));
+    if (s._speed > 0) _chip(c, size, 72, 28, 'HIZ', const Color(0xffa78bfa));
+    if (s._jumpBoost > 0) _chip(c, size, 110, 28, 'ZIP', const Color(0xff34d399));
+    if (s._bossHp > 0) {
+      final boss = d.bossName;
+      final bw = size.width * .52;
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH((size.width - bw) / 2, 44, bw, 9), const Radius.circular(5)),
+          Paint()..color = Colors.black54);
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH((size.width - bw) / 2, 44, bw * (s._bossHp / 12), 9), const Radius.circular(5)),
+          Paint()..color = const Color(0xfff43f5e));
+      final bp = TextPainter(
+        text: TextSpan(text: boss, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, fontSize: 9)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      bp.paint(c, Offset((size.width - bp.width) / 2, 54));
+    }
+
+    if (s._phase == _Phase.ready) _overlay(c, size, 'BÖLÜM ${s._level + 1}', d.name, d.objective);
+    if (s._phase == _Phase.clear) _overlay(c, size, 'BÖLÜM TAMAM', 'Yeni biyom yükleniyor...', 'Hazır ol!');
+    if (s._phase == _Phase.gameover) _overlay(c, size, 'OYUN BİTTİ', 'Skor ${s._score}', 'Dokun → karakter seç');
+    if (s._phase == _Phase.win) _overlay(c, size, 'ZAFER!', '6 bölüm tamamlandı • ${s._score} PTS', 'Piksel Macerası tamamlandı');
   }
 
-  void _overlay(Canvas canvas, Size size, String title, String subtitle) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = Colors.black.withValues(alpha: .6),
+  void _background(Canvas c, Size z, _PixelWorld w) {
+    final p = Paint();
+    switch (w) {
+      case _PixelWorld.valley:
+        p.color = const Color(0xff24526d);
+        c.drawCircle(Offset(z.width * .16, z.height * .75), z.height * .25, p);
+        p.color = const Color(0xff2e6a67);
+        c.drawCircle(Offset(z.width * .60, z.height * .76), z.height * .33, p);
+        break;
+      case _PixelWorld.cave:
+        for (var i = 0; i < 10; i++) {
+          c.drawCircle(Offset((i * 87) % z.width, z.height * (.18 + (i % 4) * .16)), 3 + i % 3, Paint()..color = const Color(0xff8b5cf6).withValues(alpha: .20));
+        }
+        break;
+      case _PixelWorld.factory:
+        final grid = Paint()..color = const Color(0xff67e8f9).withValues(alpha: .07)..strokeWidth = 1;
+        for (var x = 0.0; x < z.width; x += 24) {
+          c.drawLine(Offset(x, 0), Offset(x, z.height), grid);
+        }
+        for (var y = 0.0; y < z.height; y += 24) {
+          c.drawLine(Offset(0, y), Offset(z.width, y), grid);
+        }
+        break;
+      case _PixelWorld.cloud:
+        for (var i = 0; i < 9; i++) {
+          final p2 = Paint()..color = Colors.white.withValues(alpha: .16);
+          final x = (i * 83.0 + math.sin(s._clock * .01 + i) * 14) % (z.width + 60) - 30;
+          c.drawCircle(Offset(x, 42 + (i % 4) * 38), 24, p2);
+          c.drawCircle(Offset(x + 24, 48 + (i % 4) * 38), 18, p2);
+        }
+        break;
+      case _PixelWorld.ruins:
+        final r = Paint()..color = const Color(0xffb18b5a).withValues(alpha: .16);
+        for (var i = 0; i < 6; i++) {
+          c.drawRect(Rect.fromLTWH(i * z.width / 6 + 12, z.height * .18, 18, z.height * .46), r);
+          c.drawRect(Rect.fromLTWH(i * z.width / 6 + 3, z.height * .17, 36, 12), r);
+        }
+        break;
+      case _PixelWorld.volcano:
+        c.drawCircle(Offset(z.width * .78, z.height * .38), z.height * .23, Paint()..color = const Color(0xffef4444).withValues(alpha: .16));
+        c.drawCircle(Offset(z.width * .20, z.height * .22), z.height * .12, Paint()..color = const Color(0xffff7b00).withValues(alpha: .12));
+        break;
+    }
+  }
+
+  Color _topAccent(_PixelWorld w) => switch (w) {
+        _PixelWorld.valley => const Color(0xff46b86a),
+        _PixelWorld.cave => const Color(0xff8b5cf6),
+        _PixelWorld.factory => const Color(0xffd45d8c),
+        _PixelWorld.cloud => const Color(0xfff4f7fb),
+        _PixelWorld.ruins => const Color(0xffc29b68),
+        _PixelWorld.volcano => const Color(0xffdf6c32),
+      };
+
+  Color _blockColor(_PixelWorld w) => switch (w) {
+        _PixelWorld.valley => const Color(0xffbd6231),
+        _PixelWorld.cave => const Color(0xff704e9b),
+        _PixelWorld.factory => const Color(0xffc04e85),
+        _PixelWorld.cloud => const Color(0xffa9b8c8),
+        _PixelWorld.ruins => const Color(0xff9a714a),
+        _PixelWorld.volcano => const Color(0xff9c4430),
+      };
+
+  Color _platformColor(_PixelWorld w) => switch (w) {
+        _PixelWorld.valley => const Color(0xff6fcf97),
+        _PixelWorld.cave => const Color(0xff62d4d8),
+        _PixelWorld.factory => const Color(0xff4ed7e7),
+        _PixelWorld.cloud => const Color(0xffeef6ff),
+        _PixelWorld.ruins => const Color(0xffd1b07a),
+        _PixelWorld.volcano => const Color(0xfff08a48),
+      };
+
+  Color _lootColor(_LootKind k) => switch (k) {
+        _LootKind.coin => const Color(0xffffd166),
+        _LootKind.heart => const Color(0xffff5d73),
+        _LootKind.bomb => const Color(0xfff59e0b),
+        _LootKind.ammo => const Color(0xff67e8f9),
+        _LootKind.weapon => const Color(0xffff8a3d),
+        _LootKind.shield => const Color(0xff60a5fa),
+        _LootKind.speed => const Color(0xffa78bfa),
+        _LootKind.jump => const Color(0xff34d399),
+        _LootKind.gem => const Color(0xfff0abfc),
+      };
+
+
+  void _drawHeroFigure(
+    Canvas c,
+    Rect r,
+    _PlatformerHero hero,
+    int facing, {
+    int runPhase = 0,
+    bool air = false,
+    int attack = 0,
+  }) {
+    final accent = hero == _PlatformerHero.chief
+        ? const Color(0xffffb703)
+        : const Color(0xff38bdf8);
+    final dark = const Color(0xff172033);
+    final skin = const Color(0xffffc7a8);
+
+    final cx = r.center.dx;
+    final scale = r.width;
+
+    final body = Rect.fromLTWH(
+      cx - scale * .19,
+      r.top + scale * .38,
+      scale * .38,
+      scale * .34,
     );
+
+    final head = Rect.fromLTWH(
+      cx - scale * .17,
+      r.top + scale * .16,
+      scale * .34,
+      scale * .25,
+    );
+
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        body,
+        Radius.circular(scale * .055),
+      ),
+      Paint()..color = dark,
+    );
+
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        head,
+        Radius.circular(scale * .07),
+      ),
+      Paint()..color = skin,
+    );
+
+    // Kask / saç
+    c.drawRect(
+      Rect.fromLTWH(
+        head.left - scale * .025,
+        head.top - scale * .035,
+        head.width + scale * .05,
+        scale * .075,
+      ),
+      Paint()..color = accent,
+    );
+
+    // Göz
+    final eyeX = facing >= 0
+        ? head.right - scale * .075
+        : head.left + scale * .075;
+    c.drawCircle(
+      Offset(eyeX, head.top + head.height * .52),
+      scale * .018,
+      Paint()..color = Colors.black,
+    );
+
+    final legOffset = air
+        ? 0.0
+        : (runPhase == 0 ? scale * .055 : -scale * .055);
+
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          cx - scale * .14 + legOffset,
+          body.bottom - scale * .01,
+          scale * .095,
+          scale * .25,
+        ),
+        Radius.circular(scale * .025),
+      ),
+      Paint()..color = dark,
+    );
+
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          cx + scale * .045 - legOffset,
+          body.bottom - scale * .01,
+          scale * .095,
+          scale * .25,
+        ),
+        Radius.circular(scale * .025),
+      ),
+      Paint()..color = dark,
+    );
+
+    final armY = body.top + body.height * .25;
+    final armX = facing >= 0 ? body.right : body.left;
+
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          facing >= 0 ? body.right - scale * .015 : body.left - scale * .08,
+          armY,
+          scale * .095,
+          scale * .09,
+        ),
+        Radius.circular(scale * .025),
+      ),
+      Paint()..color = accent,
+    );
+
+    if (attack > 0) {
+      final weaponX = facing >= 0 ? r.right : r.left;
+      c.drawLine(
+        Offset(armX, armY + scale * .045),
+        Offset(
+          weaponX + (facing >= 0 ? scale * .18 : -scale * .18),
+          armY - scale * .01,
+        ),
+        Paint()
+          ..color = hero == _PlatformerHero.chief
+              ? const Color(0xffd7dde8)
+              : const Color(0xff67e8f9)
+          ..strokeWidth = scale * .055
+          ..strokeCap = StrokeCap.square,
+      );
+    }
+  }
+
+  void _enemy(Canvas c, _PixelEnemy e, double t) {
+    final p = Offset((e.x - s._camera) * t, e.y * t);
+    final r = Rect.fromCenter(center: p, width: t * (e.kind == _EnemyKind.boss ? .95 : .72), height: t * (e.kind == _EnemyKind.boss ? .92 : .78));
+    final paint = Paint()..color = s._enemyColor(e.kind);
+    c.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(t * .12)), paint);
+    if (e.kind == _EnemyKind.spike) {
+      final path = Path()
+        ..moveTo(r.left, r.bottom)
+        ..lineTo(r.center.dx, r.top)
+        ..lineTo(r.right, r.bottom)
+        ..close();
+      c.drawPath(path, Paint()..color = const Color(0xffd8dce2));
+    } else {
+      c.drawCircle(Offset(p.dx - t * .14, p.dy - t * .10), t * .06, Paint()..color = Colors.white);
+      c.drawCircle(Offset(p.dx + t * .14, p.dy - t * .10), t * .06, Paint()..color = Colors.white);
+    }
+    if (e.kind == _EnemyKind.boss) {
+      final bw = r.width * (e.hp / 12).clamp(0.0, 1.0);
+      c.drawRect(Rect.fromLTWH(r.left, r.top - t * .20, bw, t * .07), Paint()..color = const Color(0xffffd166));
+      c.drawRect(Rect.fromLTWH(r.left + r.width * .23, r.top + r.height * .36, r.width * .54, r.height * .16), Paint()..color = Colors.black38);
+    }
+  }
+
+  void _chip(Canvas c, Size z, double x, double y, String label, Color color) {
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, y, label.length * 6.1 + 12, 16), const Radius.circular(8)), Paint()..color = color.withValues(alpha: .20));
+    final p = TextPainter(text: TextSpan(text: label, style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.w900)), textDirection: TextDirection.ltr)..layout();
+    p.paint(c, Offset(x + 6, y + 4));
+  }
+
+  void _overlay(Canvas c, Size z, String a, String b, String d) {
+    c.drawRect(Offset.zero & z, Paint()..color = Colors.black.withValues(alpha: .62));
     final p = TextPainter(
+      text: TextSpan(text: '$a\n', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900), children: [
+        TextSpan(text: '$b\n', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        TextSpan(text: d, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+      ]),
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.center,
-      text: TextSpan(
-        text: '$title\n',
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w900,
-          fontSize: 23,
-        ),
-        children: [
-          TextSpan(
-            text: subtitle,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontWeight: FontWeight.w500,
-              fontSize: 13,
-            ),
-          ),
-        ],
-      ),
-    )..layout(maxWidth: size.width - 30);
-    p.paint(
-      canvas,
-      Offset((size.width - p.width) / 2, (size.height - p.height) / 2),
-    );
+    )..layout(maxWidth: z.width - 30);
+    p.paint(c, Offset((z.width - p.width) / 2, (z.height - p.height) / 2));
   }
 
   @override
-  bool shouldRepaint(covariant _PlatformPainter old) => true;
+  bool shouldRepaint(covariant _PixelAdventurePainter old) => true;
 }
 
 class _PlatformerControls extends StatelessWidget {
   final ValueChanged<bool> onLeft, onRight;
-  final VoidCallback onJumpDown, onJumpUp, onAttack;
+  final VoidCallback onJumpDown, onJumpUp, onAttack, onBomb, onDash;
   final IconData attackIcon;
   const _PlatformerControls({
     required this.onLeft,
@@ -2210,280 +2160,76 @@ class _PlatformerControls extends StatelessWidget {
     required this.onJumpDown,
     required this.onJumpUp,
     required this.onAttack,
+    required this.onBomb,
+    required this.onDash,
     required this.attackIcon,
   });
 
-  Widget _holdButton({
-    required IconData icon,
-    required String label,
-    required void Function(bool) onHold,
-    bool big = false,
-  }) {
-    final size = big ? 60.0 : 52.0;
-    return Semantics(
-      button: true,
-      label: label,
-      child: Listener(
-        onPointerDown: (_) => onHold(true),
-        onPointerUp: (_) => onHold(false),
-        onPointerCancel: (_) => onHold(false),
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .13),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white24),
+  Widget _hold(IconData i, String l, void Function(bool) f) => Semantics(
+        button: true,
+        label: l,
+        child: Listener(
+          onPointerDown: (_) => f(true),
+          onPointerUp: (_) => f(false),
+          onPointerCancel: (_) => f(false),
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Icon(i, color: Colors.white, size: 23),
             ),
-            child: Icon(icon, color: Colors.white, size: big ? 32 : 26),
           ),
         ),
-      ),
-    );
-  }
+      );
+
+  Widget _tap(IconData i, String l, VoidCallback f) => Semantics(
+        button: true,
+        label: l,
+        child: GestureDetector(
+          onTap: f,
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Icon(i, color: Colors.white, size: 23),
+            ),
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) => Row(
-    crossAxisAlignment: CrossAxisAlignment.end,
-    children: [
-      _holdButton(
-        icon: Icons.keyboard_arrow_left_rounded,
-        label: 'Sol',
-        onHold: onLeft,
-      ),
-      const SizedBox(width: 6),
-      _holdButton(
-        icon: Icons.keyboard_arrow_right_rounded,
-        label: 'Sağ',
-        onHold: onRight,
-      ),
-      const Spacer(),
-      _holdButton(
-        icon: attackIcon,
-        label: 'Saldırı',
-        onHold: (v) {
-          if (v) onAttack();
-        },
-      ),
-      const SizedBox(width: 8),
-      _holdButton(
-        icon: Icons.keyboard_arrow_up_rounded,
-        label: 'Zıpla',
-        big: true,
-        onHold: (v) {
-          if (v) {
-            onJumpDown();
-          } else {
-            onJumpUp();
-          }
-        },
-      ),
-    ],
-  );
-}
-
-class _HeroCard extends StatelessWidget {
-  final _PlatformerHero hero;
-  final VoidCallback onTap;
-  const _HeroCard({required this.hero, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final info = _heroInfo[hero]!;
-    final chief = hero == _PlatformerHero.chief;
-    final accent = chief ? const Color(0xfff6b93b) : const Color(0xff7fb4ff);
-    return Material(
-      color: chief ? const Color(0xff23324c) : const Color(0xff1c2340),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: accent.withValues(alpha: .35)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 84,
-                height: 98,
-                decoration: BoxDecoration(
-                  color: const Color(0xff101a2e),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: CustomPaint(painter: _HeroPreviewPainter(hero)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      info.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      info.tagline,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: .55),
-                        fontSize: 10.5,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      info.ability,
-                      style: TextStyle(
-                        color: accent.withValues(alpha: .9),
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _stat('HIZ', info.runStat, accent),
-                    const SizedBox(height: 4),
-                    _stat('ZIPLAMA', info.jumpStat, accent),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _stat(String label, double value, Color color) => Row(
-    children: [
-      SizedBox(
-        width: 58,
-        child: Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: .5),
-            fontSize: 9,
-            fontWeight: FontWeight.w800,
-            letterSpacing: .6,
-          ),
-        ),
-      ),
-      Expanded(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: value / 5,
-            minHeight: 5,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            backgroundColor: Colors.white.withValues(alpha: .08),
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-class _HeroPreviewPainter extends CustomPainter {
-  final _PlatformerHero hero;
-  const _HeroPreviewPainter(this.hero);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xff15203a));
-    canvas.drawRect(
-      Rect.fromLTWH(0, size.height - 7, size.width, 7),
-      Paint()..color = const Color(0xff2f6d47),
-    );
-    final unit = math.min(size.width * .8, (size.height - 12) * 7 / 9);
-    if (unit <= 0) return;
-    final box = Rect.fromCenter(
-      center: Offset(size.width / 2, (size.height - 7) / 2),
-      width: unit,
-      height: unit * 9 / 7,
-    );
-    _drawHeroFigure(canvas, box, hero, 1);
-  }
-
-  @override
-  bool shouldRepaint(covariant _HeroPreviewPainter old) => old.hero != hero;
-}
-
-/// Piksel kahraman çizimi: çekiçli şef ve USB'li programcı. Şekil 7x9
-/// birim kutuya çizilir ve hem oyun sahnesinde hem seçim kartında kullanılır.
-void _drawHeroFigure(
-  Canvas canvas,
-  Rect box,
-  _PlatformerHero hero,
-  int facing, {
-  int runPhase = 0,
-  bool air = false,
-  int attack = 0,
-}) {
-  final u = box.width / 7;
-  final v = box.height / 9;
-  void px(double x, double y, double w, double h, Color c) {
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(box.left + x * u, box.top + y * v, w * u, h * v),
-        Radius.circular(u * .14),
-      ),
-      Paint()..color = c,
-    );
-  }
-
-  final skin = const Color(0xfff2c49b);
-  final step = air ? 0.0 : (runPhase == 0 ? 0.0 : .55);
-  if (hero == _PlatformerHero.chief) {
-    px(.5, 8.0 - step, 2.4, 1.0, const Color(0xff2d2a26));
-    px(4.0, 8.0 + step, 2.4, 1.0, const Color(0xff2d2a26));
-    px(.9, 6.3, 5.2, 1.9, const Color(0xff4a5568));
-    px(.6, 3.4, 5.8, 3.0, const Color(0xffef7d1a));
-    px(.6, 4.7, 5.8, .55, const Color(0xfffbbf24));
-    px(1.5, 1.4, 4.0, 2.2, skin);
-    px(facing > 0 ? 4.1 : 1.6, 2.1, .9, .9, Colors.white);
-    px(facing > 0 ? 4.5 : 2.0, 2.35, .45, .45, const Color(0xff1f2937));
-    px(1.0, .5, 5.0, 1.4, const Color(0xfffbbf24));
-    px(facing > 0 ? 3.8 : -1.0, 1.4, 3.2, .5, const Color(0xffd99e14));
-    if (attack > 0) {
-      px(4.4, 3.0, 3.4, .6, const Color(0xff8b5a2b));
-      px(7.4, 2.0, 1.8, 2.4, const Color(0xff9ca3af));
-      px(7.4, 2.0, 1.8, .7, const Color(0xffe5e7eb));
-    } else {
-      px(5.5, 4.2, .6, 3.2, const Color(0xff8b5a2b));
-      px(4.8, 3.4, 1.9, 1.5, const Color(0xff9ca3af));
-      px(4.8, 3.4, 1.9, .5, const Color(0xffe5e7eb));
-    }
-  } else {
-    px(.5, 8.1 - step, 2.4, .9, const Color(0xff111827));
-    px(4.0, 8.1 + step, 2.4, .9, const Color(0xff111827));
-    px(.8, 6.3, 5.4, 1.9, const Color(0xff1f2937));
-    px(.7, 3.3, 5.6, 3.1, const Color(0xff1e3a8a));
-    px(1.1, 1.0, 4.8, 3.0, const Color(0xff1e3a8a));
-    px(1.9, 1.7, 3.2, 2.0, skin);
-    px(1.8, 2.25, 3.4, .6, const Color(0xffe5e7eb));
-    px(1.9, 2.3, 1.4, .5, const Color(0xff0f172a));
-    px(3.7, 2.3, 1.4, .5, const Color(0xff0f172a));
-    if (attack > 0) {
-      px(4.4, 3.2, 2.0, .8, const Color(0xffcbd5e1));
-      px(6.4, 3.3, .7, .6, const Color(0xfffbbf24));
-      canvas.drawCircle(
-        Offset(box.left + 7.6 * u, box.top + 3.6 * v),
-        u * 1.1,
-        Paint()..color = const Color(0x66ffd66b),
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          _hold(Icons.chevron_left_rounded, 'Sol', onLeft),
+          const SizedBox(width: 5),
+          _hold(Icons.chevron_right_rounded, 'Sağ', onRight),
+          const Spacer(),
+          _tap(Icons.bolt_rounded, 'Dash', onDash),
+          const SizedBox(width: 5),
+          _tap(Icons.bubble_chart_rounded, 'Bomba', onBomb),
+          const SizedBox(width: 5),
+          _tap(attackIcon, 'Saldırı', onAttack),
+          const SizedBox(width: 5),
+          _hold(Icons.keyboard_arrow_up_rounded, 'Zıpla', (v) {
+            if (v) {
+              onJumpDown();
+            } else {
+              onJumpUp();
+            }
+          }),
+        ],
       );
-    } else {
-      px(5.4, 4.6, 1.6, .8, const Color(0xffcbd5e1));
-      px(5.4, 4.6, .55, .8, const Color(0xfffbbf24));
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
