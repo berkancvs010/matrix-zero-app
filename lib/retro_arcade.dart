@@ -4370,8 +4370,12 @@ class _TankState extends State<_TankGame> {
           _lives--;
           _weapon = 0;
           _rapidTicks = 0;
-          if (_lives <= 0) _over = true;
-          else { _player = const math.Point(6, 13); _shieldTicks = 55; }
+          if (_lives <= 0) {
+            _over = true;
+          } else {
+            _player = const math.Point(6, 13);
+            _shieldTicks = 55;
+          }
         }
         continue;
       }
@@ -4487,7 +4491,13 @@ class _TankState extends State<_TankGame> {
           ) : null,
     child: Stack(children: [
         Positioned(left: 0, right: 0, top: 38, bottom: widget.showPad ? 112 : 0, child: GestureDetector(
-          onTap: () { if (_over || _won) setState(_reset); else _fire(); },
+          onTap: () {
+            if (_over || _won) {
+              setState(_reset);
+            } else {
+              _fire();
+            }
+          },
           onHorizontalDragEnd: (d) => _move((d.primaryVelocity ?? 0) > 0 ? 1 : -1, 0),
           onVerticalDragEnd: (d) => _move(0, (d.primaryVelocity ?? 0) > 0 ? 1 : -1),
           child: CustomPaint(
@@ -4516,7 +4526,7 @@ class _TankState extends State<_TankGame> {
   Widget _tankHud() => Row(children: [
     _hudChip('DALGA $_stage', const Color(0xffffca62)),
     const SizedBox(width: 6),
-    _hudChip('${_defeated}/${10 + (_stage - 1) * 2} HEDEF', const Color(0xff8be0ff)),
+    _hudChip('$_defeated/${10 + (_stage - 1) * 2} HEDEF', const Color(0xff8be0ff)),
     const Spacer(),
     _hudChip('ZIRH ${List.filled(_weapon + 1, '◆').join()}', const Color(0xff83e7a6)),
   ]);
@@ -4588,7 +4598,9 @@ class _TankPainter extends CustomPainter {
         canvas.drawRect(Rect.fromLTWH(r.left, r.top, r.width * enemy.hp / 3, r.height), Paint()..color = const Color(0xffff6b6b));
       }
     }
-    for (final pickup in pickups) _drawPickup(canvas, left, top, cell, pickup);
+    for (final pickup in pickups) {
+      _drawPickup(canvas, left, top, cell, pickup);
+    }
     for (final bullet in bullets) {
       final c = Offset(left + bullet.x * cell, top + bullet.y * cell);
       canvas.drawCircle(c, cell * .2, Paint()..color = (bullet.enemy ? const Color(0xffff6374) : const Color(0xffffe279)).withValues(alpha: .25));
