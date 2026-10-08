@@ -91,13 +91,20 @@ void main() {
   });
 
   test(
-    'tank battle includes player shots, enemy shots, cover and terminal states',
+    'tank arena has five enemy roles, five powerups, destructible cover and waves',
     () {
       expect(source, contains('class _TankState'));
       expect(source, contains('void _fire()'));
       expect(source, contains('bullet.enemy'));
-      expect(source, contains(r"_walls.contains('$bx:$by')"));
-      expect(source, contains('_enemies.isEmpty'));
+      for (final kind in ['scout', 'grunt', 'striker', 'demolisher', 'heavy']) {
+        expect(source, contains('_TankKind.$kind'));
+      }
+      for (final power in ['rapid', 'freeze', 'shield', 'bomb', 'upgrade']) {
+        expect(source, contains('_PowerKind.$power'));
+      }
+      expect(source, contains('void _buildBricks()'));
+      expect(source, contains('_defeated >= 10 + (_stage - 1) * 2'));
+      expect(source, contains('_baseAlive = false'));
     },
   );
 

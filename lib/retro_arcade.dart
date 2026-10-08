@@ -32,7 +32,7 @@ const _retroGames = <RetroGame>[
   RetroGame(
     'tank_arena',
     'Tank Arenası',
-    'Duvarları kullan, düşman tanklarını alt et.',
+    'Üssünü koru, tankını güçlendir ve dalgaları temizle.',
     Icons.shield_moon_rounded,
     'Arcade',
     gamepad: true,
@@ -4137,7 +4137,8 @@ void _drawHeroFigure(
 }
 
 // ---------------------------------------------------------------------------
-// Tank arena: grid movement, destructible-looking cover, enemy volleys
+// ---------------------------------------------------------------------------
+// Tank arena: özgün Battle City esintili dalga tabanlı arena savunması.
 // ---------------------------------------------------------------------------
 class _TankGame extends StatefulWidget {
   final bool showPad;
@@ -4146,67 +4147,97 @@ class _TankGame extends StatefulWidget {
   State<_TankGame> createState() => _TankState();
 }
 
+enum _TankKind { scout, grunt, striker, demolisher, heavy }
+enum _PowerKind { rapid, freeze, shield, bomb, upgrade }
+
 class _TankUnit {
   math.Point<int> position;
   math.Point<int> direction;
-  _TankUnit(this.position, this.direction);
+  final _TankKind kind;
+  int hp;
+  int moveClock = 0;
+  int fireClock = 0;
+  _TankUnit(this.position, this.direction, this.kind, this.hp);
 }
 
 class _TankBullet {
   double x, y;
   final int dx, dy;
   final bool enemy;
-  _TankBullet(this.x, this.y, this.dx, this.dy, this.enemy);
+  final int damage;
+  _TankBullet(this.x, this.y, this.dx, this.dy, this.enemy, this.damage);
+}
+
+class _TankPickup {
+  final math.Point<int> position;
+  final _PowerKind kind;
+  int life = 120;
+  _TankPickup(this.position, this.kind);
 }
 
 class _TankState extends State<_TankGame> {
   static const _cols = 13, _rows = 16;
-  static const _walls = <String>{
-    '3:3',
-    '4:3',
-    '8:3',
-    '9:3',
-    '3:4',
-    '9:4',
-    '1:7',
-    '2:7',
-    '5:7',
-    '6:7',
-    '7:7',
-    '10:7',
-    '11:7',
-    '4:10',
-    '5:10',
-    '7:10',
-    '8:10',
-    '2:12',
-    '10:12',
+  static const _base = math.Point<int>(6, 15);
+  static const _steel = <String>{'6:5', '6:6', '0:9', '12:9', '3:12', '9:12'};
+  static const _water = <String>{'5:4', '6:4', '7:4', '5:11', '6:11', '7:11'};
+  static const _forest = <String>{'1:3', '2:3', '10:3', '11:3', '1:10', '11:10'};
+  static const _spawnXs = [1, 6, 11];
+  static const _kindColors = {
+    _TankKind.scout: Color(0xff5de4c7),
+    _TankKind.grunt: Color(0xffff6b6b),
+    _TankKind.striker: Color(0xffffbd59),
+    _TankKind.demolisher: Color(0xffc084fc),
+    _TankKind.heavy: Color(0xfff4f4f5),
   };
+  static const _powerNames = {
+    _PowerKind.rapid: 'HIZLI ATEŞ',
+    _PowerKind.freeze: 'DONDURMA',
+    _PowerKind.shield: 'ENERJİ KALKANI',
+    _PowerKind.bomb: 'ARENA BOMBASI',
+    _PowerKind.upgrade: 'SİLAH GÜÇLENDİRME',
+  };
+  static const _powerColors = {
+    _PowerKind.rapid: Color(0xffffa94d),
+    _PowerKind.freeze: Color(0xff67c8ff),
+    _PowerKind.shield: Color(0xff64e7a8),
+    _PowerKind.bomb: Color(0xffff657a),
+    _PowerKind.upgrade: Color(0xffffdb66),
+  };
+
   Timer? _timer;
+  final math.Random _random = math.Random();
   final List<_TankUnit> _enemies = [];
   final List<_TankBullet> _bullets = [];
-  math.Point<int> _player = const math.Point(6, 14);
+  final Map<String, int> _bricks = {};
+  final List<_TankPickup> _pickups = [];
+  math.Point<int> _player = const math.Point(6, 13);
   math.Point<int> _direction = const math.Point(0, -1);
-  int _lives = 3, _score = 0, _ticks = 0;
-  bool _over = false, _won = false;
+  int _lives = 3, _score = 0, _ticks = 0, _stage = 1;
+  int _defeated = 0, _spawned = 0, _weapon = 0, _fireCooldown = 0;
+  int _rapidTicks = 0, _freezeTicks = 0, _shieldTicks = 0, _powerToastTicks = 0;
+  bool _over = false, _won = false, _baseAlive = true;
+  _PowerKind? _lastPower;
 
   @override
   void initState() {
     super.initState();
     _reset();
-    _timer = Timer.periodic(const Duration(milliseconds: 45), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 42), (_) {
       if (mounted && !_over && !_won) setState(_tick);
     });
   }
 
-  bool _blocked(math.Point<int> p) =>
-      p.x < 0 ||
-      p.x >= _cols ||
-      p.y < 0 ||
-      p.y >= _rows ||
-      p == _player ||
-      _walls.contains('${p.x}:${p.y}') ||
-      _enemies.any((e) => e.position == p);
+  String _key(int x, int y) => '$x:$y';
+
+  bool _blocked(math.Point<int> p, {bool includeEnemies = true}) {
+    if (p.x < 0 || p.x >= _cols || p.y < 0 || p.y >= _rows) return true;
+    if (p == _base || _steel.contains(_key(p.x, p.y)) ||
+        _water.contains(_key(p.x, p.y)) || _bricks.containsKey(_key(p.x, p.y))) {
+      return true;
+    }
+    if (p == _player) return true;
+    return includeEnemies && _enemies.any((e) => e.position == p);
+  }
 
   void _move(int dx, int dy) {
     if (_over || _won) return;
@@ -4219,154 +4250,281 @@ class _TankState extends State<_TankGame> {
   }
 
   void _fire() {
-    if (_over || _won) return;
-    _bullets.add(
-      _TankBullet(
-        _player.x + .5 + _direction.x * .55,
-        _player.y + .5 + _direction.y * .55,
-        _direction.x,
-        _direction.y,
-        false,
-      ),
-    );
+    if (_over || _won || _fireCooldown > 0) return;
+    _bullets.add(_TankBullet(
+      _player.x + .5 + _direction.x * .58,
+      _player.y + .5 + _direction.y * .58,
+      _direction.x, _direction.y, false, _weapon >= 3 ? 2 : 1,
+    ));
+    _fireCooldown = _rapidTicks > 0 ? 5 : math.max(9, 17 - _weapon * 2);
+  }
+
+  void _spawnEnemy() {
+    if (_spawned >= 10 + (_stage - 1) * 2 || _enemies.length >= 4) return;
+    for (var attempt = 0; attempt < _spawnXs.length; attempt++) {
+      final x = _spawnXs[(_spawned + attempt) % _spawnXs.length];
+      final p = math.Point<int>(x, 0);
+      if (!_blocked(p)) {
+        final roll = _random.nextInt(100);
+        final kind = _spawned % 7 == 6 || roll > 90
+            ? _TankKind.heavy
+            : roll > 70
+                ? _TankKind.demolisher
+                : roll > 48
+                    ? _TankKind.striker
+                    : roll > 25
+                        ? _TankKind.scout
+                        : _TankKind.grunt;
+        _enemies.add(_TankUnit(p, const math.Point(0, 1), kind,
+            kind == _TankKind.heavy ? 3 : 1));
+        _spawned++;
+            return;
+      }
+    }
   }
 
   void _tick() {
     _ticks++;
-    if (_ticks % 14 == 0) {
+    if (_fireCooldown > 0) _fireCooldown--;
+    if (_rapidTicks > 0) _rapidTicks--;
+    if (_freezeTicks > 0) _freezeTicks--;
+    if (_shieldTicks > 0) _shieldTicks--;
+    if (_powerToastTicks > 0) _powerToastTicks--;
+    if (_ticks % 100 == 0) _spawnEnemy();
+    if (_ticks % 3 == 0 && _spawned < 10 + (_stage - 1) * 2 && _enemies.length < 4) {
+      _spawnEnemy();
+    }
+
+    if (_freezeTicks == 0) {
       for (final enemy in _enemies) {
-        final options = [
-          const math.Point(0, 1),
-          const math.Point(1, 0),
-          const math.Point(-1, 0),
-          const math.Point(0, -1),
-        ];
-        final direction = options[math.Random().nextInt(options.length)];
-        final next = math.Point(
-          enemy.position.x + direction.x,
-          enemy.position.y + direction.y,
-        );
-        if (!_blocked(next) && next.y < 13) enemy.position = next;
-        enemy.direction = direction;
+        enemy.moveClock++;
+        final pace = switch (enemy.kind) {
+          _TankKind.scout => 4,
+          _TankKind.grunt => 8,
+          _TankKind.striker => 6,
+          _TankKind.demolisher => 7,
+          _TankKind.heavy => 8,
+        };
+        if (enemy.moveClock >= pace) {
+          enemy.moveClock = 0;
+          final aim = _random.nextInt(100) < 58
+              ? _directionToward(enemy.position, _random.nextBool() ? _player : _base)
+              : const <math.Point<int>>[
+                  math.Point(0, 1), math.Point(1, 0),
+                  math.Point(-1, 0), math.Point(0, -1),
+                ][_random.nextInt(4)];
+          var next = math.Point(enemy.position.x + aim.x, enemy.position.y + aim.y);
+          if (next.y >= 15) next = const math.Point(6, 14);
+          if (!_blocked(next)) {
+            enemy.position = next;
+            enemy.direction = aim;
+          } else if (_random.nextBool()) {
+            enemy.direction = const <math.Point<int>>[
+              math.Point(0, 1), math.Point(1, 0),
+              math.Point(-1, 0), math.Point(0, -1),
+            ][_random.nextInt(4)];
+          }
+        }
+        enemy.fireClock++;
+        final firePace = enemy.kind == _TankKind.striker ? 35 : 58;
+        if (enemy.fireClock >= firePace) {
+          enemy.fireClock = _random.nextInt(12);
+          _bullets.add(_TankBullet(
+            enemy.position.x + .5 + enemy.direction.x * .58,
+            enemy.position.y + .5 + enemy.direction.y * .58,
+            enemy.direction.x, enemy.direction.y, true,
+            enemy.kind == _TankKind.demolisher ? 2 : 1,
+          ));
+        }
       }
     }
-    if (_ticks % 27 == 0 && _enemies.isNotEmpty) {
-      final enemy = _enemies[math.Random().nextInt(_enemies.length)];
-      _bullets.add(
-        _TankBullet(
-          enemy.position.x + .5 + enemy.direction.x * .55,
-          enemy.position.y + .5 + enemy.direction.y * .55,
-          enemy.direction.x,
-          enemy.direction.y,
-          true,
-        ),
-      );
-    }
-    final hitEnemies = <_TankUnit>{};
+
+    for (final pickup in _pickups) { pickup.life--; }
+    _pickups.removeWhere((p) => p.life <= 0);
     final remaining = <_TankBullet>[];
+    final defeated = <_TankUnit>{};
     for (final bullet in _bullets) {
-      bullet.x += bullet.dx * .30;
-      bullet.y += bullet.dy * .30;
+      bullet.x += bullet.dx * .32;
+      bullet.y += bullet.dy * .32;
       final bx = bullet.x.floor(), by = bullet.y.floor();
-      if (bx < 0 ||
-          bx >= _cols ||
-          by < 0 ||
-          by >= _rows ||
-          _walls.contains('$bx:$by')) {
+      if (bx < 0 || bx >= _cols || by < 0 || by >= _rows) continue;
+      final key = _key(bx, by);
+      if (_steel.contains(key) || _water.contains(key)) continue;
+      if (_bricks.containsKey(key)) {
+        final hp = (_bricks[key] ?? 1) - bullet.damage;
+        if (hp <= 0) {
+          _bricks.remove(key);
+          _score += 10;
+        } else {
+          _bricks[key] = hp;
+        }
+        continue;
+      }
+      if (bullet.enemy && _baseAlive && bx == _base.x && by == _base.y) {
+        _baseAlive = false;
+        _over = true;
         continue;
       }
       if (bullet.enemy && bx == _player.x && by == _player.y) {
-        _lives--;
-        if (_lives <= 0) _over = true;
+        if (_shieldTicks == 0) {
+          _lives--;
+          _weapon = 0;
+          _rapidTicks = 0;
+          if (_lives <= 0) _over = true;
+          else { _player = const math.Point(6, 13); _shieldTicks = 55; }
+        }
         continue;
       }
-      final enemyIndex = _enemies.indexWhere(
-        (unit) => unit.position.x == bx && unit.position.y == by,
-      );
-      if (!bullet.enemy && enemyIndex >= 0) {
-        hitEnemies.add(_enemies[enemyIndex]);
-        _score += 100;
-        continue;
+      if (!bullet.enemy) {
+        final enemy = _enemies.cast<_TankUnit?>().firstWhere(
+          (e) => e != null && e.position.x == bx && e.position.y == by,
+          orElse: () => null,
+        );
+        if (enemy != null) {
+          enemy.hp -= bullet.damage;
+          if (enemy.hp <= 0 && defeated.add(enemy)) {
+            _score += switch (enemy.kind) {
+              _TankKind.scout => 180,
+              _TankKind.grunt => 100,
+              _TankKind.striker => 220,
+              _TankKind.demolisher => 280,
+              _TankKind.heavy => 400,
+            };
+            _defeated++;
+            if (_random.nextInt(100) < 29 && _pickups.isEmpty) {
+              _pickups.add(_TankPickup(enemy.position,
+                  _PowerKind.values[_random.nextInt(_PowerKind.values.length)]));
+            }
+          }
+          continue;
+        }
       }
-      if (bullet.x < 0 ||
-          bullet.x >= _cols ||
-          bullet.y < 0 ||
-          bullet.y >= _rows) {
-        continue;
+      if (bullet.x >= 0 && bullet.x < _cols && bullet.y >= 0 && bullet.y < _rows) {
+        remaining.add(bullet);
       }
-      remaining.add(bullet);
     }
-    _bullets
+    _bullets..clear()..addAll(remaining);
+    _enemies.removeWhere((e) => e.hp <= 0);
+
+    final pickupIndex = _pickups.indexWhere((p) => p.position == _player);
+    if (pickupIndex >= 0) _collect(_pickups.removeAt(pickupIndex).kind);
+    if (_defeated >= 10 + (_stage - 1) * 2 && _enemies.isEmpty) {
+      if (_stage >= 3) { _won = true; }
+      else {
+        _stage++;
+        _defeated = 0;
+        _spawned = 0;
+        _player = const math.Point(6, 13);
+        _bullets.clear();
+        _buildBricks();
+        _shieldTicks = 65;
+      }
+    }
+  }
+
+  math.Point<int> _directionToward(math.Point<int> from, math.Point<int> to) {
+    final dx = to.x - from.x, dy = to.y - from.y;
+    if (dx.abs() > dy.abs()) return math.Point(dx < 0 ? -1 : 1, 0);
+    return math.Point(0, dy == 0 ? 1 : (dy < 0 ? -1 : 1));
+  }
+
+  void _collect(_PowerKind kind) {
+    _score += 250;
+    _powerToastTicks = 110;
+    _lastPower = kind;
+    switch (kind) {
+      case _PowerKind.rapid: _rapidTicks = 230; break;
+      case _PowerKind.freeze: _freezeTicks = 180; break;
+      case _PowerKind.shield: _shieldTicks = 210; break;
+      case _PowerKind.bomb:
+        _score += _enemies.length * 100;
+        _defeated += _enemies.length;
+        _enemies.clear();
+        break;
+      case _PowerKind.upgrade:
+        _weapon = math.min(3, _weapon + 1);
+        if (_weapon == 3 && _random.nextInt(3) == 0) _lives++;
+        break;
+    }
+  }
+
+  void _buildBricks() {
+    _bricks
       ..clear()
-      ..addAll(remaining);
-    _enemies.removeWhere(hitEnemies.contains);
-    if (_enemies.isEmpty) _won = true;
+      ..addAll({
+        '2:2': 2, '3:2': 2, '9:2': 2, '10:2': 2,
+        '2:3': 2, '4:3': 2, '8:3': 2, '10:3': 2,
+        '1:6': 2, '2:6': 2, '4:6': 2, '8:6': 2, '10:6': 2, '11:6': 2,
+        '4:8': 2, '5:8': 2, '7:8': 2, '8:8': 2,
+        '2:10': 2, '3:10': 2, '9:10': 2, '10:10': 2,
+        '4:12': 2, '5:12': 2, '7:12': 2, '8:12': 2,
+        '5:14': 2, '6:14': 2, '7:14': 2,
+      });
   }
 
   void _reset() {
-    _player = const math.Point(6, 14);
+    _player = const math.Point(6, 13);
     _direction = const math.Point(0, -1);
-    _lives = 3;
-    _score = 0;
-    _ticks = 0;
-    _over = false;
-    _won = false;
-    _enemies
-      ..clear()
-      ..addAll([
-        _TankUnit(const math.Point(2, 1), const math.Point(0, 1)),
-        _TankUnit(const math.Point(6, 1), const math.Point(0, 1)),
-        _TankUnit(const math.Point(10, 1), const math.Point(0, 1)),
-      ]);
-    _bullets.clear();
+    _lives = 3; _score = 0; _ticks = 0; _stage = 1;
+    _defeated = 0; _spawned = 0; _weapon = 0; _fireCooldown = 0;
+    _rapidTicks = 0; _freezeTicks = 0; _shieldTicks = 80; _powerToastTicks = 0;
+    _over = false; _won = false; _baseAlive = true; _lastPower = null;
+    _enemies.clear(); _bullets.clear(); _pickups.clear();
+    _buildBricks();
   }
 
   @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
+  void dispose() { _timer?.cancel(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) => _ArcadeFrame(
-    score: _won
-        ? 'KAZANDIN • $_score'
-        : _over
-        ? 'TANK KAYBEDİLDİ'
-        : '$_score PTS  •  ♥ $_lives',
+    score: _won ? 'ARENA TAMAM • $_score' : _over ? 'ÜS DÜŞTÜ • $_score' : '$_score PTS  •  ♥ $_lives',
     controls: widget.showPad
         ? _VirtualGamepad(
-            up: () => _move(0, -1),
-            down: () => _move(0, 1),
-            left: () => _move(-1, 0),
-            right: () => _move(1, 0),
-            a: _fire,
-            b: () => setState(_reset),
-          )
-        : null,
-    child: GestureDetector(
-      onTap: () {
-        if (_over || _won) {
-          setState(_reset);
-        } else {
-          _fire();
-        }
-      },
-      onHorizontalDragEnd: (d) =>
-          _move((d.primaryVelocity ?? 0) > 0 ? 1 : -1, 0),
-      onVerticalDragEnd: (d) => _move(0, (d.primaryVelocity ?? 0) > 0 ? 1 : -1),
-      child: CustomPaint(
-        painter: _TankPainter(
-          player: _player,
-          direction: _direction,
-          enemies: _enemies,
-          bullets: _bullets,
-          over: _over,
-          won: _won,
-        ),
-        size: Size.infinite,
-      ),
-    ),
+            up: () => _move(0, -1), down: () => _move(0, 1),
+            left: () => _move(-1, 0), right: () => _move(1, 0),
+            a: _fire, b: () => setState(_reset),
+          ) : null,
+    child: Stack(children: [
+        Positioned(left: 0, right: 0, top: 38, bottom: widget.showPad ? 112 : 0, child: GestureDetector(
+          onTap: () { if (_over || _won) setState(_reset); else _fire(); },
+          onHorizontalDragEnd: (d) => _move((d.primaryVelocity ?? 0) > 0 ? 1 : -1, 0),
+          onVerticalDragEnd: (d) => _move(0, (d.primaryVelocity ?? 0) > 0 ? 1 : -1),
+          child: CustomPaint(
+            painter: _TankPainter(
+              player: _player, direction: _direction, enemies: _enemies,
+              bullets: _bullets, bricks: _bricks, pickups: _pickups,
+              weapon: _weapon, shield: _shieldTicks > 0,
+              frozen: _freezeTicks > 0, baseAlive: _baseAlive,
+              over: _over, won: _won,
+            ),
+            size: Size.infinite,
+          ),
+        )),
+        Positioned(left: 10, right: 10, top: 9, child: _tankHud()),
+        if (_lastPower != null && _powerToastTicks > 0 && !_over && !_won)
+          Positioned(top: 44, left: 0, right: 0, child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(color: _powerColors[_lastPower]!.withValues(alpha: .2), borderRadius: BorderRadius.circular(20), border: Border.all(color: _powerColors[_lastPower]!.withValues(alpha: .6))),
+              child: Text('${_powerNames[_lastPower]} AKTİF', style: TextStyle(color: _powerColors[_lastPower], fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1)),
+            ),
+          )),
+      ]),
+  );
+
+  Widget _tankHud() => Row(children: [
+    _hudChip('DALGA $_stage', const Color(0xffffca62)),
+    const SizedBox(width: 6),
+    _hudChip('${_defeated}/${10 + (_stage - 1) * 2} HEDEF', const Color(0xff8be0ff)),
+    const Spacer(),
+    _hudChip('ZIRH ${List.filled(_weapon + 1, '◆').join()}', const Color(0xff83e7a6)),
+  ]);
+
+  Widget _hudChip(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(color: const Color(0xdd101925), borderRadius: BorderRadius.circular(9), border: Border.all(color: color.withValues(alpha: .32))),
+    child: Text(text, style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: .5)),
   );
 }
 
@@ -4374,150 +4532,150 @@ class _TankPainter extends CustomPainter {
   final math.Point<int> player, direction;
   final List<_TankUnit> enemies;
   final List<_TankBullet> bullets;
-  final bool over, won;
-  const _TankPainter({
-    required this.player,
-    required this.direction,
-    required this.enemies,
-    required this.bullets,
-    required this.over,
-    required this.won,
-  });
+  final Map<String, int> bricks;
+  final List<_TankPickup> pickups;
+  final int weapon;
+  final bool shield, frozen, baseAlive, over, won;
+  const _TankPainter({required this.player, required this.direction,
+    required this.enemies, required this.bullets, required this.bricks,
+    required this.pickups, required this.weapon, required this.shield,
+    required this.frozen, required this.baseAlive, required this.over,
+    required this.won});
+
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xff101b23),
-    );
+    canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xff08111a));
     final cell = math.min(size.width / 13, size.height / 16).toDouble();
     final left = (size.width - cell * 13) / 2;
     final top = (size.height - cell * 16) / 2;
+    final rect = Rect.fromLTWH(left, top, cell * 13, cell * 16);
+    canvas.drawRRect(RRect.fromRectAndRadius(rect.inflate(3), const Radius.circular(8)), Paint()..color = const Color(0xff203240));
     for (var y = 0; y < 16; y++) {
       for (var x = 0; x < 13; x++) {
-        final rect = Rect.fromLTWH(
-          left + x * cell,
-          top + y * cell,
-          cell - 1,
-          cell - 1,
-        );
-        canvas.drawRect(
-          rect,
-          Paint()
-            ..color = (x + y) % 2 == 0
-                ? const Color(0xff15252c)
-                : const Color(0xff192b31),
-        );
-        if (_TankState._walls.contains('$x:$y')) {
-          canvas.drawRRect(
-            RRect.fromRectAndRadius(rect.deflate(1), const Radius.circular(3)),
-            Paint()..color = const Color(0xff9a6445),
-          );
-          canvas.drawLine(
-            rect.topLeft + Offset(3, cell * .38),
-            rect.topRight + Offset(-3, cell * .38),
-            Paint()
-              ..color = const Color(0xffffc857)
-              ..strokeWidth = 2,
-          );
+        final key = '$x:$y';
+        final cellRect = Rect.fromLTWH(left + x * cell, top + y * cell, cell - 1, cell - 1);
+        canvas.drawRect(cellRect, Paint()..color = (x + y).isEven ? const Color(0xff14232b) : const Color(0xff172830));
+        if (_TankState._water.contains(key)) {
+          canvas.drawRect(cellRect.deflate(1), Paint()..color = const Color(0xff124b68));
+          for (var wave = 0; wave < 2; wave++) {
+            final yy = cellRect.top + cell * (.32 + wave * .34);
+            canvas.drawLine(Offset(cellRect.left + 2, yy), Offset(cellRect.right - 2, yy), Paint()..color = const Color(0xff43bde3).withValues(alpha: .45)..strokeWidth = 1.2);
+          }
         }
+        if (_TankState._forest.contains(key)) {
+          final c = Offset(cellRect.center.dx, cellRect.center.dy);
+          canvas.drawCircle(c, cell * .34, Paint()..color = const Color(0xff1b613e));
+          canvas.drawCircle(c + Offset(-cell * .12, -cell * .08), cell * .18, Paint()..color = const Color(0xff348250));
+        }
+        if (_TankState._steel.contains(key)) _drawBlock(canvas, cellRect, const Color(0xff77899a), true, cell);
+        final hp = bricks[key];
+        if (hp != null) _drawBlock(canvas, cellRect, hp == 2 ? const Color(0xffb46b46) : const Color(0xffe69a58), false, cell);
       }
     }
-    _drawTank(
-      canvas,
-      left,
-      top,
-      cell,
-      player,
-      direction,
-      const Color(0xff68d391),
-    );
-    for (final enemy in enemies) {
-      _drawTank(
-        canvas,
-        left,
-        top,
-        cell,
-        enemy.position,
-        enemy.direction,
-        const Color(0xffef6672),
-      );
+    _drawBase(canvas, left, top, cell);
+    _drawTank(canvas, left, top, cell, player, direction, const Color(0xff7feb92), false, weapon + 1);
+    if (shield) {
+      final center = Offset(left + (player.x + .5) * cell, top + (player.y + .5) * cell);
+      canvas.drawCircle(center, cell * .52, Paint()..color = const Color(0xff64dfff).withValues(alpha: .14));
+      canvas.drawCircle(center, cell * .48, Paint()..color = const Color(0xff64dfff)..style = PaintingStyle.stroke..strokeWidth = 1.5);
     }
+    for (final enemy in enemies) {
+      final color = _TankState._kindColors[enemy.kind]!;
+      _drawTank(canvas, left, top, cell, enemy.position, enemy.direction, color, true, 1, enemy.kind);
+      if (enemy.kind == _TankKind.heavy && enemy.hp < 3) {
+        final r = Rect.fromLTWH(left + enemy.position.x * cell + 2, top + enemy.position.y * cell - 2, cell - 4, 2.5);
+        canvas.drawRect(r, Paint()..color = const Color(0xff40252a));
+        canvas.drawRect(Rect.fromLTWH(r.left, r.top, r.width * enemy.hp / 3, r.height), Paint()..color = const Color(0xffff6b6b));
+      }
+    }
+    for (final pickup in pickups) _drawPickup(canvas, left, top, cell, pickup);
     for (final bullet in bullets) {
-      canvas.drawCircle(
-        Offset(left + bullet.x * cell, top + bullet.y * cell),
-        cell * .13,
-        Paint()
-          ..color = bullet.enemy
-              ? const Color(0xffff6b6b)
-              : const Color(0xffffdf70),
-      );
+      final c = Offset(left + bullet.x * cell, top + bullet.y * cell);
+      canvas.drawCircle(c, cell * .2, Paint()..color = (bullet.enemy ? const Color(0xffff6374) : const Color(0xffffe279)).withValues(alpha: .25));
+      canvas.drawCircle(c, cell * .105, Paint()..color = bullet.enemy ? const Color(0xffff6374) : const Color(0xffffe279));
+    }
+    if (frozen) {
+      canvas.drawRect(rect, Paint()..color = const Color(0xff52cfff).withValues(alpha: .07));
+      _centerText(canvas, rect, '❄ DÜŞMANLAR DONDURULDU', const Color(0xff8ce4ff), cell * .32);
     }
     if (over || won) {
-      canvas.drawRect(
-        Offset.zero & size,
-        Paint()..color = Colors.black.withValues(alpha: .62),
-      );
-      final p = TextPainter(
-        textDirection: TextDirection.ltr,
-        textAlign: TextAlign.center,
-        text: TextSpan(
-          text: won ? 'ARENA TEMİZ' : 'OYUN BİTTİ',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 24,
-            fontWeight: FontWeight.w900,
-          ),
-          children: const [
-            TextSpan(
-              text: '\nDokun ve yeniden başla',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.white70,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      )..layout(maxWidth: size.width - 20);
-      p.paint(
-        canvas,
-        Offset((size.width - p.width) / 2, (size.height - p.height) / 2),
-      );
+      canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xee06101a));
+      _centerText(canvas, Offset.fromLTWH(0, size.height * .37, size.width, size.height * .25), won ? 'ARENA TEMİZ' : 'ÜS DÜŞTÜ', won ? const Color(0xff85f4ae) : const Color(0xffff7885), math.min(24.0, size.width * .075).toDouble());
+      _centerText(canvas, Offset.fromLTWH(0, size.height * .49, size.width, size.height * .18), 'Dokun ve yeniden oyna', Colors.white70, math.min(12.0, size.width * .04).toDouble());
     }
   }
 
-  void _drawTank(
-    Canvas canvas,
-    double left,
-    double top,
-    double cell,
-    math.Point<int> p,
-    math.Point<int> direction,
-    Color color,
-  ) {
-    final center = Offset(left + (p.x + .5) * cell, top + (p.y + .5) * cell);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(center: center, width: cell * .76, height: cell * .76),
-        const Radius.circular(4),
-      ),
-      Paint()..color = color,
-    );
-    canvas.drawLine(
-      center,
-      center + Offset(direction.x * cell * .40, direction.y * cell * .40),
-      Paint()
-        ..color = const Color(0xffe6edf3)
-        ..strokeWidth = cell * .15
-        ..strokeCap = StrokeCap.round,
-    );
+  void _drawBlock(Canvas canvas, Rect rect, Color color, bool metal, double cell) {
+    final inset = rect.deflate(1.5);
+    canvas.drawRRect(RRect.fromRectAndRadius(inset, Radius.circular(cell * .07)), Paint()..color = color);
+    final hi = Paint()..color = Colors.white.withValues(alpha: metal ? .32 : .22)..strokeWidth = 1;
+    canvas.drawLine(inset.topLeft + Offset(1, 1), inset.topRight + Offset(-1, 1), hi);
+    if (!metal) {
+      canvas.drawLine(Offset(inset.left, inset.center.dy), Offset(inset.right, inset.center.dy), Paint()..color = const Color(0x663d2219)..strokeWidth = 1.2);
+      canvas.drawLine(Offset(inset.center.dx, inset.top), Offset(inset.center.dx, inset.center.dy), Paint()..color = const Color(0x663d2219)..strokeWidth = 1.2);
+    } else {
+      canvas.drawLine(inset.topLeft, inset.bottomRight, Paint()..color = Colors.white24..strokeWidth = 1);
+    }
+  }
+
+  void _drawBase(Canvas canvas, double left, double top, double cell) {
+    final center = Offset(left + 6.5 * cell, top + 15.5 * cell);
+    final color = baseAlive ? const Color(0xffffd166) : const Color(0xff883c48);
+    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: cell * .78, height: cell * .78), Radius.circular(cell * .13)), Paint()..color = color.withValues(alpha: .2));
+    final path = Path()..moveTo(center.dx, center.dy - cell * .3)..lineTo(center.dx + cell * .25, center.dy)..lineTo(center.dx, center.dy + cell * .3)..lineTo(center.dx - cell * .25, center.dy)..close();
+    canvas.drawPath(path, Paint()..color = color);
+    canvas.drawCircle(center, cell * .075, Paint()..color = const Color(0xff15232d));
+  }
+
+  void _drawTank(Canvas canvas, double left, double top, double cell, math.Point<int> p, math.Point<int> d, Color color, bool enemy, int tier, [_TankKind? kind]) {
+    final c = Offset(left + (p.x + .5) * cell, top + (p.y + .5) * cell);
+    final body = Rect.fromCenter(center: c, width: cell * .72, height: cell * .72);
+    final tread = Paint()..color = const Color(0xff111922);
+    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c, width: cell * .94, height: cell * .72), Radius.circular(cell * .12)), tread);
+    canvas.drawRRect(RRect.fromRectAndRadius(body, Radius.circular(cell * .16)), Paint()..color = color);
+    canvas.drawLine(c, c + Offset(d.x * cell * .42, d.y * cell * .42), Paint()..color = const Color(0xfff8f5de)..strokeWidth = cell * .16..strokeCap = StrokeCap.round);
+    canvas.drawCircle(c, cell * .16, Paint()..color = Color.lerp(color, Colors.white, .32)!);
+    if (kind == _TankKind.heavy) {
+      for (var i = -1; i <= 1; i++) {
+        canvas.drawLine(c + Offset(-cell * .2, i * cell * .17), c + Offset(cell * .2, i * cell * .17), Paint()..color = const Color(0x99707b88)..strokeWidth = cell * .055);
+      }
+    } else if (kind == _TankKind.striker) {
+      final perp = Offset(-d.y * cell * .12, d.x * cell * .12);
+      for (final sign in [-1.0, 1.0]) {
+        canvas.drawLine(c + perp * sign, c + Offset(d.x * cell * .4, d.y * cell * .4) + perp * sign, Paint()..color = const Color(0xfff9e1a8)..strokeWidth = cell * .07..strokeCap = StrokeCap.round);
+      }
+    } else if (kind == _TankKind.scout) {
+      canvas.drawCircle(c + Offset(-d.y * cell * .27, d.x * cell * .27), cell * .035, Paint()..color = Colors.white70);
+      canvas.drawCircle(c + Offset(d.y * cell * .27, -d.x * cell * .27), cell * .035, Paint()..color = Colors.white70);
+    } else if (kind == _TankKind.demolisher) {
+      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c, width: cell * .44, height: cell * .44), Radius.circular(cell * .04)), Paint()..color = const Color(0xfff4d5ff)..style = PaintingStyle.stroke..strokeWidth = cell * .045);
+    }
+    if (!enemy && tier > 1) {
+      for (var i = 0; i < tier - 1; i++) {
+        canvas.drawCircle(Offset(c.dx - cell * .16 + i * cell * .2, c.dy + cell * .27), cell * .035, Paint()..color = const Color(0xffffe27a));
+      }
+    }
+  }
+
+  void _drawPickup(Canvas canvas, double left, double top, double cell, _TankPickup pickup) {
+    final c = Offset(left + (pickup.position.x + .5) * cell, top + (pickup.position.y + .5) * cell);
+    final colors = const { _PowerKind.rapid: Color(0xffffa94d), _PowerKind.freeze: Color(0xff67c8ff), _PowerKind.shield: Color(0xff64e7a8), _PowerKind.bomb: Color(0xffff657a), _PowerKind.upgrade: Color(0xffffdb66) };
+    final icons = const { _PowerKind.rapid: '⚡', _PowerKind.freeze: '❄', _PowerKind.shield: '◈', _PowerKind.bomb: '✹', _PowerKind.upgrade: '★' };
+    canvas.drawCircle(c, cell * .43, Paint()..color = colors[pickup.kind]!.withValues(alpha: .22));
+    canvas.drawCircle(c, cell * .36, Paint()..color = colors[pickup.kind]!..style = PaintingStyle.stroke..strokeWidth = 1.5);
+    final tp = TextPainter(text: TextSpan(text: icons[pickup.kind], style: TextStyle(fontSize: cell * .39, color: colors[pickup.kind], fontWeight: FontWeight.w900)), textDirection: TextDirection.ltr)..layout();
+    tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
+  }
+
+  void _centerText(Canvas canvas, Rect rect, String text, Color color, double fontSize) {
+    final painter = TextPainter(textDirection: TextDirection.ltr, textAlign: TextAlign.center, text: TextSpan(text: text, style: TextStyle(color: color, fontSize: fontSize, fontWeight: FontWeight.w900, letterSpacing: 1)))..layout(maxWidth: rect.width - 16);
+    painter.paint(canvas, Offset(rect.center.dx - painter.width / 2, rect.center.dy - painter.height / 2));
   }
 
   @override
   bool shouldRepaint(covariant _TankPainter old) => true;
 }
 
-// ---------------------------------------------------------------------------
 // Space-defense shooter
 // ---------------------------------------------------------------------------
 class _SpaceGame extends StatefulWidget {
