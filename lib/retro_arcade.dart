@@ -816,7 +816,7 @@ class _Dust {
   double x;
   double y;
   final double vx;
-  final double vy;
+  double vy;
   int life = 18;
   bool remove = false;
   _Dust(this.x, this.y, this.vx, this.vy);
@@ -3228,7 +3228,11 @@ class _PlatformPainter extends CustomPainter {
     Color c,
     double fade,
   ) {
-    canvas.drawCircle(cx, cy, tile * .34, Paint()..color = c.withValues(alpha: .18 * fade));
+    canvas.drawCircle(
+      Offset(cx, cy),
+      tile * .34,
+      Paint()..color = c.withValues(alpha: .18 * fade),
+    );
   }
 
   void _overlay(Canvas canvas, Size size, String title, String subtitle) {
