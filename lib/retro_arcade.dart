@@ -708,6 +708,13 @@ const double _coderJump = -.42;
 // Ivme: programci daha yavas ama daha cevik hizlanir; sef ust hizada kalir.
 const double _chiefAccel = .011;
 const double _coderAccel = .0135;
+// Çekiç vuruş menzili: şefin çekici üç kat uzundur (eski 1.45 → 4.35 karo).
+// Böylece önündeki düşmanı ve karoları çok daha uzaktan biçer.
+const double _hammerReach = 4.35;
+const double _hammerBehind = .9;
+const double _hammerVertical = 1.15;
+// Seviye başına koşu/zıplama ivmesine eklenen büyüme katsayısı.
+const double _growthPerLevel = .055;
 
 class _HeroInfo {
   final String name;
@@ -733,8 +740,8 @@ class _HeroInfo {
 const Map<_PlatformerHero, _HeroInfo> _heroInfo = {
   _PlatformerHero.chief: _HeroInfo(
     'Şantiye Şefi',
-    'Kasklı ve yelekli; elinde çekiç.',
-    'Daha hızlı koşar · çekiçle tuğla, sandık, varil kırar',
+    'Kasklı, yelekli; elinde üç kat uzun çekiç.',
+    'Hızlı koşar · çekici üç kat erişir, tuğla/sandık/varil kırar · alet kutusu: YER SARSINTISI',
     _chiefRun,
     _chiefJump,
     _chiefAccel,
@@ -743,8 +750,8 @@ const Map<_PlatformerHero, _HeroInfo> _heroInfo = {
   ),
   _PlatformerHero.coder: _HeroInfo(
     'Programcı',
-    'Kapüşonlu ve gözlüklü; elinde USB bellek.',
-    'Daha yükseğe zıplar · USB kıvılcımı ile uzaktan vurur',
+    'Kapüşonlu, gözlüklü; elinde USB bellek.',
+    'Yükseğe zıplar · USB kıvılcımıyla uzaktan vurur · alet kutusu: ÜÇLÜ KIVILCIM',
     _coderRun,
     _coderJump,
     _coderAccel,
@@ -755,12 +762,24 @@ const Map<_PlatformerHero, _HeroInfo> _heroInfo = {
 
 enum _Phase { select, ready, playing, dying, clear, gameover, win }
 
-/// Altı farklı düşman türü: her biri ayrı davranış ve ayrı görüntü.
-/// nut: kestane (ezilir) · spiky: dikenli (ezilmez) · flyer: uçan yarasa,
-/// hopper: sıçrayan örümcek · turret: fışkıran bitki · guard: kalkanlı muhafız.
-enum _EnemyKind { nut, spiky, flyer, hopper, turret, guard }
+/// Kahramanın sandıktan çıkan alet kutusuyla kazandığı geçici özel silah.
+/// quake: çekicin yeri sarsar (şef) · spread: üçlü kıvılcım yelpazesi (programcı).
+enum _SpecialWeapon { quake, spread }
 
-enum _PickupKind { coin, heart, star, gem }
+/// Sekiz farklı düşman türü: her biri ayrı davranış ve ayrı görüntü.
+/// nut: kestane (ezilir) · spiky: dikenli (ezilmez) · flyer: uçan yarasa,
+/// hopper: sıçrayan örümcek · turret: fışkıran bitki · guard: kalkanlı muhafız,
+/// brute: ağır kaya golemi (3 can) · charger: hızlanıp saldıran koç.
+enum _EnemyKind { nut, spiky, flyer, hopper, turret, guard, brute, charger }
+
+enum _PickupKind { coin, heart, star, gem, weapon }
+
+int _enemyStartHp(_EnemyKind kind) => switch (kind) {
+  _EnemyKind.guard => 2,
+  _EnemyKind.charger => 2,
+  _EnemyKind.brute => 3,
+  _ => 1,
+};
 
 class _Enemy {
   double x;
@@ -771,13 +790,21 @@ class _Enemy {
   final double homeY;
   int hp;
   int cool;
+  int hurt = 0;
+  // Koç için hücum sayacı.
+  int charge = 0;
   bool dead = false;
   bool remove = false;
   int deadTicks = 0;
   double t = 0;
-  _Enemy(this.x, this.y, this.kind, this.homeY)
-      : hp = kind == _EnemyKind.guard ? 2 : 1,
-        cool = kind == _EnemyKind.turret ? 70 : 40;
+  _Enemy(this.x, this.y, _EnemyKind kind, this.homeY)
+      : kind = kind,
+        hp = _enemyStartHp(kind),
+        cool = switch (kind) {
+          _EnemyKind.turret => 70,
+          _EnemyKind.charger => 90,
+          _ => 40,
+        };
 }
 
 class _Pickup {
@@ -794,11 +821,12 @@ class _Pickup {
 
 class _Spark {
   double x;
-  final double y;
+  double y;
   final double vx;
+  final double vy;
   int life = 70;
   bool dead = false;
-  _Spark(this.x, this.y, this.vx);
+  _Spark(this.x, this.y, this.vx, [this.vy = 0]);
 }
 
 /// Taret fışkırtması: yavaş ama üzerinden atlanamayan mermi.
@@ -921,10 +949,10 @@ void _arcadePlaySfx(String name) {
 
 /// 14 satırlık ASCII seviye üretici.
 /// '#' zemin, '=' platform, 'B' tuğla, '?' soru bloğu, 'H' can bloğu,
-/// 'V' sandık, 'W' varil (ikisi de kırılır ve ödül düşürür),
+/// 'V' sandık, 'W' varil, 'K' alet kutusu (üçü de kırılır ve ödül düşürür),
 /// 'P' boru, 'o' altın, 'F' bayrak, '@' doğuş noktası.
 /// Düşmanlar: 'E' kestane, 'S' dikenli, 'Y' uçan yarasa, 'J' sıçrayan,
-/// 'n' taret, 'G' kalkanlı muhafız.
+/// 'n' taret, 'G' kalkanlı muhafız, 'X' kaya golemi, 'C' koç.
 class _LevelBuilder {
   final List<String> rows;
   _LevelBuilder(int cols) : rows = List.filled(14, '.' * cols);
@@ -1016,7 +1044,9 @@ List<String> _platformLevel1() {
   b.coins(6, [62, 63, 64]);
   // Düşman kadrosu: altı türün beşi burada tanıtılır.
   b.put(11, 16, 'E');
+  b.put(11, 28, 'C');
   b.put(11, 36, 'E');
+  b.put(11, 44, 'X');
   b.put(11, 50, 'E');
   b.put(11, 62, 'G');
   b.put(11, 68, 'n');
@@ -1024,6 +1054,8 @@ List<String> _platformLevel1() {
   b.put(11, 84, 'S');
   b.put(6, 26, 'Y');
   b.put(5, 55, 'Y');
+  // Özel silah sandığı.
+  b.put(11, 40, 'K');
   b.put(11, 2, '@');
   b.put(6, 89, 'F');
   return b.rows;
@@ -1071,19 +1103,24 @@ List<String> _platformLevel2() {
   b.coins(10, [88, 89, 90, 91]);
   b.put(11, 5, 'E');
   b.put(11, 18, 'E');
+  b.put(11, 26, 'X');
   b.put(11, 30, 'E');
-  b.put(11, 49, 'E');
-  b.put(11, 62, 'E');
-  b.put(11, 80, 'E');
   b.put(11, 37, 'S');
-  b.put(11, 84, 'S');
-  b.put(11, 56, 'G');
-  b.put(11, 78, 'G');
-  b.put(11, 71, 'J');
   b.put(11, 46, 'n');
+  b.put(11, 49, 'E');
+  b.put(11, 50, 'C');
+  b.put(11, 56, 'G');
+  b.put(11, 62, 'E');
+  b.put(11, 71, 'J');
+  b.put(11, 78, 'G');
+  b.put(11, 80, 'E');
+  b.put(11, 83, 'C');
+  b.put(11, 84, 'S');
   b.put(5, 30, 'Y');
   b.put(4, 60, 'Y');
   b.put(4, 85, 'Y');
+  b.put(11, 34, 'K');
+  b.put(11, 76, 'K');
   b.put(11, 2, '@');
   b.put(6, 97, 'F');
   return b.rows;
@@ -1132,25 +1169,30 @@ List<String> _platformLevel3() {
   b.coins(9, [76, 77, 78, 79]);
   b.coins(10, [96, 97, 98, 99]);
   b.put(11, 7, 'E');
+  b.put(11, 24, 'X');
   b.put(11, 28, 'E');
-  b.put(11, 45, 'E');
-  b.put(11, 62, 'E');
-  b.put(11, 82, 'E');
-  b.put(11, 106, 'E');
   b.put(11, 33, 'S');
-  b.put(11, 51, 'S');
-  b.put(11, 90, 'S');
   b.put(11, 36, 'G');
-  b.put(11, 73, 'G');
-  b.put(11, 94, 'G');
-  b.put(11, 55, 'J');
-  b.put(11, 85, 'J');
+  b.put(11, 45, 'E');
+  b.put(11, 46, 'C');
   b.put(11, 50, 'n');
+  b.put(11, 51, 'S');
+  b.put(11, 55, 'J');
+  b.put(11, 62, 'E');
+  b.put(11, 73, 'G');
+  b.put(11, 82, 'E');
+  b.put(11, 84, 'C');
+  b.put(11, 85, 'J');
+  b.put(11, 90, 'S');
   b.put(11, 92, 'n');
+  b.put(11, 94, 'G');
+  b.put(11, 106, 'E');
   b.put(5, 20, 'Y');
   b.put(4, 45, 'Y');
   b.put(6, 66, 'Y');
   b.put(5, 90, 'Y');
+  b.put(11, 65, 'K');
+  b.put(11, 102, 'K');
   b.put(11, 2, '@');
   b.put(6, 107, 'F');
   return b.rows;
@@ -1187,6 +1229,11 @@ class _PlatformerState extends State<_PlatformerGame> {
   int _clock = 0, _phaseTicks = 0, _timeTicks = 0, _clearBonus = 0;
   int _invuln = 0, _jumpBuffer = 0, _attackAnim = 0, _attackCd = 0;
   int _coyote = 0, _star = 0, _stepTick = 0, _broken = 0;
+  // Büyüme: XP toplandıkça kahraman seviye atlar ve güçlenir.
+  int _level = 1, _xp = 0, _xpNext = 120, _levelFlash = 0;
+  // Alet kutusundan gelen geçici özel silah ve ekran sarsıntısı.
+  _SpecialWeapon? _special;
+  int _specialTicks = 0, _shake = 0;
   double _squash = 0;
   bool _wasGrounded = true;
   bool _jumpHeld = false, _jumpCut = false;
@@ -1209,6 +1256,38 @@ class _PlatformerState extends State<_PlatformerGame> {
   _HeroInfo? get _info => _hero == null ? null : _heroInfo[_hero];
   bool get _powered => _star > 0;
 
+  /// Seviyeye bağlı büyüme çarpanı: koşu, zıplama ve saldırı gücünü artırır.
+  double get _growth => 1 + (_level - 1) * _growthPerLevel;
+  bool get _specialActive => _special != null && _specialTicks > 0;
+
+  /// XP kazanır; eşiği aşınca seviye atlar, can yenilenir ve görsel efektler
+  /// tetiklenir. Yeni seviyede bir sonraki eşik büyüyerek zorlaşır.
+  void _gainXp(int amount) {
+    _xp += amount;
+    while (_xp >= _xpNext) {
+      _xp -= _xpNext;
+      _level++;
+      _xpNext = (_xpNext * 1.4).round();
+      _lives = math.min(5, _lives + 1);
+      _levelFlash = 90;
+      _shake = 10;
+      _pops.add(
+        _PopFx(
+          _x,
+          _y - .8,
+          'SEVİYE $_level!',
+          const Color(0xffffe066),
+        ),
+      );
+      for (var i = 0; i < 8; i++) {
+        _dust.add(
+          _Dust(_x + .1 + i * .06, _y + .1, (i - 4) * .04, -.06),
+        );
+      }
+      _arcadePlaySfx('power');
+    }
+  }
+
   static _EnemyKind _kindFor(String ch) {
     switch (ch) {
       case 'S':
@@ -1221,6 +1300,10 @@ class _PlatformerState extends State<_PlatformerGame> {
         return _EnemyKind.turret;
       case 'G':
         return _EnemyKind.guard;
+      case 'X':
+        return _EnemyKind.brute;
+      case 'C':
+        return _EnemyKind.charger;
       default:
         return _EnemyKind.nut;
     }
@@ -1259,7 +1342,7 @@ class _PlatformerState extends State<_PlatformerGame> {
     for (var row = 0; row < _rows; row++) {
       for (var col = 0; col < _cols; col++) {
         final ch = _grid[row][col];
-        if (ch == 'E' || ch == 'S' || ch == 'Y' || ch == 'J' || ch == 'n' || ch == 'G') {
+        if (ch == 'E' || ch == 'S' || ch == 'Y' || ch == 'J' || ch == 'n' || ch == 'G' || ch == 'X' || ch == 'C') {
           final kind = _kindFor(ch);
           final y = kind == _EnemyKind.flyer ? row.toDouble() : row + 1 - .78;
           _enemies.add(_Enemy(col + .14, y, kind, row.toDouble()));
@@ -1293,6 +1376,10 @@ class _PlatformerState extends State<_PlatformerGame> {
     _attackCd = 0;
     _jumpBuffer = 0;
     _jumpCut = false;
+    _special = null;
+    _specialTicks = 0;
+    _shake = 0;
+    _levelFlash = 0;
     _camera = 0;
     _phase = _Phase.ready;
     _phaseTicks = 80;
@@ -1304,6 +1391,11 @@ class _PlatformerState extends State<_PlatformerGame> {
       _score = 0;
       _coinCount = 0;
       _lives = 3;
+      _level = 1;
+      _xp = 0;
+      _xpNext = 120;
+      _special = null;
+      _specialTicks = 0;
       _holdLeft = false;
       _holdRight = false;
       _jumpHeld = false;
@@ -1336,6 +1428,7 @@ class _PlatformerState extends State<_PlatformerGame> {
       case 'P':
       case 'V':
       case 'W':
+      case 'K':
         return true;
       default:
         return false;
@@ -1432,7 +1525,7 @@ class _PlatformerState extends State<_PlatformerGame> {
       );
     } else if (ch == 'B') {
       _bumps['$col:$row'] = 8;
-    } else if (ch == 'V' || ch == 'W') {
+    } else if (ch == 'V' || ch == 'W' || ch == 'K') {
       _smashProp(col, row);
     }
   }
@@ -1447,55 +1540,96 @@ class _PlatformerState extends State<_PlatformerGame> {
   void _attack() {
     if (_phase != _Phase.playing || _attackCd > 0 || _hero == null) return;
     if (_hero == _PlatformerHero.chief) {
-      _attackAnim = 9;
-      _attackCd = 16;
-      _hammerHit();
-      _arcadePlaySfx('swing');
+      final quake = _specialActive && _special == _SpecialWeapon.quake;
+      _attackAnim = quake ? 13 : 9;
+      _attackCd = quake ? 20 : 16;
+      if (quake) _shake = 12;
+      _hammerHit(quake: quake, power: quake ? 2 : 1);
+      _arcadePlaySfx(quake ? 'smash' : 'swing');
     } else {
-      if (_sparks.length >= 2) return;
+      final spread = _specialActive && _special == _SpecialWeapon.spread;
+      final maxSparks = spread ? 4 : 2;
+      if (_sparks.length >= maxSparks) return;
       _attackAnim = 6;
-      _attackCd = 18;
-      _sparks.add(
-        _Spark(_x + (_facing > 0 ? _pw + .05 : -.25), _y + .28, _facing * .22),
-      );
+      _attackCd = spread ? 13 : 18;
+      final muzzleX = _x + (_facing > 0 ? _pw + .05 : -.25);
+      final muzzleY = _y + .28;
+      if (spread) {
+        // Üçlü kıvılcım yelpazesi: yatay, yukarı ve aşağı açılı.
+        for (final vy in [-.07, 0.0, .07]) {
+          _sparks.add(_Spark(muzzleX, muzzleY, _facing * .25, vy));
+        }
+      } else {
+        _sparks.add(_Spark(muzzleX, muzzleY, _facing * .22));
+      }
       _arcadePlaySfx('shoot');
     }
   }
 
-  void _hammerHit() {
+  /// Çekiç savurması. Vuruş menzili üç kat uzundur (`_hammerReach`), önündeki
+  /// tüm kırılabilir karoları biçer. `quake` (özel silah) arka tarafı da vurur.
+  void _hammerHit({bool quake = false, int power = 1}) {
     final cx = _x + _pw / 2;
     for (final e in _enemies) {
       if (e.dead) continue;
       final dx = e.x + .36 - cx;
-      if (dx * _facing >= -.35 && dx.abs() < 1.45 && (e.y - _y).abs() < 1.0) {
-        _damageEnemy(e, _facing);
+      final inFront = quake || dx * _facing >= -_hammerBehind;
+      if (inFront &&
+          dx.abs() < _hammerReach &&
+          (e.y - _y).abs() < _hammerVertical) {
+        _damageEnemy(e, _facing, power: power);
       }
     }
-    final col = (cx + _facing * .95).floor();
-    for (final row in [(_y + .2).floor(), (_y + _ph - .1).floor()]) {
-      final ch = _tileAt(row, col);
-      if (ch == 'B') {
-        _setTile(row, col, '.');
-        _score += 5;
-        _breakFx(col, row);
-        _arcadePlaySfx('smash');
-      } else if (ch == 'V' || ch == 'W') {
-        _smashProp(col, row);
+    // Kırılabilir karoları çekicin uzanabildiği karo aralığında süpürür:
+    // bitişik karodan başlayıp üç karo ileriye kadar.
+    final reached = <int>{};
+    final near = _facing > 0 ? cx.floor() : (cx - 2.0).floor();
+    for (var i = 0; i < 4; i++) {
+      reached.add(near + _facing * i);
+    }
+    if (quake) reached.add((cx - _facing * 2).round());
+    for (final col in reached) {
+      for (final row in [(_y + .2).floor(), (_y + _ph - .1).floor()]) {
+        final ch = _tileAt(row, col);
+        if (ch == 'B') {
+          _setTile(row, col, '.');
+          _score += 5;
+          _gainXp(4);
+          _breakFx(col, row);
+          _arcadePlaySfx('smash');
+        } else if (ch == 'V' || ch == 'W' || ch == 'K') {
+          _smashProp(col, row);
+        }
       }
     }
   }
 
-  /// Dönüş değeri: düşmana hasar verildi mi (kalkan önü blokladı mı).
-  bool _damageEnemy(_Enemy e, int attackDir) {
+  /// Dönüş değeri: düşman bu vuruşta öldü mü (kalkan önü blokladıysa false).
+  bool _damageEnemy(_Enemy e, int attackDir, {int power = 1}) {
     if (e.dead) return false;
-    final frontal = e.dir == -attackDir;
+    final frontal = attackDir != 0 && e.dir == -attackDir;
     if (e.kind == _EnemyKind.guard && e.hp > 1 && frontal) {
       _pops.add(_PopFx(e.x, e.y - .3, 'KLING', Colors.white70));
       _arcadePlaySfx('clang');
       return false;
     }
-    if (e.kind == _EnemyKind.guard && e.hp > 1) e.hp = 1;
-    _killEnemy(e, e.kind == _EnemyKind.guard ? 40 : 30);
+    e.hp -= power;
+    e.hurt = 12;
+    if (e.hp > 0) {
+      // Sağlam düşman geri savrulur ama ayakta kalır.
+      e.x += attackDir * .10;
+      _pops.add(_PopFx(e.x, e.y - .3, 'VURUŞ', Colors.white70));
+      _arcadePlaySfx('clang');
+      return false;
+    }
+    final points = switch (e.kind) {
+      _EnemyKind.guard => 40,
+      _EnemyKind.brute => 70,
+      _EnemyKind.charger => 50,
+      _EnemyKind.turret => 35,
+      _ => 30,
+    };
+    _killEnemy(e, points);
     return true;
   }
 
@@ -1503,6 +1637,7 @@ class _PlatformerState extends State<_PlatformerGame> {
     e.dead = true;
     e.deadTicks = 22;
     _score += points;
+    _gainXp(12);
     _pops.add(_PopFx(e.x, e.y - .3, '+$points', const Color(0xffffd66b)));
     _dropLoot(e.x + .1, e.y, e.kind);
     _arcadePlaySfx('stomp');
@@ -1535,33 +1670,56 @@ class _PlatformerState extends State<_PlatformerGame> {
       case _EnemyKind.guard:
         drop = roll < 45 ? _PickupKind.heart : _PickupKind.gem;
         break;
+      case _EnemyKind.brute:
+        drop = roll < 40
+            ? _PickupKind.heart
+            : roll < 80 ? _PickupKind.gem : _PickupKind.weapon;
+        break;
+      case _EnemyKind.charger:
+        drop = roll < 50
+            ? _PickupKind.gem
+            : roll < 82 ? _PickupKind.coin : _PickupKind.weapon;
+        break;
     }
     _pickups.add(_Pickup(x, y, -.14, drop));
   }
 
   void _dropRandomLoot(double x, double y) {
     final roll = _rng.nextInt(100);
-    final kind = roll < 45
+    final kind = roll < 42
         ? _PickupKind.coin
-        : roll < 75
+        : roll < 72
             ? _PickupKind.gem
-            : roll < 92 ? _PickupKind.heart : _PickupKind.star;
+            : roll < 90
+                ? _PickupKind.heart
+                : roll < 96 ? _PickupKind.star : _PickupKind.weapon;
     _pickups.add(_Pickup(x, y, -.16, kind));
   }
 
-  /// Sandık (V) veya varili (W) kırar; içindeki ödülü serbest bırakır.
+  /// Sandık (V), varil (W) veya alet kutusunu (K) kırar; ödülü serbest bırakır.
+  /// Alet kutusundan her zaman geçici özel silah çıkar.
   void _smashProp(int col, int row) {
     final ch = _tileAt(row, col);
-    if (ch != 'V' && ch != 'W') return;
+    if (ch != 'V' && ch != 'W' && ch != 'K') return;
     _setTile(row, col, '.');
     _broken++;
     _score += 5;
+    _gainXp(8);
     _bumps.remove('$col:$row');
     _debris.add(_Debris(col + .15, row + .15, -.07, -.14));
     _debris.add(_Debris(col + .6, row + .15, .07, -.14));
     _debris.add(_Debris(col + .15, row + .6, -.05, -.06));
     _debris.add(_Debris(col + .6, row + .6, .05, -.06));
-    _dropRandomLoot(col.toDouble(), row.toDouble());
+    if (ch == 'K') {
+      _pickups.add(
+        _Pickup(col + .1, row + .1, -.16, _PickupKind.weapon),
+      );
+      _pops.add(
+        _PopFx(col + .4, row - .3, 'ALET!', const Color(0xff8be9fd)),
+      );
+    } else {
+      _dropRandomLoot(col.toDouble(), row.toDouble());
+    }
     _arcadePlaySfx('smash');
   }
 
@@ -1636,6 +1794,8 @@ class _PlatformerState extends State<_PlatformerGame> {
     final info = _info;
     if (info == null) return;
     if (_star > 0) _star--;
+    if (_specialTicks > 0) _specialTicks--;
+    if (_shake > 0) _shake--;
     _timeTicks++;
     if (_timeTicks >= 40) {
       _timeTicks = 0;
@@ -1647,7 +1807,7 @@ class _PlatformerState extends State<_PlatformerGame> {
     }
 
     final dir = (_holdRight ? 1 : 0) - (_holdLeft ? 1 : 0);
-    final top = info.runSpeed * (_powered ? 1.18 : 1.0);
+    final top = info.runSpeed * (_powered ? 1.18 : 1.0) * _growth;
     if (dir != 0) {
       // Ani yön değişiminde kayma (skid) hissi.
       if (_vx * dir < 0 && _vx.abs() > .04) {
@@ -1664,7 +1824,7 @@ class _PlatformerState extends State<_PlatformerGame> {
     _moveX(_vx);
 
     if ((_grounded || _coyote > 0) && _jumpBuffer > 0) {
-      _vy = info.jumpSpeed;
+      _vy = info.jumpSpeed * _growth;
       _grounded = false;
       _coyote = 0;
       _jumpBuffer = 0;
@@ -1779,6 +1939,7 @@ class _PlatformerState extends State<_PlatformerGame> {
   void _tickEnemies() {
     for (final e in _enemies) {
       e.t++;
+      if (e.hurt > 0) e.hurt--;
       if (e.dead) {
         e.deadTicks--;
         continue;
@@ -1834,41 +1995,73 @@ class _PlatformerState extends State<_PlatformerGame> {
             if (_boxCol(nx, e.y, .72, .78) == null) e.x = nx;
           }
           break;
+        case _EnemyKind.charger:
+          _tickCharger(e);
+          break;
         case _EnemyKind.nut:
         case _EnemyKind.spiky:
         case _EnemyKind.guard:
-          e.vy = math.min(_maxFall, e.vy + _gravity);
-          final walkRow = _boxRow(e.x, e.y + e.vy, .72, .78);
-          if (walkRow == null) {
-            e.y += e.vy;
-          } else if (e.vy > 0) {
-            e.y = walkRow - .78 - .002;
-            e.vy = 0;
-          } else {
-            e.y = walkRow + 1 + .002;
-            e.vy = 0;
-          }
-          final speed = e.kind == _EnemyKind.nut
-              ? .032
-              : e.kind == _EnemyKind.guard ? .042 : .024;
-          final nx = e.x + e.dir * speed;
-          var blocked = _boxCol(nx, e.y, .72, .78) != null;
-          if (!blocked && e.kind != _EnemyKind.spiky) {
-            // Kestane ve muhafız boşluktan düşmez, kenarda döner.
-            final footRow = (e.y + .82).floor();
-            final ahead = (nx + (e.dir > 0 ? .76 : 0)).floor();
-            if (!_solid(ahead, footRow)) blocked = true;
-          }
-          if (blocked) {
-            e.dir = -e.dir;
-          } else {
-            e.x = nx;
-          }
-          if (e.y > _rows + 2) e.remove = true;
+        case _EnemyKind.brute:
+          _tickWalker(e, _enemyWalkSpeed(e.kind));
           break;
       }
     }
     _enemies.removeWhere((e) => e.remove || (e.dead && e.deadTicks <= 0));
+  }
+
+  static double _enemyWalkSpeed(_EnemyKind kind) => switch (kind) {
+    _EnemyKind.nut => .032,
+    _EnemyKind.guard => .042,
+    _EnemyKind.brute => .019,
+    _ => .024,
+  };
+
+  /// Yerde yürüyen düşmanlar (kestane, dikenli, muhafız, golem): yerçekimi,
+  /// zemin teması ve kenarda dönme. Dikenli hariç boşluğa düşmez.
+  void _tickWalker(_Enemy e, double speed) {
+    e.vy = math.min(_maxFall, e.vy + _gravity);
+    final walkRow = _boxRow(e.x, e.y + e.vy, .72, .78);
+    if (walkRow == null) {
+      e.y += e.vy;
+    } else if (e.vy > 0) {
+      e.y = walkRow - .78 - .002;
+      e.vy = 0;
+    } else {
+      e.y = walkRow + 1 + .002;
+      e.vy = 0;
+    }
+    final nx = e.x + e.dir * speed;
+    var blocked = _boxCol(nx, e.y, .72, .78) != null;
+    if (!blocked && e.kind != _EnemyKind.spiky) {
+      // Kestane ve muhafız boşluktan düşmez, kenarda döner.
+      final footRow = (e.y + .82).floor();
+      final ahead = (nx + (e.dir > 0 ? .76 : 0)).floor();
+      if (!_solid(ahead, footRow)) blocked = true;
+    }
+    if (blocked) {
+      e.dir = -e.dir;
+    } else {
+      e.x = nx;
+    }
+    if (e.y > _rows + 2) e.remove = true;
+  }
+
+  /// Koç: yavaş yürür, oyuncuyla aynı hizada olunca hızla üzerine atılır.
+  void _tickCharger(_Enemy e) {
+    _tickWalker(e, e.charge > 0 ? .11 : .02);
+    if (e.charge > 0) {
+      e.charge--;
+      return;
+    }
+    if (e.cool > 0) e.cool--;
+    final aligned = (e.y - _y).abs() < 1.1;
+    final aheadDir = _x + _pw / 2 >= e.x + .36 ? 1 : -1;
+    if (e.cool <= 0 && aligned && aheadDir == e.dir) {
+      e.charge = 45;
+      e.cool = 150;
+      _pops.add(_PopFx(e.x, e.y - .3, 'KOŞ!', const Color(0xffff9f6b)));
+      _arcadePlaySfx('hop');
+    }
   }
 
   void _tickPickups() {
@@ -1906,11 +2099,13 @@ class _PlatformerState extends State<_PlatformerGame> {
         case _PickupKind.coin:
           _coinCount++;
           _score += 10;
+          _gainXp(12);
           _pops.add(_PopFx(p.x, p.y - .3, '+10', const Color(0xffffd66b)));
           _arcadePlaySfx('coin');
           break;
         case _PickupKind.gem:
           _score += 50;
+          _gainXp(40);
           _pops.add(_PopFx(p.x, p.y - .3, '+50', const Color(0xff7ff2b0)));
           _arcadePlaySfx('coin');
           break;
@@ -1922,6 +2117,23 @@ class _PlatformerState extends State<_PlatformerGame> {
         case _PickupKind.star:
           _star = 420;
           _pops.add(_PopFx(p.x, p.y - .3, 'YILDIZ!', const Color(0xffffe066)));
+          _arcadePlaySfx('power');
+          break;
+        case _PickupKind.weapon:
+          _special = _hero == _PlatformerHero.coder
+              ? _SpecialWeapon.spread
+              : _SpecialWeapon.quake;
+          _specialTicks = 520;
+          _pops.add(
+            _PopFx(
+              p.x,
+              p.y - .3,
+              _special == _SpecialWeapon.quake
+                  ? 'YER SARSINTISI!'
+                  : 'ÜÇLÜ KIVILCIM!',
+              const Color(0xff8be9fd),
+            ),
+          );
           _arcadePlaySfx('power');
           break;
       }
@@ -1952,12 +2164,13 @@ class _PlatformerState extends State<_PlatformerGame> {
   void _tickSparks() {
     for (final spark in _sparks) {
       spark.x += spark.vx;
+      spark.y += spark.vy;
       spark.life--;
       final col = (spark.x + .15).floor();
       final row = (spark.y + .15).floor();
       final ch = _tileAt(row, col);
-      if (ch == 'V' || ch == 'W') {
-        // Kivilcim sandik/varile carpinca kirar.
+      if (ch == 'V' || ch == 'W' || ch == 'K') {
+        // Kıvılcım sandığa/varile/alet kutusuna çarpınca kırar.
         _smashProp(col, row);
         spark.dead = true;
         continue;
@@ -2004,10 +2217,13 @@ class _PlatformerState extends State<_PlatformerGame> {
       }
       final stomping = _vy > 0 && (_y + _ph) - e.y < .55;
       if (stomping && e.kind != _EnemyKind.spiky) {
-        _killEnemy(e, e.kind == _EnemyKind.guard ? 40 : 25);
+        // Ezme: zırhsız düşmanı anında öldürür, zırhlı olanı yaralar ve
+        // oyuncuyu geri sektirir (kısa dokunulmazlıkla).
+        _damageEnemy(e, 0);
         _vy = -.26;
         _grounded = false;
         _squash = .8;
+        _invuln = math.max(_invuln, 12);
       } else if (_invuln <= 0) {
         _die();
         return;
@@ -2039,6 +2255,7 @@ class _PlatformerState extends State<_PlatformerGame> {
     if (_attackAnim > 0) _attackAnim--;
     if (_attackCd > 0) _attackCd--;
     if (_invuln > 0) _invuln--;
+    if (_levelFlash > 0) _levelFlash--;
   }
 
   void _tickCamera() {
@@ -2059,8 +2276,9 @@ class _PlatformerState extends State<_PlatformerGame> {
   }
 
   void _clearLevel() {
-    _clearBonus = _time * 2 + _broken * 15;
+    _clearBonus = _time * 2 + _broken * 15 + _level * 20;
     _score += _clearBonus;
+    _gainXp(30);
     _phase = _Phase.clear;
     _phaseTicks = 130;
     _arcadePlaySfx('clear');
@@ -2112,7 +2330,7 @@ class _PlatformerState extends State<_PlatformerGame> {
       case _Phase.win:
         return 'ZAFER • $_score PTS';
       default:
-        return '$_score PTS • ALTIN $_coinCount • CAN $_lives • '
+        return '$_score PTS • SV $_level • ALTIN $_coinCount • CAN $_lives • '
             'BÖLÜM ${_levelIndex + 1}/$_levelCount • SÜRE $_time';
     }
   }
@@ -2230,7 +2448,8 @@ class _PlatformerState extends State<_PlatformerGame> {
             ),
             child: const Text(
               'A zıpla · B saldır (çekiç / USB kıvılcımı)\n'
-              'Klavye: ← → koş · W/Boşluk zıpla · X saldır',
+              'Klavye: ← → koş · W/Boşluk zıpla · X saldır\n'
+              'Altın ve kristal topla → seviye atla · alet kutusu → özel silah',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white54,
@@ -2272,8 +2491,13 @@ class _PlatformPainter extends CustomPainter {
     final ox = s._cols <= viewCols ? (size.width - s._cols * tile) / 2 : 0.0;
     final oy = (size.height - _PlatformerState._rows * tile) / 2;
 
+    // Özel silah (yer sarsıntısı) ekranı hafifçe titretir.
+    final shakeX =
+        s._shake > 0 ? math.sin(s._clock * 1.7) * s._shake * .07 * tile : 0.0;
+    final shakeY =
+        s._shake > 0 ? math.cos(s._clock * 2.3) * s._shake * .06 * tile : 0.0;
     canvas.save();
-    canvas.translate(ox, oy);
+    canvas.translate(ox + shakeX, oy + shakeY);
     _paintScenery(canvas, tile);
     _paintTiles(canvas, tile);
     _paintFlag(canvas, tile);
@@ -2351,7 +2575,12 @@ class _PlatformPainter extends CustomPainter {
         runPhase: s._grounded && s._vx != 0 ? (s._clock ~/ 5) % 2 : 0,
         air: !s._grounded,
         attack: s._attackAnim,
+        level: s._level,
       );
+      _paintHeroAura(canvas, heroRect, tile);
+      if (s._hero == _PlatformerHero.chief && s._attackAnim > 0) {
+        _paintHammerArc(canvas, heroRect, tile, s._attackAnim, s._specialActive);
+      }
       canvas.restore();
     }
     for (final p in s._pops) {
@@ -2374,6 +2603,8 @@ class _PlatformPainter extends CustomPainter {
       );
     }
     canvas.restore();
+
+    _paintHudBars(canvas, size, tile);
 
     switch (s._phase) {
       case _Phase.ready:
@@ -2645,6 +2876,9 @@ class _PlatformPainter extends CustomPainter {
           case 'W':
             _barrel(canvas, rect);
             break;
+          case 'K':
+            _weaponCrate(canvas, rect);
+            break;
           case 'o':
             _coin(canvas, col, rect);
             break;
@@ -2680,7 +2914,8 @@ class _PlatformPainter extends CustomPainter {
         above == '?' ||
         above == 'H' ||
         above == 'U' ||
-        above == 'P';
+        above == 'P' ||
+        above == 'K';
     if (!covered) {
       canvas.drawRect(
         Rect.fromLTWH(rect.left, rect.top, tile, tile * .30),
@@ -2727,6 +2962,37 @@ class _PlatformPainter extends CustomPainter {
       Offset(rect.right - tile * .1, rect.top + tile * .1),
       Offset(rect.left + tile * .1, rect.bottom - tile * .1),
       brace,
+    );
+  }
+
+  /// Alet kutusu: kırıldığında geçici özel silah bırakır.
+  void _weaponCrate(Canvas canvas, Rect rect) {
+    final tile = rect.width;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(tile * .1)),
+      Paint()..color = const Color(0xff2f3a4d),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(rect.left, rect.top + tile * .42, tile, tile * .1),
+      Paint()..color = const Color(0xffee9f2b),
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(rect.left + tile * .56, rect.top + tile * .12)
+        ..lineTo(rect.left + tile * .36, rect.top + tile * .52)
+        ..lineTo(rect.left + tile * .52, rect.top + tile * .52)
+        ..lineTo(rect.left + tile * .42, rect.top + tile * .88)
+        ..lineTo(rect.left + tile * .68, rect.top + tile * .44)
+        ..lineTo(rect.left + tile * .52, rect.top + tile * .44)
+        ..close(),
+      Paint()..color = const Color(0xff8be9fd),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(tile * .1)),
+      Paint()
+        ..color = const Color(0x33000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
     );
   }
 
@@ -2917,6 +3183,8 @@ class _PlatformPainter extends CustomPainter {
       _EnemyKind.hopper => const Color(0xff6d9440),
       _EnemyKind.turret => const Color(0xff3f8f4a),
       _EnemyKind.guard => const Color(0xff6b7280),
+      _EnemyKind.brute => const Color(0xff6b7280),
+      _EnemyKind.charger => const Color(0xff8a6a4a),
     };
 
     if (e.dead) {
@@ -2934,6 +3202,18 @@ class _PlatformPainter extends CustomPainter {
         Paint()..color = bodyColor.withValues(alpha: .3 + .6 * k),
       );
       return;
+    }
+
+    // Yumuşak gölge (uçanlar hariç) sprite'ı zemine oturtur.
+    if (e.kind != _EnemyKind.flyer) {
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(fx(.5), fy(1.02)),
+          width: w * .85,
+          height: h * .18,
+        ),
+        Paint()..color = Colors.black.withValues(alpha: .22),
+      );
     }
 
     switch (e.kind) {
@@ -3093,6 +3373,61 @@ class _PlatformPainter extends CustomPainter {
         dot(.36, .22, tile * .05, Colors.white);
         dot(.64, .22, tile * .05, Colors.white);
         break;
+      case _EnemyKind.brute:
+        const rock = Color(0xff6b7280);
+        const rockDark = Color(0xff3b4250);
+        const rockLight = Color(0xff9aa3b0);
+        box(.06, .72, .34, .3, rockDark);
+        box(.6, .72, .34, .3, rockDark);
+        round(.05, .22, .9, .62, tile * .16, rock);
+        final crack = Paint()..color = rockDark;
+        canvas.drawRect(Rect.fromLTWH(fx(.28), fy(.34), w * .06, h * .34), crack);
+        canvas.drawRect(Rect.fromLTWH(fx(.5), fy(.52), w * .26, h * .06), crack);
+        canvas.drawRect(Rect.fromLTWH(fx(.64), fy(.28), w * .06, h * .3), crack);
+        round(.1, .26, .34, .2, tile * .06, rockLight);
+        round(.56, .44, .32, .2, tile * .06, rockLight);
+        dot(.3, .42, tile * .085, const Color(0xffff5d3d));
+        dot(.66, .42, tile * .085, const Color(0xffff5d3d));
+        box(.0, .48, .16, .32, rockLight);
+        box(.9, .48, .16, .32, rockLight);
+        round(.2, .16, .6, .14, tile * .05, const Color(0xff3f7a4a));
+        break;
+      case _EnemyKind.charger:
+        final lean = e.charge > 0 ? .12 * e.dir : 0.0;
+        const fur = Color(0xff8a6a4a);
+        const furDark = Color(0xff5c4530);
+        box(.14, .82, .22, .18, furDark);
+        box(.62, .82, .22, .18, furDark);
+        round(.06, .3, .88, .56, tile * .22, fur);
+        round(.16, .36, .6, .26, tile * .16, const Color(0xffa07a54));
+        round(.3, .24, .4, .14, tile * .07, furDark);
+        round(.6 + lean, .18, .42, .42, tile * .16, const Color(0xff9c7850));
+        final horn = Paint()..color = const Color(0xffe8e0c8);
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.72 + lean), fy(.24))
+            ..lineTo(fx(.64 + lean), fy(-.14))
+            ..lineTo(fx(.9 + lean), fy(.02))
+            ..close(),
+          horn,
+        );
+        dot(.88 + lean, .44, tile * .05, const Color(0xff2a1c10));
+        dot(.72 + lean, .33, tile * .07, Colors.white);
+        dot(.74 + lean, .34, tile * .04, const Color(0xffb91c1c));
+        if (e.charge > 0) {
+          final streak = Paint()
+            ..color = const Color(0xccffe08a)
+            ..strokeWidth = tile * .05
+            ..strokeCap = StrokeCap.round;
+          for (final off in [.0, .18, .36]) {
+            canvas.drawLine(
+              Offset(fx(-.2 - off), fy(.42)),
+              Offset(fx(-.55 - off), fy(.42)),
+              streak,
+            );
+          }
+        }
+        break;
       case _EnemyKind.guard:
         const metal = Color(0xff7d8896);
         const metalDark = Color(0xff4b5666);
@@ -3125,9 +3460,20 @@ class _PlatformPainter extends CustomPainter {
         );
         break;
     }
+
+    // Vuruş flaşı: hasar aldığında kısa süre beyaz parlar.
+    if (e.hurt > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left, top, w, h),
+          Radius.circular(tile * .18),
+        ),
+        Paint()..color = Colors.white.withValues(alpha: .5 * (e.hurt / 12)),
+      );
+    }
   }
 
-  /// Dört ödül türü: altın, kristal, kalp ve yıldız.
+  /// Beş ödül türü: altın, kristal, kalp, yıldız ve alet kutusu.
   void _paintPickup(Canvas canvas, _Pickup p, double tile) {
     final left = (p.x - s._camera) * tile;
     if (left < -2 * tile || left > (s._viewCols + 2) * tile) return;
@@ -3217,6 +3563,39 @@ class _PlatformPainter extends CustomPainter {
             ..strokeWidth = tile * .03,
         );
         break;
+      case _PickupKind.weapon:
+        _pickupGlow(canvas, cx, cy, tile, const Color(0xff8be9fd), fade);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(
+              center: Offset(cx, cy),
+              width: tile * .5,
+              height: tile * .4,
+            ),
+            Radius.circular(tile * .07),
+          ),
+          Paint()..color = const Color(0xff2f3a4d).withValues(alpha: fade),
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(cx - tile * .25, cy - tile * .06, tile * .5, tile * .09),
+          Paint()..color = const Color(0xffee9f2b).withValues(alpha: fade),
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(cx - tile * .06, cy - tile * .2, tile * .12, tile * .4),
+          Paint()..color = const Color(0xffcbd5e1).withValues(alpha: fade),
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(cx + tile * .02, cy - tile * .18)
+            ..lineTo(cx - tile * .08, cy + tile * .02)
+            ..lineTo(cx, cy + tile * .02)
+            ..lineTo(cx - tile * .03, cy + tile * .2)
+            ..lineTo(cx + tile * .1, cy - tile * .02)
+            ..lineTo(cx + tile * .01, cy - tile * .02)
+            ..close(),
+          Paint()..color = const Color(0xff8be9fd).withValues(alpha: fade),
+        );
+        break;
     }
   }
 
@@ -3233,6 +3612,140 @@ class _PlatformPainter extends CustomPainter {
       tile * .34,
       Paint()..color = c.withValues(alpha: .18 * fade),
     );
+  }
+
+  /// Kahramanın altına yumuşak gölge ve seviyeye bağlı enerji halesi çizer.
+  void _paintHeroAura(Canvas canvas, Rect heroRect, double tile) {
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(heroRect.center.dx, heroRect.bottom + tile * .05),
+        width: heroRect.width * .95,
+        height: tile * .22,
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: .22)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    final aura = ((s._level - 1) / 8).clamp(0.0, 1.0).toDouble();
+    if (aura <= 0) return;
+    final pulse = .5 + .5 * math.sin(s._clock * .12).abs();
+    canvas.drawCircle(
+      heroRect.center,
+      heroRect.width * (.85 + aura * .5),
+      Paint()
+        ..color = const Color(0xff7ff2b0)
+            .withValues(alpha: .06 + aura * .12 * pulse)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+    );
+  }
+
+  /// Çekiç savurmasında geniş bir vuruş kavisi gösterir; menzil üç karo.
+  void _paintHammerArc(
+    Canvas canvas,
+    Rect heroRect,
+    double tile,
+    int attack,
+    bool powered,
+  ) {
+    final k = (attack / 13).clamp(0.0, 1.0).toDouble();
+    if (k <= 0) return;
+    final dir = s._facing.toDouble();
+    final reach = tile * (_hammerReach * (0.55 + 0.45 * k));
+    final pivot = Offset(heroRect.center.dx, heroRect.center.dy - tile * .08);
+    final tint =
+        powered ? const Color(0xff8be9fd) : const Color(0xfffff3c4);
+    canvas.drawPath(
+      Path()
+        ..moveTo(pivot.dx, pivot.dy)
+        ..arcTo(
+          Rect.fromCircle(center: pivot, radius: reach),
+          dir > 0 ? -math.pi * .55 : math.pi * .45,
+          dir > 0 ? math.pi * 1.1 : -math.pi * 1.1,
+          false,
+        )
+        ..close(),
+      Paint()
+        ..shader = RadialGradient(
+          colors: [tint.withValues(alpha: .34 * k), Colors.transparent],
+        ).createShader(Rect.fromCircle(center: pivot, radius: reach)),
+    );
+  }
+
+  /// Üstte seviye rozeti, XP çubuğu ve aktif özel silah göstergesi.
+  void _paintHudBars(Canvas canvas, Size size, double tile) {
+    final barW = math.min(size.width * .36, 190.0);
+    final barH = tile * .17;
+    const left = 10.0;
+    const top = 8.0;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, top, barW, barH),
+        Radius.circular(barH),
+      ),
+      Paint()..color = Colors.black.withValues(alpha: .35),
+    );
+    final frac = (_xp / _xpNext).clamp(0.0, 1.0).toDouble();
+    if (frac > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left, top, barW * frac, barH),
+          Radius.circular(barH),
+        ),
+        Paint()..color = const Color(0xff7ff2b0),
+      );
+    }
+    _badgeText(canvas, 'SV $_level', left + barW + 7, top - 3, tile * .36,
+        const Color(0xffffe066));
+    _badgeText(canvas, '$_xp/$_xpNext XP', left, top + barH + 3, tile * .26,
+        const Color(0xccffffff));
+    if (_specialActive) {
+      final label = _special == _SpecialWeapon.quake
+          ? 'YER SARSINTISI'
+          : 'ÜÇLÜ KIVILCIM';
+      final secs = (_specialTicks / 40).ceil();
+      _badgeText(canvas, '$label · $secs sn', left, top + barH + 3 + tile * .32,
+          tile * .27, const Color(0xff8be9fd));
+    }
+    if (_levelFlash > 0) {
+      final a = (_levelFlash / 90).clamp(0.0, 1.0).toDouble();
+      final tp = TextPainter(
+        textDirection: TextDirection.ltr,
+        text: TextSpan(
+          text: 'SEVİYE $_level!',
+          style: TextStyle(
+            color: const Color(0xffffe066).withValues(alpha: a),
+            fontWeight: FontWeight.w900,
+            fontSize: tile * .7,
+          ),
+        ),
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset((size.width - tp.width) / 2, size.height * .18),
+      );
+    }
+  }
+
+  void _badgeText(
+    Canvas canvas,
+    String text,
+    double x,
+    double y,
+    double size,
+    Color color,
+  ) {
+    final tp = TextPainter(
+      textDirection: TextDirection.ltr,
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w800,
+          fontSize: size,
+        ),
+      ),
+    )..layout();
+    tp.paint(canvas, Offset(x, y));
   }
 
   void _overlay(Canvas canvas, Size size, String title, String subtitle) {
@@ -3498,64 +4011,129 @@ void _drawHeroFigure(
   int runPhase = 0,
   bool air = false,
   int attack = 0,
+  int level = 1,
 }) {
   final u = box.width / 7;
   final v = box.height / 9;
-  void px(double x, double y, double w, double h, Color c) {
+  void px(double x, double y, double w, double h, Color c, [double r = .14]) {
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(box.left + x * u, box.top + y * v, w * u, h * v),
-        Radius.circular(u * .14),
+        Radius.circular(u * r),
       ),
       Paint()..color = c,
     );
   }
 
+  // Figür her zaman sağa bakacak biçimde çizilir; sola bakıyorsa tüm çizim
+  // yatayda aynalanır. Böylece gövde, kol ve alet de doğru yöne döner.
+  canvas.save();
+  if (facing < 0) {
+    final ccx = box.center.dx;
+    canvas.translate(ccx, 0);
+    canvas.scale(-1, 1);
+    canvas.translate(-ccx, 0);
+  }
+
   final skin = const Color(0xfff2c49b);
   final step = air ? 0.0 : (runPhase == 0 ? 0.0 : .55);
+  final double swing = attack > 0 ? (attack > 12 ? 1.2 : attack * .1) : 0.0;
+
   if (hero == _PlatformerHero.chief) {
-    px(.5, 8.0 - step, 2.4, 1.0, const Color(0xff2d2a26));
-    px(4.0, 8.0 + step, 2.4, 1.0, const Color(0xff2d2a26));
-    px(.9, 6.3, 5.2, 1.9, const Color(0xff4a5568));
-    px(.6, 3.4, 5.8, 3.0, const Color(0xffef7d1a));
-    px(.6, 4.7, 5.8, .55, const Color(0xfffbbf24));
-    px(1.5, 1.4, 4.0, 2.2, skin);
-    px(facing > 0 ? 4.1 : 1.6, 2.1, .9, .9, Colors.white);
-    px(facing > 0 ? 4.5 : 2.0, 2.35, .45, .45, const Color(0xff1f2937));
-    px(1.0, .5, 5.0, 1.4, const Color(0xfffbbf24));
-    px(facing > 0 ? 3.8 : -1.0, 1.4, 3.2, .5, const Color(0xffd99e14));
+    // Botlar (çelik burun + taban).
+    px(.5, 8.0 - step, 2.4, .8, const Color(0xff2d2a26));
+    px(.4, 8.72 - step, 2.6, .34, const Color(0xff14110f));
+    px(4.0, 8.0 + step, 2.4, .8, const Color(0xff2d2a26));
+    px(3.9, 8.72 + step, 2.6, .34, const Color(0xff14110f));
+    // İş tulumu ve yelek.
+    px(.9, 6.3, 5.2, 1.9, const Color(0xff3f4a5a));
+    px(.6, 3.4, 5.8, 3.05, const Color(0xffef7d1a));
+    px(.6, 4.55, 5.8, .30, const Color(0xfffff2b0));
+    px(.6, 5.15, 5.8, .30, const Color(0xfffff2b0));
+    px(3.35, 3.4, .5, 3.05, const Color(0xffc25a05));
+    px(.85, 3.75, 1.6, 1.0, const Color(0xffd9660d));
+    px(.85, 6.0, 5.3, .5, const Color(0xff7a4a12));
+    px(3.0, 6.0, 1.15, .5, const Color(0xfff6b93b));
+    // Kafa ve kask.
+    px(1.5, 1.5, 4.0, 2.1, skin);
+    px(1.6, 3.1, 3.8, .5, const Color(0xffd9a978));
+    px(1.0, .55, 5.0, 1.5, const Color(0xfffbbf24));
+    px(1.0, .55, 5.0, .45, const Color(0xfffff0b0));
+    px(4.25, 1.35, 2.6, .5, const Color(0xffd99e14));
+    px(.45, 1.35, .65, .5, const Color(0xffd99e14));
+    px(2.55, .05, 1.7, .55, const Color(0xffe0a80f));
+    px(4.5, 2.15, .9, .85, Colors.white);
+    px(4.85, 2.38, .45, .45, const Color(0xff1f2937));
+    px(1.5, 2.35, .9, .5, const Color(0xffdcae7d));
+    px(2.1, 3.15, 2.4, .35, const Color(0xff7a5a3a));
+    // Eldivenli kol.
+    px(4.85, 3.55, 2.0, 1.0, const Color(0xff3f4a5a));
+    // Çekiç.
     if (attack > 0) {
-      px(4.4, 3.0, 3.4, .6, const Color(0xff8b5a2b));
-      px(7.4, 2.0, 1.8, 2.4, const Color(0xff9ca3af));
-      px(7.4, 2.0, 1.8, .7, const Color(0xffe5e7eb));
+      px(4.6, 3.1 - swing, 3.2, .55, const Color(0xff8b5a2b));
+      px(4.6, 3.1 - swing, 1.2, .55, const Color(0xff5f3a17));
+      px(7.5, 1.9 - swing, 1.9, 2.6, const Color(0xff9ca3af));
+      px(7.5, 1.9 - swing, 1.9, .75, const Color(0xffe5e7eb));
+      px(8.95, 2.4 - swing, .55, 1.6, const Color(0xff6b7280));
     } else {
-      px(5.5, 4.2, .6, 3.2, const Color(0xff8b5a2b));
-      px(4.8, 3.4, 1.9, 1.5, const Color(0xff9ca3af));
-      px(4.8, 3.4, 1.9, .5, const Color(0xffe5e7eb));
+      px(5.4, 4.3, .65, 3.2, const Color(0xff8b5a2b));
+      px(5.4, 4.3, .65, 1.0, const Color(0xff5f3a17));
+      px(4.7, 3.5, 2.0, 1.55, const Color(0xff9ca3af));
+      px(4.7, 3.5, 2.0, .5, const Color(0xffe5e7eb));
     }
   } else {
-    px(.5, 8.1 - step, 2.4, .9, const Color(0xff111827));
-    px(4.0, 8.1 + step, 2.4, .9, const Color(0xff111827));
+    // Spor ayakkabı.
+    px(.5, 8.1 - step, 2.4, .75, const Color(0xff111827));
+    px(.4, 8.8 - step, 2.6, .3, const Color(0xffe5e7eb));
+    px(4.0, 8.1 + step, 2.4, .75, const Color(0xff111827));
+    px(3.9, 8.8 + step, 2.6, .3, const Color(0xffe5e7eb));
+    // Kot pantolon.
     px(.8, 6.3, 5.4, 1.9, const Color(0xff1f2937));
+    // Ceket ve kapüşon.
     px(.7, 3.3, 5.6, 3.1, const Color(0xff1e3a8a));
-    px(1.1, 1.0, 4.8, 3.0, const Color(0xff1e3a8a));
-    px(1.9, 1.7, 3.2, 2.0, skin);
-    px(1.8, 2.25, 3.4, .6, const Color(0xffe5e7eb));
-    px(1.9, 2.3, 1.4, .5, const Color(0xff0f172a));
-    px(3.7, 2.3, 1.4, .5, const Color(0xff0f172a));
+    px(1.0, 5.4, 5.0, 1.0, const Color(0xff172554));
+    px(3.3, 3.3, .45, 3.1, const Color(0xff60a5fa));
+    px(2.55, 3.5, .5, 1.2, const Color(0xff93c5fd));
+    px(3.9, 3.5, .5, 1.2, const Color(0xff93c5fd));
+    // Yüz ve gözlük.
+    px(1.9, 1.8, 3.2, 1.9, skin);
+    px(1.8, 2.35, 3.5, .6, const Color(0xff1e293b));
+    px(1.95, 2.42, 1.45, .45, const Color(0xff0ea5e9));
+    px(3.6, 2.42, 1.45, .45, const Color(0xff0ea5e9));
+    px(1.95, 2.42, .5, .45, const Color(0xccffffff));
+    px(1.0, .8, 5.2, 1.5, const Color(0xff1e3a8a));
+    px(1.6, .55, 4.0, .7, const Color(0xff1e40af));
+    px(1.5, 1.5, .9, 1.4, const Color(0xff0f172a));
+    px(4.6, 1.5, .9, 1.4, const Color(0xff0f172a));
+    // Kol.
+    px(5.0, 3.5, 1.8, 1.0, const Color(0xff1e3a8a));
+    // USB bellek ve kıvılcım ucu.
     if (attack > 0) {
-      px(4.4, 3.2, 2.0, .8, const Color(0xffcbd5e1));
-      px(6.4, 3.3, .7, .6, const Color(0xfffbbf24));
+      px(4.7, 3.1, 2.0, .85, const Color(0xffcbd5e1));
+      px(6.5, 3.2, .8, .65, const Color(0xfffbbf24));
       canvas.drawCircle(
-        Offset(box.left + 7.6 * u, box.top + 3.6 * v),
-        u * 1.1,
+        Offset(box.left + 7.7 * u, box.top + 3.6 * v),
+        u * 1.15,
         Paint()..color = const Color(0x66ffd66b),
       );
+      canvas.drawCircle(
+        Offset(box.left + 7.7 * u, box.top + 3.6 * v),
+        u * .5,
+        Paint()..color = const Color(0xfffff3c4),
+      );
     } else {
-      px(5.4, 4.6, 1.6, .8, const Color(0xffcbd5e1));
-      px(5.4, 4.6, .55, .8, const Color(0xfffbbf24));
+      px(5.4, 4.6, 1.7, .85, const Color(0xffcbd5e1));
+      px(5.4, 4.6, .6, .85, const Color(0xfffbbf24));
     }
   }
+
+  // Seviye rütbesi: ilerledikçe kol üzerinde artan çentikler.
+  final chevrons = (level - 1).clamp(0, 4);
+  for (var i = 0; i < chevrons; i++) {
+    px(.95, 6.8 - i * .4, .5, .34, const Color(0xfffff3c4), .35);
+  }
+
+  canvas.restore();
 }
 
 // ---------------------------------------------------------------------------
