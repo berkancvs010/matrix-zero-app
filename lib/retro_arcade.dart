@@ -108,6 +108,24 @@ class RetroArcadePage extends StatefulWidget {
 }
 
 class _RetroArcadePageState extends State<RetroArcadePage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Oyun alanı henüz test aşamasındadır, geliştirme devam ediyor.',
+          ),
+          duration: Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
+  }
+
   String _filter = 'Tümü';
   static const _filters = ['Tümü', 'Arcade', 'Puzzle'];
 
