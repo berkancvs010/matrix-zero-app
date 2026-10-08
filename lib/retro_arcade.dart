@@ -4600,8 +4600,8 @@ class _TankPainter extends CustomPainter {
     }
     if (over || won) {
       canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xee06101a));
-      _centerText(canvas, Offset.fromLTWH(0, size.height * .37, size.width, size.height * .25), won ? 'ARENA TEMİZ' : 'ÜS DÜŞTÜ', won ? const Color(0xff85f4ae) : const Color(0xffff7885), math.min(24.0, size.width * .075).toDouble());
-      _centerText(canvas, Offset.fromLTWH(0, size.height * .49, size.width, size.height * .18), 'Dokun ve yeniden oyna', Colors.white70, math.min(12.0, size.width * .04).toDouble());
+      _centerText(canvas, Rect.fromLTWH(0, size.height * .37, size.width, size.height * .25), won ? 'ARENA TEMİZ' : 'ÜS DÜŞTÜ', won ? const Color(0xff85f4ae) : const Color(0xffff7885), math.min(24.0, size.width * .075).toDouble());
+      _centerText(canvas, Rect.fromLTWH(0, size.height * .49, size.width, size.height * .18), 'Dokun ve yeniden oyna', Colors.white70, math.min(12.0, size.width * .04).toDouble());
     }
   }
 
