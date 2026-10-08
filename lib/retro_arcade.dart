@@ -705,6 +705,9 @@ const double _chiefRun = .175;
 const double _coderRun = .128;
 const double _chiefJump = -.38;
 const double _coderJump = -.42;
+// Ivme: programci daha yavas ama daha cevik hizlanir; sef ust hizada kalir.
+const double _chiefAccel = .011;
+const double _coderAccel = .0135;
 
 class _HeroInfo {
   final String name;
@@ -712,6 +715,7 @@ class _HeroInfo {
   final String ability;
   final double runSpeed;
   final double jumpSpeed;
+  final double accel;
   final double runStat;
   final double jumpStat;
   const _HeroInfo(
@@ -720,6 +724,7 @@ class _HeroInfo {
     this.ability,
     this.runSpeed,
     this.jumpSpeed,
+    this.accel,
     this.runStat,
     this.jumpStat,
   );
@@ -729,9 +734,10 @@ const Map<_PlatformerHero, _HeroInfo> _heroInfo = {
   _PlatformerHero.chief: _HeroInfo(
     'Şantiye Şefi',
     'Kasklı ve yelekli; elinde çekiç.',
-    'Daha hızlı koşar · çekiçle tuğla kırar, düşman ezer',
+    'Daha hızlı koşar · çekiçle tuğla, sandık, varil kırar',
     _chiefRun,
     _chiefJump,
+    _chiefAccel,
     5,
     3,
   ),
@@ -741,6 +747,7 @@ const Map<_PlatformerHero, _HeroInfo> _heroInfo = {
     'Daha yükseğe zıplar · USB kıvılcımı ile uzaktan vurur',
     _coderRun,
     _coderJump,
+    _coderAccel,
     3,
     5,
   ),
@@ -748,16 +755,41 @@ const Map<_PlatformerHero, _HeroInfo> _heroInfo = {
 
 enum _Phase { select, ready, playing, dying, clear, gameover, win }
 
-class _Walker {
+/// Altı farklı düşman türü: her biri ayrı davranış ve ayrı görüntü.
+/// nut: kestane (ezilir) · spiky: dikenli (ezilmez) · flyer: uçan yarasa,
+/// hopper: sıçrayan örümcek · turret: fışkıran bitki · guard: kalkanlı muhafız.
+enum _EnemyKind { nut, spiky, flyer, hopper, turret, guard }
+
+enum _PickupKind { coin, heart, star, gem }
+
+class _Enemy {
   double x;
   double y;
   double vy = 0;
   int dir = -1;
-  final bool spiky;
+  final _EnemyKind kind;
+  final double homeY;
+  int hp;
+  int cool;
   bool dead = false;
   bool remove = false;
   int deadTicks = 0;
-  _Walker(this.x, this.y, this.spiky);
+  double t = 0;
+  _Enemy(this.x, this.y, this.kind, this.homeY)
+      : hp = kind == _EnemyKind.guard ? 2 : 1,
+        cool = kind == _EnemyKind.turret ? 70 : 40;
+}
+
+class _Pickup {
+  double x;
+  double y;
+  double vy;
+  final _PickupKind kind;
+  int life = 560;
+  bool grounded = false;
+  bool remove = false;
+  int t = 0;
+  _Pickup(this.x, this.y, this.vy, this.kind);
 }
 
 class _Spark {
@@ -767,6 +799,27 @@ class _Spark {
   int life = 70;
   bool dead = false;
   _Spark(this.x, this.y, this.vx);
+}
+
+/// Taret fışkırtması: yavaş ama üzerinden atlanamayan mermi.
+class _Bolt {
+  double x;
+  double y;
+  final double vx;
+  final double vy;
+  int life = 170;
+  bool dead = false;
+  _Bolt(this.x, this.y, this.vx, this.vy);
+}
+
+class _Dust {
+  double x;
+  double y;
+  final double vx;
+  final double vy;
+  int life = 18;
+  bool remove = false;
+  _Dust(this.x, this.y, this.vx, this.vy);
 }
 
 class _PopFx {
@@ -787,10 +840,91 @@ class _Debris {
   _Debris(this.x, this.y, this.vx, this.vy);
 }
 
+/// Her bölüm kendi paletini kullanır: çayır, çöl gün batımı, gece fabrikası.
+class _LevelTheme {
+  final String name;
+  final List<Color> sky;
+  final Color ground, groundTop, groundShade;
+  final Color hill, hillFar, cloud;
+  final Color brick, brickTop, platform, platformTop;
+  final Color block, blockTop;
+  final Color pipe, pipeDark;
+  final bool night;
+  const _LevelTheme(
+    this.name,
+    this.sky,
+    this.ground,
+    this.groundTop,
+    this.groundShade,
+    this.hill,
+    this.hillFar,
+    this.cloud,
+    this.brick,
+    this.brickTop,
+    this.platform,
+    this.platformTop,
+    this.block,
+    this.blockTop,
+    this.pipe,
+    this.pipeDark,
+    this.night,
+  );
+}
+
+const List<_LevelTheme> _levelThemes = [
+  _LevelTheme(
+    'Çayır',
+    [Color(0xff0f2a4d), Color(0xff2f6ea8), Color(0xff8fc7e8)],
+    Color(0xff7a4a21), Color(0xff3fae5a), Color(0xff2b7d41),
+    Color(0x33236a4b), Color(0x1f2f8a5c), Color(0x55ffffff),
+    Color(0xffc46a2b), Color(0xffe0873f),
+    Color(0xff6b7280), Color(0xff9ca3af),
+    Color(0xfff6b93b), Color(0xffffd97a),
+    Color(0xff16a34a), Color(0xff22c55e),
+    false,
+  ),
+  _LevelTheme(
+    'Çöl',
+    [Color(0xff4a1d3f), Color(0xffa8496b), Color(0xfff0a35e)],
+    Color(0xff9c6b32), Color(0xffe2b56b), Color(0xffb98a45),
+    Color(0x447a4a21), Color(0x33a8496b), Color(0x44ffd9a0),
+    Color(0xffb06a3a), Color(0xffd98a52),
+    Color(0xff8a6a4a), Color(0xffb08a63),
+    Color(0xfff6b93b), Color(0xffffd97a),
+    Color(0xff8a7a4a), Color(0xffa89a5a),
+    false,
+  ),
+  _LevelTheme(
+    'Gece',
+    [Color(0xff05070f), Color(0xff141a33), Color(0xff2b2f5c)],
+    Color(0xff3c3f4a), Color(0xff5a6478), Color(0xff2a2d38),
+    Color(0x33202546), Color(0x22262c52), Color(0x22aabfff),
+    Color(0xff6b4a7a), Color(0xff8a5f9c),
+    Color(0xff4a5568), Color(0xff6b7a92),
+    Color(0xffd9a13b), Color(0xffffd97a),
+    Color(0xff3a7a5a), Color(0xff4aa57a),
+    true,
+  ),
+];
+
+/// Oyun sesleri Android tarafında SoundPool ile çalınır; ek bağımlılık yok.
+/// Platform kanalı yoksa (örneğin masaüstü/önizleme) sessizce atlanır.
+const MethodChannel _arcadeSfxChannel = MethodChannel('zerolog/system');
+bool _arcadeSfxMuted = false;
+
+void _arcadePlaySfx(String name) {
+  if (_arcadeSfxMuted) return;
+  _arcadeSfxChannel
+      .invokeMethod<void>('playArcadeSfx', <String, String>{'name': name})
+      .catchError((Object _) {});
+}
+
 /// 14 satırlık ASCII seviye üretici.
 /// '#' zemin, '=' platform, 'B' tuğla, '?' soru bloğu, 'H' can bloğu,
-/// 'P' boru, 'o' altın, 'E' yürüyen düşman, 'S' dikenli düşman,
-/// 'F' bayrak, '@' doğuş noktası.
+/// 'V' sandık, 'W' varil (ikisi de kırılır ve ödül düşürür),
+/// 'P' boru, 'o' altın, 'F' bayrak, '@' doğuş noktası.
+/// Düşmanlar: 'E' kestane, 'S' dikenli, 'Y' uçan yarasa, 'J' sıçrayan,
+/// 'n' taret, 'G' kalkanlı muhafız.
 class _LevelBuilder {
   final List<String> rows;
   _LevelBuilder(int cols) : rows = List.filled(14, '.' * cols);
@@ -860,9 +994,17 @@ List<String> _platformLevel1() {
   b.fillRange(8, 33, 35, '=');
   b.fillRange(9, 40, 42, '=');
   b.fillRange(9, 50, 52, '=');
+  b.fillRange(7, 62, 64, '=');
   b.pipe(45);
   b.pipe(70);
   b.stairsUp(85, 3);
+  // Kırılabilir sandık ve variller; içinden ödül çıkar.
+  b.put(11, 14, 'V');
+  b.put(11, 15, 'V');
+  b.put(11, 24, 'W');
+  b.put(11, 47, 'W');
+  b.put(11, 48, 'W');
+  b.put(11, 76, 'V');
   b.coins(11, [6, 7, 8]);
   b.coins(4, [18]);
   b.coins(7, [33, 34, 35]);
@@ -871,11 +1013,17 @@ List<String> _platformLevel1() {
   b.coins(10, [30, 31, 32]);
   b.coins(10, [55, 56, 57]);
   b.coins(10, [78, 79, 80]);
+  b.coins(6, [62, 63, 64]);
+  // Düşman kadrosu: altı türün beşi burada tanıtılır.
   b.put(11, 16, 'E');
   b.put(11, 36, 'E');
   b.put(11, 50, 'E');
-  b.put(11, 62, 'E');
-  b.put(11, 84, 'E');
+  b.put(11, 62, 'G');
+  b.put(11, 68, 'n');
+  b.put(11, 73, 'J');
+  b.put(11, 84, 'S');
+  b.put(6, 26, 'Y');
+  b.put(5, 55, 'Y');
   b.put(11, 2, '@');
   b.put(6, 89, 'F');
   return b.rows;
@@ -906,6 +1054,12 @@ List<String> _platformLevel2() {
   b.fillRange(9, 78, 80, 'B');
   b.fillRange(6, 83, 85, '=');
   b.stairsUp(93, 3);
+  b.put(11, 12, 'V');
+  b.put(11, 13, 'V');
+  b.put(11, 35, 'W');
+  b.put(11, 53, 'V');
+  b.put(11, 60, 'W');
+  b.put(11, 86, 'W');
   b.coins(11, [3, 4]);
   b.coins(4, [15, 17]);
   b.coins(7, [36, 37, 38]);
@@ -915,13 +1069,21 @@ List<String> _platformLevel2() {
   b.coins(10, [40, 41, 42, 43]);
   b.coins(10, [64, 65, 66, 67]);
   b.coins(10, [88, 89, 90, 91]);
-  b.put(11, 10, 'E');
+  b.put(11, 5, 'E');
+  b.put(11, 18, 'E');
   b.put(11, 30, 'E');
-  b.put(11, 47, 'E');
-  b.put(11, 55, 'S');
-  b.put(11, 72, 'E');
-  b.put(11, 83, 'S');
-  b.put(11, 86, 'E');
+  b.put(11, 49, 'E');
+  b.put(11, 62, 'E');
+  b.put(11, 80, 'E');
+  b.put(11, 37, 'S');
+  b.put(11, 84, 'S');
+  b.put(11, 56, 'G');
+  b.put(11, 78, 'G');
+  b.put(11, 71, 'J');
+  b.put(11, 46, 'n');
+  b.put(5, 30, 'Y');
+  b.put(4, 60, 'Y');
+  b.put(4, 85, 'Y');
   b.put(11, 2, '@');
   b.put(6, 97, 'F');
   return b.rows;
@@ -952,6 +1114,13 @@ List<String> _platformLevel3() {
   b.fillRange(8, 86, 86, '?');
   b.fillRange(6, 90, 92, '=');
   b.stairsUp(101, 4);
+  b.put(11, 9, 'V');
+  b.put(11, 10, 'V');
+  b.put(11, 25, 'W');
+  b.put(11, 44, 'V');
+  b.put(11, 68, 'W');
+  b.put(11, 88, 'V');
+  b.put(11, 104, 'W');
   b.coins(4, [10, 12]);
   b.coins(6, [30, 31, 32]);
   b.coins(8, [52, 54]);
@@ -962,13 +1131,26 @@ List<String> _platformLevel3() {
   b.coins(10, [58, 59, 60, 61]);
   b.coins(9, [76, 77, 78, 79]);
   b.coins(10, [96, 97, 98, 99]);
-  b.put(11, 8, 'E');
-  b.put(11, 30, 'E');
+  b.put(11, 7, 'E');
+  b.put(11, 28, 'E');
   b.put(11, 45, 'E');
-  b.put(11, 52, 'S');
-  b.put(11, 66, 'E');
-  b.put(11, 87, 'E');
-  b.put(11, 93, 'S');
+  b.put(11, 62, 'E');
+  b.put(11, 82, 'E');
+  b.put(11, 106, 'E');
+  b.put(11, 33, 'S');
+  b.put(11, 51, 'S');
+  b.put(11, 90, 'S');
+  b.put(11, 36, 'G');
+  b.put(11, 73, 'G');
+  b.put(11, 94, 'G');
+  b.put(11, 55, 'J');
+  b.put(11, 85, 'J');
+  b.put(11, 50, 'n');
+  b.put(11, 92, 'n');
+  b.put(5, 20, 'Y');
+  b.put(4, 45, 'Y');
+  b.put(6, 66, 'Y');
+  b.put(5, 90, 'Y');
   b.put(11, 2, '@');
   b.put(6, 107, 'F');
   return b.rows;
@@ -996,6 +1178,7 @@ class _PlatformerState extends State<_PlatformerGame> {
   int _cols = 0;
   int _flagCol = 0;
   double _goalX = 1;
+  _LevelTheme _theme = _levelThemes.first;
 
   double _x = 0, _y = 0, _vx = 0, _vy = 0;
   int _facing = 1;
@@ -1003,20 +1186,45 @@ class _PlatformerState extends State<_PlatformerGame> {
   int _score = 0, _coinCount = 0, _lives = 3, _time = 150;
   int _clock = 0, _phaseTicks = 0, _timeTicks = 0, _clearBonus = 0;
   int _invuln = 0, _jumpBuffer = 0, _attackAnim = 0, _attackCd = 0;
+  int _coyote = 0, _star = 0, _stepTick = 0, _broken = 0;
+  double _squash = 0;
+  bool _wasGrounded = true;
   bool _jumpHeld = false, _jumpCut = false;
   bool _holdLeft = false, _holdRight = false;
   double _camera = 0;
   double _viewCols = 13;
 
-  final List<_Walker> _walkers = [];
+  final List<_Enemy> _enemies = [];
+  final List<_Pickup> _pickups = [];
   final List<_Spark> _sparks = [];
+  final List<_Bolt> _bolts = [];
+  final List<_Dust> _dust = [];
   final List<_PopFx> _pops = [];
   final List<_Debris> _debris = [];
   final Map<String, int> _bumps = {};
+  final math.Random _rng = math.Random(20261007);
 
   Timer? _timer;
 
   _HeroInfo? get _info => _hero == null ? null : _heroInfo[_hero];
+  bool get _powered => _star > 0;
+
+  static _EnemyKind _kindFor(String ch) {
+    switch (ch) {
+      case 'S':
+        return _EnemyKind.spiky;
+      case 'Y':
+        return _EnemyKind.flyer;
+      case 'J':
+        return _EnemyKind.hopper;
+      case 'n':
+        return _EnemyKind.turret;
+      case 'G':
+        return _EnemyKind.guard;
+      default:
+        return _EnemyKind.nut;
+    }
+  }
 
   @override
   void initState() {
@@ -1037,8 +1245,12 @@ class _PlatformerState extends State<_PlatformerGame> {
     _levelIndex = index;
     _grid = grid;
     _cols = grid.first.length;
-    _walkers.clear();
+    _theme = _levelThemes[index.clamp(0, _levelThemes.length - 1)];
+    _enemies.clear();
+    _pickups.clear();
     _sparks.clear();
+    _bolts.clear();
+    _dust.clear();
     _pops.clear();
     _debris.clear();
     _bumps.clear();
@@ -1047,8 +1259,10 @@ class _PlatformerState extends State<_PlatformerGame> {
     for (var row = 0; row < _rows; row++) {
       for (var col = 0; col < _cols; col++) {
         final ch = _grid[row][col];
-        if (ch == 'E' || ch == 'S') {
-          _walkers.add(_Walker(col + .14, row + 1 - .78, ch == 'S'));
+        if (ch == 'E' || ch == 'S' || ch == 'Y' || ch == 'J' || ch == 'n' || ch == 'G') {
+          final kind = _kindFor(ch);
+          final y = kind == _EnemyKind.flyer ? row.toDouble() : row + 1 - .78;
+          _enemies.add(_Enemy(col + .14, y, kind, row.toDouble()));
           _setTile(row, col, '.');
         } else if (ch == 'F') {
           _flagCol = col;
@@ -1067,9 +1281,14 @@ class _PlatformerState extends State<_PlatformerGame> {
     _vy = 0;
     _facing = 1;
     _grounded = false;
+    _wasGrounded = false;
     _time = 150;
     _timeTicks = 0;
     _invuln = 90;
+    _star = 0;
+    _broken = 0;
+    _coyote = 0;
+    _squash = 0;
     _attackAnim = 0;
     _attackCd = 0;
     _jumpBuffer = 0;
@@ -1115,6 +1334,8 @@ class _PlatformerState extends State<_PlatformerGame> {
       case 'H':
       case 'U':
       case 'P':
+      case 'V':
+      case 'W':
         return true;
       default:
         return false;
@@ -1211,6 +1432,8 @@ class _PlatformerState extends State<_PlatformerGame> {
       );
     } else if (ch == 'B') {
       _bumps['$col:$row'] = 8;
+    } else if (ch == 'V' || ch == 'W') {
+      _smashProp(col, row);
     }
   }
 
@@ -1227,6 +1450,7 @@ class _PlatformerState extends State<_PlatformerGame> {
       _attackAnim = 9;
       _attackCd = 16;
       _hammerHit();
+      _arcadePlaySfx('swing');
     } else {
       if (_sparks.length >= 2) return;
       _attackAnim = 6;
@@ -1234,33 +1458,111 @@ class _PlatformerState extends State<_PlatformerGame> {
       _sparks.add(
         _Spark(_x + (_facing > 0 ? _pw + .05 : -.25), _y + .28, _facing * .22),
       );
+      _arcadePlaySfx('shoot');
     }
   }
 
   void _hammerHit() {
     final cx = _x + _pw / 2;
-    for (final w in _walkers) {
-      if (w.dead) continue;
-      final dx = w.x + .36 - cx;
-      if (dx * _facing >= -.35 && dx.abs() < 1.45 && (w.y - _y).abs() < 1.0) {
-        _killWalker(w, 30);
+    for (final e in _enemies) {
+      if (e.dead) continue;
+      final dx = e.x + .36 - cx;
+      if (dx * _facing >= -.35 && dx.abs() < 1.45 && (e.y - _y).abs() < 1.0) {
+        _damageEnemy(e, _facing);
       }
     }
     final col = (cx + _facing * .95).floor();
     for (final row in [(_y + .2).floor(), (_y + _ph - .1).floor()]) {
-      if (_tileAt(row, col) == 'B') {
+      final ch = _tileAt(row, col);
+      if (ch == 'B') {
         _setTile(row, col, '.');
         _score += 5;
         _breakFx(col, row);
+        _arcadePlaySfx('smash');
+      } else if (ch == 'V' || ch == 'W') {
+        _smashProp(col, row);
       }
     }
   }
 
-  void _killWalker(_Walker w, int points) {
-    w.dead = true;
-    w.deadTicks = 20;
+  /// Dönüş değeri: düşmana hasar verildi mi (kalkan önü blokladı mı).
+  bool _damageEnemy(_Enemy e, int attackDir) {
+    if (e.dead) return false;
+    final frontal = e.dir == -attackDir;
+    if (e.kind == _EnemyKind.guard && e.hp > 1 && frontal) {
+      _pops.add(_PopFx(e.x, e.y - .3, 'KLING', Colors.white70));
+      _arcadePlaySfx('clang');
+      return false;
+    }
+    if (e.kind == _EnemyKind.guard && e.hp > 1) e.hp = 1;
+    _killEnemy(e, e.kind == _EnemyKind.guard ? 40 : 30);
+    return true;
+  }
+
+  void _killEnemy(_Enemy e, int points) {
+    e.dead = true;
+    e.deadTicks = 22;
     _score += points;
-    _pops.add(_PopFx(w.x, w.y - .3, '+$points', const Color(0xffffd66b)));
+    _pops.add(_PopFx(e.x, e.y - .3, '+$points', const Color(0xffffd66b)));
+    _dropLoot(e.x + .1, e.y, e.kind);
+    _arcadePlaySfx('stomp');
+  }
+
+  /// Düşman türüne göre ödül tablosu.
+  void _dropLoot(double x, double y, _EnemyKind kind) {
+    final roll = _rng.nextInt(100);
+    _PickupKind drop;
+    switch (kind) {
+      case _EnemyKind.nut:
+        drop = roll < 55
+            ? _PickupKind.coin
+            : roll < 85 ? _PickupKind.gem : _PickupKind.heart;
+        break;
+      case _EnemyKind.spiky:
+        drop = roll < 50 ? _PickupKind.gem : _PickupKind.coin;
+        break;
+      case _EnemyKind.flyer:
+        drop = roll < 45 ? _PickupKind.coin : _PickupKind.gem;
+        break;
+      case _EnemyKind.hopper:
+        drop = roll < 40
+            ? _PickupKind.heart
+            : roll < 82 ? _PickupKind.coin : _PickupKind.star;
+        break;
+      case _EnemyKind.turret:
+        drop = roll < 60 ? _PickupKind.gem : _PickupKind.coin;
+        break;
+      case _EnemyKind.guard:
+        drop = roll < 45 ? _PickupKind.heart : _PickupKind.gem;
+        break;
+    }
+    _pickups.add(_Pickup(x, y, -.14, drop));
+  }
+
+  void _dropRandomLoot(double x, double y) {
+    final roll = _rng.nextInt(100);
+    final kind = roll < 45
+        ? _PickupKind.coin
+        : roll < 75
+            ? _PickupKind.gem
+            : roll < 92 ? _PickupKind.heart : _PickupKind.star;
+    _pickups.add(_Pickup(x, y, -.16, kind));
+  }
+
+  /// Sandık (V) veya varili (W) kırar; içindeki ödülü serbest bırakır.
+  void _smashProp(int col, int row) {
+    final ch = _tileAt(row, col);
+    if (ch != 'V' && ch != 'W') return;
+    _setTile(row, col, '.');
+    _broken++;
+    _score += 5;
+    _bumps.remove('$col:$row');
+    _debris.add(_Debris(col + .15, row + .15, -.07, -.14));
+    _debris.add(_Debris(col + .6, row + .15, .07, -.14));
+    _debris.add(_Debris(col + .15, row + .6, -.05, -.06));
+    _debris.add(_Debris(col + .6, row + .6, .05, -.06));
+    _dropRandomLoot(col.toDouble(), row.toDouble());
+    _arcadePlaySfx('smash');
   }
 
   void _breakFx(int col, int row) {
@@ -1333,6 +1635,7 @@ class _PlatformerState extends State<_PlatformerGame> {
   void _tickPlaying() {
     final info = _info;
     if (info == null) return;
+    if (_star > 0) _star--;
     _timeTicks++;
     if (_timeTicks >= 40) {
       _timeTicks = 0;
@@ -1344,15 +1647,31 @@ class _PlatformerState extends State<_PlatformerGame> {
     }
 
     final dir = (_holdRight ? 1 : 0) - (_holdLeft ? 1 : 0);
-    _vx = dir * info.runSpeed;
-    if (dir != 0) _facing = dir;
+    final top = info.runSpeed * (_powered ? 1.18 : 1.0);
+    if (dir != 0) {
+      // Ani yön değişiminde kayma (skid) hissi.
+      if (_vx * dir < 0 && _vx.abs() > .04) {
+        _squash = math.max(_squash, .35);
+        _runDust(.5);
+      }
+      _vx += dir * info.accel;
+      if (_vx.abs() > top) _vx = dir * top;
+      _facing = dir;
+    } else {
+      _vx *= .82;
+      if (_vx.abs() < .004) _vx = 0;
+    }
     _moveX(_vx);
 
-    if (_grounded && _jumpBuffer > 0) {
+    if ((_grounded || _coyote > 0) && _jumpBuffer > 0) {
       _vy = info.jumpSpeed;
       _grounded = false;
+      _coyote = 0;
       _jumpBuffer = 0;
       _jumpCut = false;
+      _squash = -.6;
+      _jumpDust();
+      _arcadePlaySfx('jump');
     }
     if (!_jumpHeld && _vy < 0 && !_jumpCut) {
       _vy *= .5;
@@ -1361,6 +1680,24 @@ class _PlatformerState extends State<_PlatformerGame> {
     _vy = math.min(_maxFall, _vy + _gravity);
     _moveY(_vy);
     if (_jumpBuffer > 0) _jumpBuffer--;
+    if (_grounded) {
+      _coyote = 7;
+    } else if (_coyote > 0) {
+      _coyote--;
+    }
+
+    // İnişte ezilme + toz bulutu: hareketi yumuşatır.
+    if (_grounded && !_wasGrounded) {
+      _squash = 1;
+      _landDust();
+      _arcadePlaySfx('land');
+    }
+    _wasGrounded = _grounded;
+    if (_squash.abs() > .01) {
+      _squash = _squash > 0 ? _squash - .085 : _squash + .085;
+    } else {
+      _squash = 0;
+    }
 
     // Boşluğa düşen oyuncu bir can kaybeder.
     if (_y > _rows + 1) {
@@ -1368,14 +1705,55 @@ class _PlatformerState extends State<_PlatformerGame> {
       return;
     }
 
+    _stepTick++;
+    if (_grounded && _vx.abs() > info.runSpeed * .55 && _stepTick % 11 == 0) {
+      _runDust(.35);
+    }
+
     _collectCoins();
-    _tickWalkers();
+    _collectPickups();
+    _tickEnemies();
     _tickSparks();
-    _playerVsWalkers();
+    _tickBolts();
+    _tickPickups();
+    _tickDust();
+    _playerVsEnemies();
     _tickFx();
     _tickCamera();
 
     if (_phase == _Phase.playing && _x >= _goalX) _clearLevel();
+  }
+
+  void _landDust() {
+    _dust.add(_Dust(_x - .18, _y + _ph - .1, -.1, -.03));
+    _dust.add(_Dust(_x + .58, _y + _ph - .1, .1, -.03));
+  }
+
+  void _jumpDust() {
+    _dust.add(_Dust(_x - .05, _y + _ph - .05, -.08, -.05));
+    _dust.add(_Dust(_x + .45, _y + _ph - .05, .08, -.05));
+  }
+
+  void _runDust(double power) {
+    _dust.add(
+      _Dust(
+        _x + (_facing > 0 ? .05 : _pw - .05),
+        _y + _ph - .06,
+        -_facing * .12 * power,
+        -.045 * power,
+      ),
+    );
+  }
+
+  void _tickDust() {
+    for (final d in _dust) {
+      d.x += d.vx;
+      d.y += d.vy;
+      d.vy += .0015;
+      d.life--;
+      if (d.life <= 0) d.remove = true;
+    }
+    _dust.removeWhere((d) => d.remove);
   }
 
   void _collectCoins() {
@@ -1397,71 +1775,239 @@ class _PlatformerState extends State<_PlatformerGame> {
     }
   }
 
-  void _tickWalkers() {
-    for (final w in _walkers) {
-      if (w.dead) {
-        w.deadTicks--;
+  /// Altı düşman türünün ayrı ayrı davranışı.
+  void _tickEnemies() {
+    for (final e in _enemies) {
+      e.t++;
+      if (e.dead) {
+        e.deadTicks--;
         continue;
       }
-      w.vy = math.min(_maxFall, w.vy + _gravity);
-      final nextY = w.y + w.vy;
-      final hitRow = _boxRow(w.x, nextY, .72, .78);
-      if (hitRow == null) {
-        w.y = nextY;
-      } else if (w.vy > 0) {
-        w.y = hitRow - .78 - .002;
-        w.vy = 0;
-      } else {
-        w.y = hitRow + 1 + .002;
-        w.vy = 0;
-      }
-      if (w.y > _rows + 2) {
-        w.remove = true;
-        continue;
-      }
-      final nx = w.x + w.dir * .045;
-      if (_boxCol(nx, w.y, .72, .78) != null) {
-        w.dir = -w.dir;
-      } else {
-        w.x = nx;
+      switch (e.kind) {
+        case _EnemyKind.flyer:
+          e.x += e.dir * .038;
+          e.y = e.homeY + math.sin(e.t * .05) * 1.05;
+          final ahead = (e.x + (e.dir > 0 ? .74 : -.02)).floor();
+          if (_solid(ahead, (e.y + .4).floor()) ||
+              e.x < .2 ||
+              e.x > _cols - 1.0) {
+            e.dir = -e.dir;
+          }
+          break;
+        case _EnemyKind.turret:
+          e.cool--;
+          if (e.cool <= 0) {
+            e.cool = 95;
+            final toPlayer = _x > e.x;
+            _bolts.add(
+              _Bolt(
+                e.x + (toPlayer ? .6 : .1),
+                e.y + .2,
+                toPlayer ? .055 : -.055,
+                0,
+              ),
+            );
+            _arcadePlaySfx('shoot');
+          }
+          break;
+        case _EnemyKind.hopper:
+          e.vy = math.min(_maxFall, e.vy + _gravity);
+          final hopRow = _boxRow(e.x, e.y + e.vy, .72, .78);
+          if (hopRow == null) {
+            e.y += e.vy;
+          } else if (e.vy > 0) {
+            e.y = hopRow - .78 - .002;
+            e.vy = 0;
+            e.cool = 55 + _rng.nextInt(45);
+          } else {
+            e.y = hopRow + 1 + .002;
+            e.vy = 0;
+          }
+          if (e.cool > 0) e.cool--;
+          if (e.cool <= 0 && e.vy == 0) {
+            e.vy = -.30;
+            e.dir = _x + _pw / 2 < e.x + .36 ? -1 : 1;
+            _arcadePlaySfx('hop');
+          }
+          if (e.vy == 0) {
+            final nx = e.x + e.dir * .022;
+            if (_boxCol(nx, e.y, .72, .78) == null) e.x = nx;
+          }
+          break;
+        case _EnemyKind.nut:
+        case _EnemyKind.spiky:
+        case _EnemyKind.guard:
+          e.vy = math.min(_maxFall, e.vy + _gravity);
+          final walkRow = _boxRow(e.x, e.y + e.vy, .72, .78);
+          if (walkRow == null) {
+            e.y += e.vy;
+          } else if (e.vy > 0) {
+            e.y = walkRow - .78 - .002;
+            e.vy = 0;
+          } else {
+            e.y = walkRow + 1 + .002;
+            e.vy = 0;
+          }
+          final speed = e.kind == _EnemyKind.nut
+              ? .032
+              : e.kind == _EnemyKind.guard ? .042 : .024;
+          final nx = e.x + e.dir * speed;
+          var blocked = _boxCol(nx, e.y, .72, .78) != null;
+          if (!blocked && e.kind != _EnemyKind.spiky) {
+            // Kestane ve muhafız boşluktan düşmez, kenarda döner.
+            final footRow = (e.y + .82).floor();
+            final ahead = (nx + (e.dir > 0 ? .76 : 0)).floor();
+            if (!_solid(ahead, footRow)) blocked = true;
+          }
+          if (blocked) {
+            e.dir = -e.dir;
+          } else {
+            e.x = nx;
+          }
+          if (e.y > _rows + 2) e.remove = true;
+          break;
       }
     }
-    _walkers.removeWhere((w) => w.remove || (w.dead && w.deadTicks <= 0));
+    _enemies.removeWhere((e) => e.remove || (e.dead && e.deadTicks <= 0));
+  }
+
+  void _tickPickups() {
+    for (final p in _pickups) {
+      p.t++;
+      p.life--;
+      if (p.life <= 0) {
+        p.remove = true;
+        continue;
+      }
+      if (!p.grounded) {
+        p.vy = math.min(_maxFall, p.vy + _gravity * .8);
+        final hit = _boxRow(p.x, p.y + p.vy, .5, .5);
+        if (hit == null) {
+          p.y += p.vy;
+        } else {
+          p.y = hit - .5 - .002;
+          p.vy = 0;
+          p.grounded = true;
+        }
+        if (p.y > _rows + 2) p.remove = true;
+      }
+    }
+    _pickups.removeWhere((p) => p.remove);
+  }
+
+  void _collectPickups() {
+    for (final p in _pickups) {
+      if (p.remove) continue;
+      final dx = p.x + .25 - (_x + _pw / 2);
+      final dy = p.y + .25 - (_y + _ph / 2);
+      if (dx.abs() > .62 || dy.abs() > .68) continue;
+      p.remove = true;
+      switch (p.kind) {
+        case _PickupKind.coin:
+          _coinCount++;
+          _score += 10;
+          _pops.add(_PopFx(p.x, p.y - .3, '+10', const Color(0xffffd66b)));
+          _arcadePlaySfx('coin');
+          break;
+        case _PickupKind.gem:
+          _score += 50;
+          _pops.add(_PopFx(p.x, p.y - .3, '+50', const Color(0xff7ff2b0)));
+          _arcadePlaySfx('coin');
+          break;
+        case _PickupKind.heart:
+          _lives = math.min(5, _lives + 1);
+          _pops.add(_PopFx(p.x, p.y - .3, '+1 CAN', const Color(0xffff8a9b)));
+          _arcadePlaySfx('power');
+          break;
+        case _PickupKind.star:
+          _star = 420;
+          _pops.add(_PopFx(p.x, p.y - .3, 'YILDIZ!', const Color(0xffffe066)));
+          _arcadePlaySfx('power');
+          break;
+      }
+    }
+    _pickups.removeWhere((p) => p.remove);
+  }
+
+  void _tickBolts() {
+    for (final b in _bolts) {
+      b.x += b.vx;
+      b.y += b.vy;
+      b.life--;
+      if (b.life <= 0 || _solid((b.x + .2).floor(), (b.y + .2).floor())) {
+        b.dead = true;
+        continue;
+      }
+      final dx = b.x + .2 - (_x + _pw / 2);
+      final dy = b.y + .2 - (_y + _ph / 2);
+      if (dx.abs() < .48 && dy.abs() < .55 && _invuln <= 0 && !_powered) {
+        b.dead = true;
+        _die();
+        return;
+      }
+    }
+    _bolts.removeWhere((b) => b.dead);
   }
 
   void _tickSparks() {
     for (final spark in _sparks) {
       spark.x += spark.vx;
       spark.life--;
-      if (spark.life <= 0 ||
-          _solid((spark.x + .15).floor(), (spark.y + .15).floor())) {
+      final col = (spark.x + .15).floor();
+      final row = (spark.y + .15).floor();
+      final ch = _tileAt(row, col);
+      if (ch == 'V' || ch == 'W') {
+        // Kivilcim sandik/varile carpinca kirar.
+        _smashProp(col, row);
         spark.dead = true;
         continue;
       }
-      for (final w in _walkers) {
-        if (w.dead) continue;
-        if ((w.x + .36 - spark.x).abs() < .58 &&
-            (w.y + .39 - spark.y).abs() < .62) {
-          _killWalker(w, 30);
-          spark.dead = true;
+      if (spark.life <= 0 || _solid(col, row)) {
+        spark.dead = true;
+        continue;
+      }
+      var consumed = false;
+      for (final e in _enemies) {
+        if (e.dead) continue;
+        if ((e.x + .36 - spark.x).abs() < .58 &&
+            (e.y + .39 - spark.y).abs() < .62) {
+          _damageEnemy(e, _facing);
+          consumed = true;
           break;
         }
       }
+      if (!consumed) {
+        for (final b in _bolts) {
+          if (b.dead) continue;
+          if ((b.x - spark.x).abs() < .4 && (b.y - spark.y).abs() < .4) {
+            b.dead = true;
+            consumed = true;
+            _arcadePlaySfx('clang');
+            break;
+          }
+        }
+      }
+      if (consumed) spark.dead = true;
     }
     _sparks.removeWhere((spark) => spark.dead);
   }
 
-  void _playerVsWalkers() {
-    for (final w in _walkers) {
-      if (w.dead) continue;
-      final dx = _x + _pw / 2 - (w.x + .36);
-      final dy = _y + _ph / 2 - (w.y + .39);
+  void _playerVsEnemies() {
+    for (final e in _enemies) {
+      if (e.dead) continue;
+      final dx = _x + _pw / 2 - (e.x + .36);
+      final dy = _y + _ph / 2 - (e.y + .39);
       if (dx.abs() > .70 || dy.abs() > .82) continue;
-      final stomping = _vy > 0 && (_y + _ph) - w.y < .55;
-      if (stomping && !w.spiky) {
-        _killWalker(w, 25);
-        _vy = -.23;
+      if (_powered) {
+        _killEnemy(e, 50);
+        continue;
+      }
+      final stomping = _vy > 0 && (_y + _ph) - e.y < .55;
+      if (stomping && e.kind != _EnemyKind.spiky) {
+        _killEnemy(e, e.kind == _EnemyKind.guard ? 40 : 25);
+        _vy = -.26;
         _grounded = false;
+        _squash = .8;
       } else if (_invuln <= 0) {
         _die();
         return;
@@ -1496,9 +2042,10 @@ class _PlatformerState extends State<_PlatformerGame> {
   }
 
   void _tickCamera() {
-    final target =
-        (_x - 5.2).clamp(0.0, math.max(0.0, _cols - _viewCols)).toDouble();
-    _camera += (target - _camera) * .18;
+    final target = (_x + _vx * 14 - 5.2)
+        .clamp(0.0, math.max(0.0, _cols - _viewCols))
+        .toDouble();
+    _camera += (target - _camera) * .16;
     if ((target - _camera).abs() < .01) _camera = target;
   }
 
@@ -1508,13 +2055,15 @@ class _PlatformerState extends State<_PlatformerGame> {
     _phaseTicks = 70;
     _vy = -.34;
     _lives--;
+    _arcadePlaySfx('hurt');
   }
 
   void _clearLevel() {
-    _clearBonus = _time * 2;
+    _clearBonus = _time * 2 + _broken * 15;
     _score += _clearBonus;
     _phase = _Phase.clear;
     _phaseTicks = 130;
+    _arcadePlaySfx('clear');
   }
 
   // --- klavye ---------------------------------------------------------------
@@ -1586,7 +2135,32 @@ class _PlatformerState extends State<_PlatformerGame> {
                   _hero == _PlatformerHero.coder ? Icons.bolt : Icons.hardware,
             )
           : null,
-      child: _phase == _Phase.select ? _buildSelect() : _buildStage(),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: _phase == _Phase.select ? _buildSelect() : _buildStage(),
+          ),
+          Positioned(top: 4, right: 4, child: _muteButton()),
+        ],
+      ),
+    );
+  }
+
+  Widget _muteButton() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => setState(() => _arcadeSfxMuted = !_arcadeSfxMuted),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(
+            _arcadeSfxMuted ? Icons.volume_off : Icons.volume_up,
+            size: 18,
+            color: Colors.white38,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1678,13 +2252,15 @@ class _PlatformPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (s._grid.isEmpty) return;
+    final theme = s._theme;
     final sky = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xff0e1c40), Color(0xff27407c), Color(0xff4b5ea6)],
+      ..shader = LinearGradient(
+        colors: theme.sky,
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       ).createShader(Offset.zero & size);
     canvas.drawRect(Offset.zero & size, sky);
+    _paintSkyDetails(canvas, size, theme);
 
     final tile = math.min(size.width / 13, size.height / _PlatformerState._rows);
     if (tile <= 0) return;
@@ -1701,8 +2277,24 @@ class _PlatformPainter extends CustomPainter {
     _paintScenery(canvas, tile);
     _paintTiles(canvas, tile);
     _paintFlag(canvas, tile);
-    for (final w in s._walkers) {
-      _paintWalker(canvas, w, tile);
+    for (final e in s._enemies) {
+      _paintEnemy(canvas, e, tile);
+    }
+    for (final p in s._pickups) {
+      _paintPickup(canvas, p, tile);
+    }
+    for (final b in s._bolts) {
+      final c = Offset((b.x + .2 - s._camera) * tile, (b.y + .2) * tile);
+      canvas.drawCircle(c, tile * .17, Paint()..color = const Color(0xffff8a5c));
+      canvas.drawCircle(c, tile * .09, Paint()..color = const Color(0xffffe0b0));
+    }
+    for (final d in s._dust) {
+      final a = (d.life / 18).clamp(0.0, 1.0).toDouble();
+      canvas.drawCircle(
+        Offset((d.x - s._camera) * tile, d.y * tile),
+        tile * .16 * a + tile * .04,
+        Paint()..color = Colors.white.withValues(alpha: .30 * a),
+      );
     }
     for (final spark in s._sparks) {
       final c = Offset((spark.x - s._camera) * tile, spark.y * tile);
@@ -1724,20 +2316,43 @@ class _PlatformPainter extends CustomPainter {
     final blinking =
         s._invuln > 0 && s._phase == _Phase.playing && (s._clock ~/ 4).isOdd;
     if (!blinking) {
+      final heroRect = Rect.fromLTWH(
+        (s._x - s._camera) * tile,
+        s._y * tile,
+        _PlatformerState._pw * tile,
+        _PlatformerState._ph * tile,
+      );
+      canvas.save();
+      if (s._squash.abs() > .01) {
+        // Ezilme/uzama ayak noktasına göre ölçeklenir (squash & stretch).
+        final pivot = Offset(heroRect.center.dx, heroRect.bottom);
+        canvas.translate(pivot.dx, pivot.dy);
+        final sy = s._squash > 0 ? 1 - .18 * s._squash : 1 + .12 * -s._squash;
+        final sx = s._squash > 0 ? 1 + .16 * s._squash : 1 - .10 * -s._squash;
+        canvas.scale(sx, sy);
+        canvas.translate(-pivot.dx, -pivot.dy);
+      }
+      if (s._powered) {
+        final glow = Paint()
+          ..color = Color.fromRGBO(
+            255,
+            224,
+            102,
+            .30 + .20 * math.sin(s._clock * .3).abs(),
+          )
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
+        canvas.drawCircle(heroRect.center, heroRect.width * .95, glow);
+      }
       _drawHeroFigure(
         canvas,
-        Rect.fromLTWH(
-          (s._x - s._camera) * tile,
-          s._y * tile,
-          _PlatformerState._pw * tile,
-          _PlatformerState._ph * tile,
-        ),
+        heroRect,
         s._hero ?? _PlatformerHero.chief,
         s._facing,
         runPhase: s._grounded && s._vx != 0 ? (s._clock ~/ 5) % 2 : 0,
         air: !s._grounded,
         attack: s._attackAnim,
       );
+      canvas.restore();
     }
     for (final p in s._pops) {
       final tp = TextPainter(
@@ -1804,8 +2419,44 @@ class _PlatformPainter extends CustomPainter {
     }
   }
 
+  void _paintSkyDetails(Canvas canvas, Size size, _LevelTheme theme) {
+    if (!theme.night) return;
+    // Ay ve göz kırpışan yıldızlar (ekran uzayında sabit).
+    final moon = Offset(size.width * .82, size.height * .14);
+    canvas.drawCircle(moon, 17, Paint()..color = const Color(0xe8fff6d5));
+    canvas.drawCircle(
+      moon.translate(-5, -4),
+      4,
+      Paint()..color = const Color(0x33e8dcb0),
+    );
+    final star = Paint()..color = const Color(0x88ffffff);
+    for (var i = 0; i < 26; i++) {
+      final x = ((i * 137) % 100) / 100 * size.width;
+      final y = ((i * 61) % 45) / 100 * size.height;
+      final tw = .5 + .5 * math.sin(s._clock * .06 + i * 1.7).abs();
+      canvas.drawCircle(Offset(x, y), 1.0 + tw, star);
+    }
+  }
+
   void _paintScenery(Canvas canvas, double tile) {
-    final hill = Paint()..color = const Color(0x33236a4b);
+    final theme = s._theme;
+    // Uzak sırtlar (yavaş paralaks).
+    final hillFar = Paint()..color = theme.hillFar;
+    for (var i = 0; i < s._cols ~/ 11 + 2; i++) {
+      final wx = i * 11.0 + (i % 3) * 2.4;
+      final x = (wx - s._camera * .4) * tile;
+      if (x < -5 * tile || x > 19 * tile) continue;
+      final r = (2.4 + (i % 2) * .9) * tile;
+      canvas.drawArc(
+        Rect.fromLTWH(x - r, 12 * tile - r * .85, r * 2, r * 2),
+        math.pi,
+        math.pi,
+        true,
+        hillFar,
+      );
+    }
+    // Yakın tepeler.
+    final hill = Paint()..color = theme.hill;
     for (var i = 0; i < s._cols ~/ 9 + 2; i++) {
       final wx = i * 9.0 + (i % 3) * 2.2;
       final x = (wx - s._camera * .55) * tile;
@@ -1819,7 +2470,7 @@ class _PlatformPainter extends CustomPainter {
         hill,
       );
     }
-    final cloud = Paint()..color = const Color(0x33ffffff);
+    final cloud = Paint()..color = theme.cloud;
     for (var i = 0; i < s._cols ~/ 7 + 2; i++) {
       final wx = 3 + i * 7.0 + (i % 3) * 1.7;
       final x = (wx - s._camera * .3) * tile;
@@ -1831,6 +2482,66 @@ class _PlatformPainter extends CustomPainter {
         cloud,
       );
     }
+    // Zemin üzerinde tema dekoru: çalı / kaktüs / sokak lambası.
+    for (var i = 0; i < s._cols ~/ 7 + 2; i++) {
+      final wx = i * 7.0 + (i % 4) * 1.7 + .5;
+      final col = wx.floor();
+      if (col < 0 || col >= s._cols || !s._solid(col, 12)) continue;
+      final x = (wx - s._camera) * tile;
+      if (x < -2 * tile || x > 15 * tile) continue;
+      _paintProp(canvas, i % 3, x, 12 * tile, tile, theme);
+    }
+  }
+
+  void _paintProp(
+    Canvas canvas,
+    int variant,
+    double x,
+    double groundY,
+    double tile,
+    _LevelTheme theme,
+  ) {
+    if (theme.night) {
+      final pole = Paint()..color = const Color(0xff2f3542);
+      canvas.drawRect(
+        Rect.fromLTWH(x + tile * .46, groundY - tile * 2.2, tile * .08, tile * 2.2),
+        pole,
+      );
+      final bulb = Offset(x + tile * .5, groundY - tile * 2.3);
+      canvas.drawCircle(bulb, tile * .40, Paint()..color = const Color(0x33ffe9a8));
+      canvas.drawCircle(bulb, tile * .20, Paint()..color = const Color(0xffffe9a8));
+      return;
+    }
+    if (theme.name == 'Çöl') {
+      final body = Paint()..color = const Color(0xff4d8f5a);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x + tile * .40, groundY - tile * 1.5, tile * .34, tile * 1.5),
+          Radius.circular(tile * .16),
+        ),
+        body,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x + tile * .10, groundY - tile * 1.05, tile * .34, tile * .20),
+          Radius.circular(tile * .10),
+        ),
+        body,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x + tile * .10, groundY - tile * 1.35, tile * .20, tile * .50),
+          Radius.circular(tile * .10),
+        ),
+        body,
+      );
+      return;
+    }
+    final leaf = Paint()
+      ..color = variant == 0 ? const Color(0xff2f8f4f) : const Color(0xff277a43);
+    canvas.drawCircle(Offset(x + tile * .35, groundY - tile * .22), tile * .30, leaf);
+    canvas.drawCircle(Offset(x + tile * .68, groundY - tile * .26), tile * .26, leaf);
+    canvas.drawCircle(Offset(x + tile * .52, groundY - tile * .40), tile * .24, leaf);
   }
 
   void _paintTiles(Canvas canvas, double tile) {
@@ -1854,10 +2565,10 @@ class _PlatformPainter extends CustomPainter {
             _ground(canvas, col, row, rect);
             break;
           case '=':
-            canvas.drawRect(rect, Paint()..color = const Color(0xff6b7280));
+            canvas.drawRect(rect, Paint()..color = s._theme.platform);
             canvas.drawRect(
               Rect.fromLTWH(rect.left, rect.top, tile, tile * .16),
-              Paint()..color = const Color(0xff9ca3af),
+              Paint()..color = s._theme.platformTop,
             );
             canvas.drawRect(
               Rect.fromLTWH(
@@ -1870,10 +2581,10 @@ class _PlatformPainter extends CustomPainter {
             );
             break;
           case 'B':
-            canvas.drawRect(rect, Paint()..color = const Color(0xffc46a2b));
+            canvas.drawRect(rect, Paint()..color = s._theme.brick);
             canvas.drawRect(
               Rect.fromLTWH(rect.left, rect.top, tile, tile * .14),
-              Paint()..color = const Color(0xffe0873f),
+              Paint()..color = s._theme.brickTop,
             );
             final mortar = Paint()..color = const Color(0x55000000);
             canvas.drawRect(
@@ -1928,6 +2639,12 @@ class _PlatformPainter extends CustomPainter {
           case 'P':
             _pipe(canvas, col, row, rect);
             break;
+          case 'V':
+            _crate(canvas, rect);
+            break;
+          case 'W':
+            _barrel(canvas, rect);
+            break;
           case 'o':
             _coin(canvas, col, rect);
             break;
@@ -1939,27 +2656,100 @@ class _PlatformPainter extends CustomPainter {
   }
 
   void _ground(Canvas canvas, int col, int row, Rect rect) {
+    final theme = s._theme;
     final tile = rect.width;
-    canvas.drawRect(rect, Paint()..color = const Color(0xff7a4a21));
-    canvas.drawRect(
-      Rect.fromLTWH(
-        rect.left + tile * .12,
-        rect.top + tile * .55,
-        tile * .2,
-        tile * .2,
-      ),
-      Paint()..color = const Color(0x33000000),
-    );
-    if (!s._solid(col, row - 1)) {
+    canvas.drawRect(rect, Paint()..color = theme.ground);
+    // Küçük doku farkları: aynı sütun her zaman aynı deseni alır.
+    final seed = (col * 7 + row * 13) % 3;
+    if (seed == 0) {
+      canvas.drawCircle(
+        Offset(rect.left + tile * .30, rect.top + tile * .62),
+        tile * .07,
+        Paint()..color = theme.groundShade,
+      );
+    } else if (seed == 1) {
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + tile * .55, rect.top + tile * .68, tile * .22, tile * .12),
+        Paint()..color = theme.groundShade,
+      );
+    }
+    final above = s._tileAt(row - 1, col);
+    final covered = above == '#' ||
+        above == '=' ||
+        above == 'B' ||
+        above == '?' ||
+        above == 'H' ||
+        above == 'U' ||
+        above == 'P';
+    if (!covered) {
       canvas.drawRect(
         Rect.fromLTWH(rect.left, rect.top, tile, tile * .30),
-        Paint()..color = const Color(0xff3fae5a),
+        Paint()..color = theme.groundTop,
       );
       canvas.drawRect(
         Rect.fromLTWH(rect.left, rect.top + tile * .30, tile, tile * .07),
-        Paint()..color = const Color(0xff2b7d41),
+        Paint()..color = theme.groundShade,
       );
+      // Üstteki çim püskülleri.
+      if (seed != 2) {
+        final blade = Paint()..color = theme.groundShade;
+        canvas.drawRect(
+          Rect.fromLTWH(rect.left + tile * .18, rect.top - tile * .10, tile * .06, tile * .12),
+          blade,
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(rect.left + tile * .70, rect.top - tile * .07, tile * .06, tile * .09),
+          blade,
+        );
+      }
     }
+  }
+
+  void _crate(Canvas canvas, Rect rect) {
+    final tile = rect.width;
+    canvas.drawRect(rect, Paint()..color = const Color(0xffa9743c));
+    canvas.drawRect(
+      Rect.fromLTWH(rect.left, rect.top, tile, tile * .12),
+      Paint()..color = const Color(0xffc9924f),
+    );
+    final plank = Paint()..color = const Color(0x66000000);
+    canvas.drawRect(Rect.fromLTWH(rect.left, rect.top + tile * .46, tile, tile * .07), plank);
+    canvas.drawRect(Rect.fromLTWH(rect.left, rect.top + tile * .88, tile, tile * .07), plank);
+    final brace = Paint()
+      ..color = const Color(0x44000000)
+      ..strokeWidth = tile * .08;
+    canvas.drawLine(
+      Offset(rect.left + tile * .1, rect.top + tile * .1),
+      Offset(rect.right - tile * .1, rect.bottom - tile * .1),
+      brace,
+    );
+    canvas.drawLine(
+      Offset(rect.right - tile * .1, rect.top + tile * .1),
+      Offset(rect.left + tile * .1, rect.bottom - tile * .1),
+      brace,
+    );
+  }
+
+  void _barrel(Canvas canvas, Rect rect) {
+    final tile = rect.width;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(tile * .22)),
+      Paint()..color = const Color(0xff8a5a2b),
+    );
+    final band = Paint()..color = const Color(0xff5a5f66);
+    canvas.drawRect(Rect.fromLTWH(rect.left + tile * .05, rect.top + tile * .16, tile * .90, tile * .10), band);
+    canvas.drawRect(Rect.fromLTWH(rect.left + tile * .05, rect.top + tile * .74, tile * .90, tile * .10), band);
+    canvas.drawRect(
+      Rect.fromLTWH(rect.left + tile * .16, rect.top, tile * .14, tile),
+      Paint()..color = const Color(0x33ffffff),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(tile * .22)),
+      Paint()
+        ..color = const Color(0x22000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
   }
 
   void _question(Canvas canvas, Rect rect, bool heart) {
@@ -2089,78 +2879,356 @@ class _PlatformPainter extends CustomPainter {
     canvas.drawPath(path, Paint()..color = const Color(0xff22c55e));
   }
 
-  void _paintWalker(Canvas canvas, _Walker w, double tile) {
-    if (w.x < s._camera - 1.5 || w.x > s._camera + 15) return;
-    final left = (w.x - s._camera) * tile;
-    final top = w.y * tile;
-    final bodyW = .72 * tile;
-    final bodyH = .78 * tile;
-    if (w.dead) {
-      canvas.drawRect(
-        Rect.fromLTWH(left, top + bodyH * .6, bodyW, bodyH * .4),
-        Paint()..color = const Color(0xff8f4038),
+  /// Altı düşman türünün kendine özgü sprite'ı: kestane, dikenli, yarasa,
+  /// örümcek, taret bitkisi ve kalkanlı muhafız.
+  void _paintEnemy(Canvas canvas, _Enemy e, double tile) {
+    final left = (e.x - s._camera) * tile;
+    if (left < -2.4 * tile || left > (s._viewCols + 2.4) * tile) return;
+    final top = e.y * tile;
+    final w = .72 * tile;
+    final h = .78 * tile;
+    double fx(double f) => left + w * f;
+    double fy(double f) => top + h * f;
+    void box(double x, double y, double ww, double hh, Color c) =>
+        canvas.drawRect(Rect.fromLTWH(fx(x), fy(y), w * ww, h * hh), Paint()..color = c);
+    void round(double x, double y, double ww, double hh, double r, Color c) =>
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(fx(x), fy(y), w * ww, h * hh),
+            Radius.circular(r),
+          ),
+          Paint()..color = c,
+        );
+    void dot(double cx, double cy, double r, Color c) =>
+        canvas.drawCircle(Offset(fx(cx), fy(cy)), r, Paint()..color = c);
+    void eyes(double ex, double ey, double r,
+        [Color pupil = const Color(0xff1a1410)]) {
+      final look = e.dir > 0 ? r * .4 : -r * .4;
+      dot(ex, ey, r, Colors.white);
+      dot(ex + r * 1.5, ey, r, Colors.white);
+      dot(ex + look, ey, r * .52, pupil);
+      dot(ex + r * 1.5 + look, ey, r * .52, pupil);
+    }
+
+    final bodyColor = switch (e.kind) {
+      _EnemyKind.nut => const Color(0xffc1701f),
+      _EnemyKind.spiky => const Color(0xff7c3aed),
+      _EnemyKind.flyer => const Color(0xff64527f),
+      _EnemyKind.hopper => const Color(0xff6d9440),
+      _EnemyKind.turret => const Color(0xff3f8f4a),
+      _EnemyKind.guard => const Color(0xff6b7280),
+    };
+
+    if (e.dead) {
+      final k = (e.deadTicks / 22).clamp(0.0, 1.0).toDouble();
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            left,
+            top + h * (.44 + .34 * (1 - k)),
+            w,
+            h * (.34 + .24 * k),
+          ),
+          Radius.circular(tile * .14),
+        ),
+        Paint()..color = bodyColor.withValues(alpha: .3 + .6 * k),
       );
       return;
     }
-    final body = Paint()
-      ..color = w.spiky ? const Color(0xff7c3aed) : const Color(0xffd9574b);
-    if (w.spiky) {
-      final spike = Paint()..color = const Color(0xff4c1d95);
-      for (final fx in [.15, .5, .85]) {
-        final cx = left + bodyW * fx;
-        final path = Path()
-          ..moveTo(cx - tile * .09, top + tile * .1)
-          ..lineTo(cx, top - tile * .16)
-          ..lineTo(cx + tile * .09, top + tile * .1)
-          ..close();
-        canvas.drawPath(path, spike);
-      }
+
+    switch (e.kind) {
+      case _EnemyKind.nut:
+        round(.0, .08, 1.0, .4, tile * .16, const Color(0xff6d3a12));
+        box(.42, -.1, .16, .2, const Color(0xff4a2708));
+        round(.03, .18, .94, .8, tile * .2, const Color(0xffb3641f));
+        round(.14, .3, .72, .34, tile * .16, const Color(0xff8a4a12));
+        box(.18, .66, .64, .1, const Color(0x33ffffff));
+        eyes(.14, .44, tile * .075);
+        box(.1, .9, .3, .1, const Color(0x77000000));
+        box(.6, .9, .3, .1, const Color(0x77000000));
+        break;
+      case _EnemyKind.spiky:
+        final spike = Paint()..color = const Color(0xff3b1372);
+        for (final f in [.1, .32, .54, .76, .98]) {
+          canvas.drawPath(
+            Path()
+              ..moveTo(fx(f) - tile * .08, fy(.26))
+              ..lineTo(fx(f), fy(-.12))
+              ..lineTo(fx(f) + tile * .08, fy(.26))
+              ..close(),
+            spike,
+          );
+        }
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.0), fy(.5))
+            ..lineTo(fx(-.08), fy(.7))
+            ..lineTo(fx(.0), fy(.84))
+            ..close(),
+          spike,
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(1.0), fy(.5))
+            ..lineTo(fx(1.08), fy(.7))
+            ..lineTo(fx(1.0), fy(.84))
+            ..close(),
+          spike,
+        );
+        round(.02, .2, .96, .76, tile * .26, const Color(0xff7c3aed));
+        round(.2, .32, .6, .3, tile * .14, const Color(0xff9d6bff));
+        eyes(.18, .46, tile * .075, const Color(0xff2a0a4a));
+        box(.16, .34, .22, .07, const Color(0xff3b1372));
+        box(.58, .34, .22, .07, const Color(0xff3b1372));
+        break;
+      case _EnemyKind.flyer:
+        final flap = math.sin(e.t * .38) * h * .22;
+        final wing = Paint()..color = const Color(0xff463a63);
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.16), fy(.44))
+            ..lineTo(fx(-.42), fy(.2) + flap)
+            ..lineTo(fx(-.3), fy(.62) + flap * .5)
+            ..close(),
+          wing,
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.84), fy(.44))
+            ..lineTo(fx(1.42), fy(.2) - flap)
+            ..lineTo(fx(1.3), fy(.62) - flap * .5)
+            ..close(),
+          wing,
+        );
+        round(.12, .12, .76, .76, tile * .3, const Color(0xff5b4a7a));
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.24), fy(.18))
+            ..lineTo(fx(.32), fy(-.16))
+            ..lineTo(fx(.46), fy(.18))
+            ..close(),
+          wing,
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.54), fy(.18))
+            ..lineTo(fx(.68), fy(-.16))
+            ..lineTo(fx(.76), fy(.18))
+            ..close(),
+          wing,
+        );
+        final fang = Paint()..color = Colors.white;
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.34), fy(.72))
+            ..lineTo(fx(.4), fy(.9))
+            ..lineTo(fx(.46), fy(.72))
+            ..close(),
+          fang,
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.54), fy(.72))
+            ..lineTo(fx(.6), fy(.9))
+            ..lineTo(fx(.66), fy(.72))
+            ..close(),
+          fang,
+        );
+        eyes(.28, .44, tile * .08, const Color(0xffe11d48));
+        break;
+      case _EnemyKind.hopper:
+        final leg = Paint()
+          ..color = const Color(0xff40601f)
+          ..strokeWidth = tile * .07
+          ..strokeCap = StrokeCap.round;
+        final sway = math.sin(e.t * .22) * tile * .1;
+        for (final f in [.2, .42, .62, .82]) {
+          canvas.drawLine(
+            Offset(fx(f), fy(.6)),
+            Offset(fx(f) - tile * .22, fy(.92) + sway),
+            leg,
+          );
+        }
+        round(.08, .24, .84, .62, tile * .2, const Color(0xff6d9440));
+        round(.18, .3, .64, .26, tile * .14, const Color(0xff8fbf55));
+        for (final f in [.26, .74]) {
+          canvas.drawCircle(
+            Offset(fx(f), fy(1.0)),
+            tile * .07,
+            Paint()..color = const Color(0xff40601f),
+          );
+        }
+        eyes(.24, .42, tile * .075, const Color(0xff2d3a12));
+        break;
+      case _EnemyKind.turret:
+        canvas.drawRect(
+          Rect.fromLTWH(fx(.42), fy(.4), w * .16, h * .66),
+          Paint()..color = const Color(0xff2f7a3d),
+        );
+        final leaf = Paint()..color = const Color(0xff44a04f);
+        canvas.drawOval(Rect.fromLTWH(fx(-.1), fy(.6), w * .5, h * .22), leaf);
+        canvas.drawOval(Rect.fromLTWH(fx(.6), fy(.6), w * .5, h * .22), leaf);
+        final open = e.cool < 30 ? 1.0 : .35;
+        canvas.drawCircle(
+          Offset(fx(.5), fy(.34)),
+          tile * .3,
+          Paint()..color = const Color(0xffc0392b),
+        );
+        canvas.drawCircle(
+          Offset(fx(.5), fy(.34)),
+          tile * .3,
+          Paint()
+            ..color = const Color(0xff7f1d1d)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = tile * .05,
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(.2), fy(.3))
+            ..lineTo(fx(.5), fy(.3 + .34 * open))
+            ..lineTo(fx(.8), fy(.3))
+            ..close(),
+          Paint()..color = const Color(0xff3b0a0a),
+        );
+        dot(.36, .22, tile * .05, Colors.white);
+        dot(.64, .22, tile * .05, Colors.white);
+        break;
+      case _EnemyKind.guard:
+        const metal = Color(0xff7d8896);
+        const metalDark = Color(0xff4b5666);
+        box(.16, .78, .28, .16, const Color(0xff33404f));
+        box(.56, .78, .28, .16, const Color(0xff33404f));
+        round(.1, .3, .8, .56, tile * .12, metal);
+        round(.16, .32, .68, .3, tile * .1, const Color(0xff93a1b0));
+        round(.22, .04, .56, .32, tile * .14, metalDark);
+        box(.3, .18, .4, .1, const Color(0xff1f2732));
+        dot(.36, .26, tile * .05, const Color(0xfff59e0b));
+        dot(.64, .26, tile * .05, const Color(0xfff59e0b));
+        final shieldX = e.dir > 0 ? .98 : -.32;
+        canvas.drawPath(
+          Path()
+            ..moveTo(fx(shieldX), fy(.3))
+            ..lineTo(fx(shieldX + .34 * e.dir), fy(.3))
+            ..lineTo(fx(shieldX + .34 * e.dir), fy(.72))
+            ..lineTo(fx(shieldX), fy(.9))
+            ..close(),
+          Paint()..color = const Color(0xff8b6b3f),
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(
+            fx(e.dir > 0 ? 1.1 : -.18),
+            fy(-.3),
+            w * .08,
+            h * 1.24,
+          ),
+          Paint()..color = const Color(0xffcbd5e1),
+        );
+        break;
     }
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(left, top, bodyW, bodyH),
-        Radius.circular(tile * .18),
-      ),
-      body,
-    );
-    final eye = Paint()..color = Colors.white;
-    final pupil = Paint()..color = const Color(0xff241f1c);
-    final look = w.dir > 0 ? .1 : -.1;
-    canvas.drawCircle(
-      Offset(left + bodyW * (.32 + look), top + bodyH * .34),
-      tile * .07,
-      eye,
-    );
-    canvas.drawCircle(
-      Offset(left + bodyW * (.66 + look), top + bodyH * .34),
-      tile * .07,
-      eye,
-    );
-    canvas.drawCircle(
-      Offset(left + bodyW * (.32 + look), top + bodyH * .34),
-      tile * .035,
-      pupil,
-    );
-    canvas.drawCircle(
-      Offset(left + bodyW * (.66 + look), top + bodyH * .34),
-      tile * .035,
-      pupil,
-    );
-    final foot = Paint()..color = const Color(0x66000000);
-    final shift = (s._clock ~/ 6) % 2 == 0 ? 0.0 : tile * .1;
-    canvas.drawRect(
-      Rect.fromLTWH(left + shift, top + bodyH, bodyW * .3, tile * .08),
-      foot,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(
-        left + bodyW * .7 - shift,
-        top + bodyH,
-        bodyW * .3,
-        tile * .08,
-      ),
-      foot,
-    );
+  }
+
+  /// Dört ödül türü: altın, kristal, kalp ve yıldız.
+  void _paintPickup(Canvas canvas, _Pickup p, double tile) {
+    final left = (p.x - s._camera) * tile;
+    if (left < -2 * tile || left > (s._viewCols + 2) * tile) return;
+    final fade = p.life < 90 ? (p.life / 90).clamp(0.0, 1.0).toDouble() : 1.0;
+    final cx = left + .25 * tile;
+    final cy = p.y * tile + .25 * tile + math.sin(p.t * .12) * tile * .07;
+    switch (p.kind) {
+      case _PickupKind.coin:
+        _pickupGlow(canvas, cx, cy, tile, const Color(0xffffd66b), fade);
+        final spin = math.sin(s._clock * .2 + p.t * .06).abs() * .72 + .28;
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(cx, cy),
+            width: tile * .44 * spin,
+            height: tile * .5,
+          ),
+          Paint()..color = const Color(0xfff6b93b).withValues(alpha: fade),
+        );
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(cx, cy),
+            width: tile * .2 * spin,
+            height: tile * .26,
+          ),
+          Paint()..color = const Color(0xfffff3c4).withValues(alpha: fade),
+        );
+        break;
+      case _PickupKind.gem:
+        _pickupGlow(canvas, cx, cy, tile, const Color(0xff7ff2b0), fade);
+        canvas.drawPath(
+          Path()
+            ..moveTo(cx, cy - tile * .26)
+            ..lineTo(cx + tile * .2, cy)
+            ..lineTo(cx, cy + tile * .26)
+            ..lineTo(cx - tile * .2, cy)
+            ..close(),
+          Paint()..color = const Color(0xff2dd4bf).withValues(alpha: fade),
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(cx, cy - tile * .15)
+            ..lineTo(cx + tile * .11, cy)
+            ..lineTo(cx, cy + tile * .15)
+            ..lineTo(cx - tile * .11, cy)
+            ..close(),
+          Paint()..color = const Color(0xffa7f3d0).withValues(alpha: fade),
+        );
+        break;
+      case _PickupKind.heart:
+        _pickupGlow(canvas, cx, cy, tile, const Color(0xffff8a9b), fade);
+        final heart = Paint()..color = const Color(0xffef4444).withValues(alpha: fade);
+        canvas.drawCircle(Offset(cx - tile * .09, cy - tile * .08), tile * .13, heart);
+        canvas.drawCircle(Offset(cx + tile * .09, cy - tile * .08), tile * .13, heart);
+        canvas.drawPath(
+          Path()
+            ..moveTo(cx - tile * .21, cy - tile * .02)
+            ..lineTo(cx + tile * .21, cy - tile * .02)
+            ..lineTo(cx, cy + tile * .26)
+            ..close(),
+          heart,
+        );
+        break;
+      case _PickupKind.star:
+        _pickupGlow(canvas, cx, cy, tile, const Color(0xffffe066), fade);
+        final path = Path();
+        final rot = s._clock * .05;
+        for (var i = 0; i < 10; i++) {
+          final ang = -math.pi / 2 + rot + i * math.pi / 5;
+          final rad = i.isEven ? tile * .28 : tile * .12;
+          final pt = Offset(cx + math.cos(ang) * rad, cy + math.sin(ang) * rad);
+          if (i == 0) {
+            path.moveTo(pt.dx, pt.dy);
+          } else {
+            path.lineTo(pt.dx, pt.dy);
+          }
+        }
+        path.close();
+        canvas.drawPath(
+          path,
+          Paint()..color = const Color(0xffffd23f).withValues(alpha: fade),
+        );
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = const Color(0xfffff3c4).withValues(alpha: fade * .8)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = tile * .03,
+        );
+        break;
+    }
+  }
+
+  void _pickupGlow(
+    Canvas canvas,
+    double cx,
+    double cy,
+    double tile,
+    Color c,
+    double fade,
+  ) {
+    canvas.drawCircle(cx, cy, tile * .34, Paint()..color = c.withValues(alpha: .18 * fade));
   }
 
   void _overlay(Canvas canvas, Size size, String title, String subtitle) {

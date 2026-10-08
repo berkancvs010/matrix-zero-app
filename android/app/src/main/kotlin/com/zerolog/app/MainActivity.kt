@@ -7,6 +7,7 @@ import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
 import android.media.MediaPlayer
+import android.media.SoundPool
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.net.Uri
@@ -32,6 +33,101 @@ class MainActivity : FlutterFragmentActivity() {
     private val channelName = "zerolog/system"
     private val lifecyclePrefsName = "zerolog_lifecycle"
     private val lifecycleForegroundKey = "foreground"
+
+    // --- Retro Oyun Salonu ses efektleri -------------------------------------
+    // WAV dosyalari Flutter varliklari olarak paketlenir ve SoundPool ile
+    // calinir; ek bir eklentiye gerek yoktur. Varlik derlenmis (sikistirilmis)
+    // olursa onbellek dosyasina kopyalanip oradan yuklenir.
+    private var arcadeSoundPool: SoundPool? = null
+    private val arcadeSfxIds = HashMap<String, Int>()
+    private val arcadeSfxSampleNames = HashMap<Int, String>()
+    private val arcadeSfxLoading = HashSet<String>()
+    private var arcadePendingSfx: String? = null
+    private val arcadeSfxNames = listOf(
+        "swing",
+        "shoot",
+        "smash",
+        "jump",
+        "land",
+        "coin",
+        "power",
+        "hurt",
+        "clear",
+        "hop",
+        "stomp",
+        "clang",
+    )
+
+    private fun ensureArcadeSoundPool(): SoundPool {
+        val existing = arcadeSoundPool
+        if (existing != null) return existing
+
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_GAME)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        val pool = SoundPool.Builder()
+            .setMaxStreams(8)
+            .setAudioAttributes(attributes)
+            .build()
+        pool.setOnLoadCompleteListener { _, sampleId, status ->
+            val name = arcadeSfxSampleNames[sampleId] ?: return@setOnLoadCompleteListener
+            if (status != 0) return@setOnLoadCompleteListener
+            arcadeSfxIds[name] = sampleId
+            if (arcadePendingSfx == name) {
+                arcadePendingSfx = null
+                pool.play(sampleId, 1f, 1f, 1, 0, 1f)
+            }
+        }
+        arcadeSoundPool = pool
+        return pool
+    }
+
+    private fun loadArcadeSfx(name: String): Int {
+        arcadeSfxIds[name]?.let { return it }
+        if (!arcadeSfxLoading.add(name)) return 0
+        val pool = ensureArcadeSoundPool()
+        val sampleId = try {
+            try {
+                assets.openFd("flutter_assets/assets/sfx/$name.wav").use { fd ->
+                    pool.load(fd, 1)
+                }
+            } catch (e: Exception) {
+                val target = File(cacheDir, "zl_sfx_$name.wav")
+                if (!target.exists() || target.length() == 0L) {
+                    val assetPath =
+                        if (assets.list("assets/sfx")?.contains("$name.wav") == true) {
+                            "assets/sfx/$name.wav"
+                        } else {
+                            "flutter_assets/assets/sfx/$name.wav"
+                        }
+                    assets.open(assetPath).use { input ->
+                        FileOutputStream(target).use { output -> input.copyTo(output) }
+                    }
+                }
+                pool.load(target.absolutePath, 1)
+            }
+        } catch (e: Exception) {
+            0
+        }
+        if (sampleId != 0) arcadeSfxSampleNames[sampleId] = name
+        arcadeSfxLoading.remove(name)
+        return sampleId
+    }
+
+    private fun playArcadeSfx(name: String) {
+        try {
+            val loaded = arcadeSfxIds[name]
+            if (loaded != null) {
+                ensureArcadeSoundPool().play(loaded, 1f, 1f, 1, 0, 1f)
+                return
+            }
+            arcadePendingSfx = name
+            loadArcadeSfx(name)
+        } catch (e: Exception) {
+            // Ses calinamazsa oyun akisi bozulmaz; sessizce yut.
+        }
+    }
 
     private fun setLifecycleForeground(value: Boolean) {
         getSharedPreferences(lifecyclePrefsName, MODE_PRIVATE)
@@ -1849,6 +1945,13 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Retro ses efektlerini onceden yukle ki ilk basista gecikme olmasin.
+        try {
+            arcadeSfxNames.forEach { loadArcadeSfx(it) }
+        } catch (e: Exception) {
+            // Yoksay: sesler istege bagli.
+        }
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             channelName
@@ -1874,6 +1977,12 @@ class MainActivity : FlutterFragmentActivity() {
                       } catch (e: Exception) {
                           result.error("APP_VERSION", e.message, null)
                       }
+                  }
+
+                  "playArcadeSfx" -> {
+                      val name = call.argument<String>("name")
+                      if (name != null) playArcadeSfx(name)
+                      result.success(null)
                   }
 
                   "setVideoCallScreenAwake" -> {
@@ -2383,6 +2492,11 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        arcadeSoundPool?.release()
+        arcadeSoundPool = null
+        arcadeSfxIds.clear()
+        arcadeSfxSampleNames.clear()
+
         stopOutgoingCallTone()
 
         val incomingCallActive =
