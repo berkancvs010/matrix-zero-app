@@ -3684,7 +3684,7 @@ class _PlatformPainter extends CustomPainter {
       ),
       Paint()..color = Colors.black.withValues(alpha: .35),
     );
-    final frac = (_xp / _xpNext).clamp(0.0, 1.0).toDouble();
+    final frac = (s._xp / s._xpNext).clamp(0.0, 1.0).toDouble();
     if (frac > 0) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
@@ -3694,24 +3694,24 @@ class _PlatformPainter extends CustomPainter {
         Paint()..color = const Color(0xff7ff2b0),
       );
     }
-    _badgeText(canvas, 'SV $_level', left + barW + 7, top - 3, tile * .36,
+    _badgeText(canvas, 'SV ${s._level}', left + barW + 7, top - 3, tile * .36,
         const Color(0xffffe066));
-    _badgeText(canvas, '$_xp/$_xpNext XP', left, top + barH + 3, tile * .26,
-        const Color(0xccffffff));
-    if (_specialActive) {
-      final label = _special == _SpecialWeapon.quake
+    _badgeText(canvas, '${s._xp}/${s._xpNext} XP', left, top + barH + 3,
+        tile * .26, const Color(0xccffffff));
+    if (s._specialActive) {
+      final label = s._special == _SpecialWeapon.quake
           ? 'YER SARSINTISI'
           : 'ÜÇLÜ KIVILCIM';
-      final secs = (_specialTicks / 40).ceil();
+      final secs = (s._specialTicks / 40).ceil();
       _badgeText(canvas, '$label · $secs sn', left, top + barH + 3 + tile * .32,
           tile * .27, const Color(0xff8be9fd));
     }
-    if (_levelFlash > 0) {
-      final a = (_levelFlash / 90).clamp(0.0, 1.0).toDouble();
+    if (s._levelFlash > 0) {
+      final a = (s._levelFlash / 90).clamp(0.0, 1.0).toDouble();
       final tp = TextPainter(
         textDirection: TextDirection.ltr,
         text: TextSpan(
-          text: 'SEVİYE $_level!',
+          text: 'SEVİYE ${s._level}!',
           style: TextStyle(
             color: const Color(0xffffe066).withValues(alpha: a),
             fontWeight: FontWeight.w900,
