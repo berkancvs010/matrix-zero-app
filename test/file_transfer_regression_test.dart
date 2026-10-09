@@ -183,9 +183,9 @@ void main() {
     expect(pushSource, contains('ackPendingMessageIntent'));
   });
 
-  test('release build version is bumped for V35', () {
+  test('release build version is bumped for V36', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.11+35'));
+    expect(pubspec, contains('version: 1.0.12+36'));
   });
 
   test(
