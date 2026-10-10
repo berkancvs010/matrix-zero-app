@@ -96,7 +96,8 @@ void main() {
       expect(source, contains('class _TankState'));
       expect(source, contains('void _fire()'));
       expect(source, contains('bullet.enemy'));
-      expect(source, contains(r"_walls.contains('$bx:$by')"));
+      expect(source, contains(r"final wallKey = '$bx:$by';"));
+      expect(source, contains('if (_walls.contains(wallKey))'));
       expect(source, contains('_enemies.isEmpty'));
     },
   );
