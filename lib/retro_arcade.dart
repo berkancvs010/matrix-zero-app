@@ -32,7 +32,7 @@ const _retroGames = <RetroGame>[
   RetroGame(
     'tank_arena',
     'Tank Arenası',
-    'Duvarları kullan, düşman tanklarını alt et.',
+    'Analog sürüş, özel silahlar ve bölüm sonu tanklarına karşı savaş.',
     Icons.shield_moon_rounded,
     'Arcade',
     gamepad: true,
@@ -40,7 +40,7 @@ const _retroGames = <RetroGame>[
   RetroGame(
     'space_defense',
     'Uzay Savunması',
-    'Dalga dalga gelen filoyu durdur.',
+    'Perspektifli uzay çatışmasında UFO’ları ve meteorları durdur.',
     Icons.rocket_launch_rounded,
     'Arcade',
     gamepad: true,
@@ -111,19 +111,6 @@ class _RetroArcadePageState extends State<RetroArcadePage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Oyun alanı henüz test aşamasındadır, geliştirme devam ediyor.',
-          ),
-          duration: Duration(seconds: 4),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    });
   }
 
   String _filter = 'Tümü';
@@ -594,13 +581,18 @@ class _ArcadeFrame extends StatelessWidget {
                     letterSpacing: 1,
                   ),
                 ),
-                const Spacer(),
-                Text(
-                  score,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    score,
+                    textAlign: TextAlign.right,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ],
@@ -1310,7 +1302,7 @@ class _PlatformerState extends State<_PlatformerGame> {
       _xp -= _xpNext;
       _level++;
       _xpNext = (_xpNext * 1.4).round();
-      _lives = math.min(5, _lives + 1);
+      _lives = math.min(5, _lives + 1).toInt();
       _levelFlash = 90;
       _shake = 10;
       _pops.add(
@@ -1563,7 +1555,7 @@ class _PlatformerState extends State<_PlatformerGame> {
     } else if (ch == 'H') {
       _setTile(row, col, 'U');
       _bumps['$col:$row'] = 10;
-      _lives = math.min(5, _lives + 1);
+      _lives = math.min(5, _lives + 1).toInt();
       _pops.add(
         _PopFx(col.toDouble(), row - .7, '+1 CAN', const Color(0xffff8a9b)),
       );
@@ -2160,7 +2152,7 @@ class _PlatformerState extends State<_PlatformerGame> {
           _arcadePlaySfx('coin');
           break;
         case _PickupKind.heart:
-          _lives = math.min(5, _lives + 1);
+          _lives = math.min(5, _lives + 1).toInt();
           _pops.add(_PopFx(p.x, p.y - .3, '+1 CAN', const Color(0xffff8a9b)));
           _arcadePlaySfx('power');
           break;
@@ -4483,8 +4475,7 @@ class _TankState extends State<_TankGame> {
   math.Point<int> _direction = const math.Point(0, -1);
   double _px = 6, _py = 14;
   double _playerAngle = -math.pi / 2, _turretAngle = -math.pi / 2;
-  double _targetPx = 6, _targetPy = 14;
-  int _lives = 3, _score = 0, _ticks = 0, _wave = 1;
+  int _lives = 3, _score = 0, _ticks = 0, _wave = 1, _bombs = 1;
   static const int _maxWave = 5;
   bool _over = false, _won = false;
   double _shieldTimer = 0, _shake = 0;
@@ -4517,8 +4508,8 @@ class _TankState extends State<_TankGame> {
       _barrels.addAll([_ExplosiveBarrel(3, 5), _ExplosiveBarrel(9, 5)]);
     }
 
-    _px = _targetPx = 6;
-    _py = _targetPy = 14;
+    _px = 6;
+    _py = 14;
     _player = const math.Point(6, 14);
     _direction = const math.Point(0, -1);
     _playerAngle = _turretAngle = -math.pi / 2;
@@ -4686,32 +4677,46 @@ class _TankState extends State<_TankGame> {
       _barrels.any((b) => b.x == p.x && b.y == p.y) ||
       _enemies.any((e) => !identical(e, movingEnemy) && e.position == p);
 
-  void _move(int dx, int dy) {
-    if (_over || _won || (dx == 0 && dy == 0)) return;
-    final d = math.Point(dx.sign, dy.sign);
-    setState(() {
-      _direction = d;
-      _playerAngle = math.atan2(d.y.toDouble(), d.x.toDouble());
-      _turretAngle = _playerAngle;
-      final next = math.Point(_player.x + d.x, _player.y + d.y);
-      if (!_blocked(next)) {
-        _player = next;
-        _targetPx = next.x.toDouble();
-        _targetPy = next.y.toDouble();
-      }
-    });
+  double _driveX = 0, _driveY = 0;
+
+  void _move(double dx, double dy) {
+    if (_over || _won) return;
+    final magnitude = math.sqrt(dx * dx + dy * dy);
+    if (magnitude > 1) {
+      dx /= magnitude;
+      dy /= magnitude;
+    }
+    _driveX = dx;
+    _driveY = dy;
+    if (magnitude > .12) {
+      _playerAngle = math.atan2(dy, dx);
+      _direction = math.Point(
+        dx.abs() > dy.abs() ? dx.sign.toInt() : 0,
+        dy.abs() >= dx.abs() ? dy.sign.toInt() : 0,
+      );
+    }
   }
 
   void _fire() {
     if (_over || _won) return;
     _arcadePlaySfx('shoot');
-    final spawnX = _px + .5 + _direction.x * .55;
-    final spawnY = _py + .5 + _direction.y * .55;
-    final dx = _direction.x, dy = _direction.y;
+    final dx = math.cos(_playerAngle), dy = math.sin(_playerAngle);
+    final spawnX = _px + .5 + dx * .55;
+    final spawnY = _py + .5 + dy * .55;
 
     switch (_currentWeapon) {
       case _TankWeapon.standard:
-        _bullets.add(_TankBullet(spawnX, spawnY, dx, dy, false));
+        _bullets.add(
+          _TankBullet(
+            spawnX,
+            spawnY,
+            dx.sign.toInt(),
+            dy.sign.toInt(),
+            false,
+            directionX: dx,
+            directionY: dy,
+          ),
+        );
         break;
       case _TankWeapon.twin:
         final perpX = -dy * .22, perpY = dx * .22;
@@ -4720,20 +4725,24 @@ class _TankState extends State<_TankGame> {
             _TankBullet(
               spawnX + perpX,
               spawnY + perpY,
-              dx,
-              dy,
+              dx.sign.toInt(),
+              dy.sign.toInt(),
               false,
               weapon: _TankWeapon.twin,
+              directionX: dx,
+              directionY: dy,
             ),
           )
           ..add(
             _TankBullet(
               spawnX - perpX,
               spawnY - perpY,
-              dx,
-              dy,
+              dx.sign.toInt(),
+              dy.sign.toInt(),
               false,
               weapon: _TankWeapon.twin,
+              directionX: dx,
+              directionY: dy,
             ),
           );
         _consumeAmmo();
@@ -4745,8 +4754,8 @@ class _TankState extends State<_TankGame> {
             _TankBullet(
               spawnX,
               spawnY,
-              dx,
-              dy,
+              dx.sign.toInt(),
+              dy.sign.toInt(),
               false,
               weapon: _TankWeapon.shotgun,
               speed: .34,
@@ -4762,10 +4771,12 @@ class _TankState extends State<_TankGame> {
           _TankBullet(
             spawnX,
             spawnY,
-            dx,
-            dy,
+            dx.sign.toInt(),
+            dy.sign.toInt(),
             false,
             weapon: _TankWeapon.bouncing,
+            directionX: dx,
+            directionY: dy,
             bounces: 2,
             speed: .38,
           ),
@@ -4777,10 +4788,12 @@ class _TankState extends State<_TankGame> {
           _TankBullet(
             spawnX,
             spawnY,
-            dx,
-            dy,
+            dx.sign.toInt(),
+            dy.sign.toInt(),
             false,
             weapon: _TankWeapon.missile,
+            directionX: dx,
+            directionY: dy,
             speed: .45,
             damage: 2,
           ),
@@ -4790,6 +4803,39 @@ class _TankState extends State<_TankGame> {
     }
     _spawnMuzzleFlash(spawnX, spawnY);
     _shake = 2;
+  }
+
+  void _bomb() {
+    if (_over || _won || _bombs <= 0) return;
+    _bombs--;
+    _arcadePlaySfx('smash');
+    _shake = 8;
+    _damageArea(_px.floor(), _py.floor(), radius: 5);
+    for (final enemy in _enemies) {
+      enemy.hp -= 4;
+    }
+    final killed = _enemies.where((e) => e.hp <= 0).toList();
+    for (final e in killed) {
+      _score += e.kind == _TankEnemyKind.boss ? 1000 : 250;
+      _spawnLoot(e.x + .5, e.y + .5);
+    }
+    _enemies.removeWhere((e) => e.hp <= 0);
+    for (var i = 0; i < 34; i++) {
+      final a = _random.nextDouble() * math.pi * 2;
+      final v = .04 + _random.nextDouble() * .12;
+      _particles.add(
+        _TankParticle(
+          x: _px + .5,
+          y: _py + .5,
+          vx: math.cos(a) * v,
+          vy: math.sin(a) * v,
+          life: 1,
+          maxLife: 1,
+          color: const Color(0xffffa62b),
+          size: 5,
+        ),
+      );
+    }
   }
 
   void _consumeAmmo() {
@@ -4855,8 +4901,14 @@ class _TankState extends State<_TankGame> {
     if (_shake > 0) {
       _shake = math.max(0.0, _shake - .2).toDouble();
     }
-    _px += (_targetPx - _px) * .35;
-    _py += (_targetPy - _py) * .35;
+    // Smooth tank steering: analog input accelerates continuously; no tile snapping.
+    final speed = _currentWeapon == _TankWeapon.missile ? .105 : .085;
+    final nx = (_px + _driveX * speed).clamp(.15, _cols - .15).toDouble();
+    final ny = (_py + _driveY * speed).clamp(.15, _rows - .15).toDouble();
+    if (!_isWall(nx.floor(), _py.floor())) _px = nx;
+    if (!_isWall(_px.floor(), ny.floor())) _py = ny;
+    _player = math.Point(_px.floor(), _py.floor());
+    _turretAngle = _playerAngle;
 
     _particles.removeWhere((p) {
       p.x += p.vx;
@@ -5088,10 +5140,12 @@ class _TankState extends State<_TankGame> {
       _powerups.add(_TankPowerup(x, y, 'shield'));
     } else if (roll < .75) {
       _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.twin));
-    } else if (roll < .9) {
+    } else if (roll < .85) {
       _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.shotgun));
+    } else if (roll < .95) {
+      _powerups.add(_TankPowerup(x, y, 'bomb'));
     } else {
-      _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.bouncing));
+      _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.missile));
     }
   }
 
@@ -5105,10 +5159,13 @@ class _TankState extends State<_TankGame> {
       case 'shield':
         _shieldTimer = 8;
         break;
+      case 'bomb':
+        _bombs = (_bombs + 1).clamp(0, 3);
+        break;
       case 'weapon':
         if (powerup.weapon != null) {
           _currentWeapon = powerup.weapon!;
-          _weaponAmmo = 20;
+          _weaponAmmo = 24;
         }
         break;
     }
@@ -5117,6 +5174,8 @@ class _TankState extends State<_TankGame> {
   void _reset() {
     _score = 0;
     _lives = 3;
+    _bombs = 1;
+    _driveX = _driveY = 0;
     _ticks = 0;
     _over = false;
     _won = false;
@@ -5140,15 +5199,13 @@ class _TankState extends State<_TankGame> {
         ? 'ZAFER • SKOR: $_score'
         : _over
         ? 'TANK İMHA EDİLDİ'
-        : 'BÖLÜM $_wave/$_maxWave  •  ♥ $_lives  •  $_score P',
+        : 'BÖLÜM $_wave/$_maxWave  •  ♥ $_lives  •  💣 $_bombs  •  $_score P',
     controls: widget.showPad
-        ? _VirtualGamepad(
-            up: () => _move(0, -1),
-            down: () => _move(0, 1),
-            left: () => _move(-1, 0),
-            right: () => _move(1, 0),
-            a: _fire,
-            b: () => setState(_reset),
+        ? _TankControls(
+            onMove: _move,
+            onFire: _fire,
+            onBomb: _bomb,
+            onReset: () => setState(_reset),
           )
         : null,
     child: GestureDetector(
@@ -5159,10 +5216,9 @@ class _TankState extends State<_TankGame> {
           _fire();
         }
       },
-      onHorizontalDragEnd: (details) =>
-          _move((details.primaryVelocity ?? 0) > 0 ? 1 : -1, 0),
-      onVerticalDragEnd: (details) =>
-          _move(0, (details.primaryVelocity ?? 0) > 0 ? 1 : -1),
+      onPanUpdate: (details) =>
+          _move(details.delta.dx / 18, details.delta.dy / 18),
+      onPanEnd: (_) => _move(0, 0),
       child: CustomPaint(
         painter: _TankPainter(
           player: _player,
@@ -5186,6 +5242,117 @@ class _TankState extends State<_TankGame> {
       ),
     ),
   );
+}
+
+class _TankControls extends StatefulWidget {
+  final void Function(double, double) onMove;
+  final VoidCallback onFire, onBomb, onReset;
+  const _TankControls({
+    required this.onMove,
+    required this.onFire,
+    required this.onBomb,
+    required this.onReset,
+  });
+  @override
+  State<_TankControls> createState() => _TankControlsState();
+}
+
+class _TankControlsState extends State<_TankControls> {
+  Offset _stick = Offset.zero;
+  void _update(Offset p, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final delta = p - center;
+    final radius = math.min(size.width, size.height) * .34;
+    final value = delta.distance > radius
+        ? delta * (radius / delta.distance)
+        : delta;
+    setState(() => _stick = value / radius);
+    widget.onMove(_stick.dx, _stick.dy);
+  }
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.end,
+    children: [
+      SizedBox(
+        width: 126,
+        height: 112,
+        child: LayoutBuilder(
+          builder: (context, constraints) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (d) => _update(d.localPosition, constraints.biggest),
+            onPanUpdate: (d) => _update(d.localPosition, constraints.biggest),
+            onPanEnd: (_) {
+              setState(() => _stick = Offset.zero);
+              widget.onMove(0, 0);
+            },
+            child: CustomPaint(painter: _AnalogStickPainter(_stick)),
+          ),
+        ),
+      ),
+      const Spacer(),
+      _button(Icons.refresh_rounded, widget.onReset, 'Yeniden başlat'),
+      const SizedBox(width: 6),
+      _button(Icons.brightness_7_rounded, widget.onBomb, 'Büyük bomba'),
+      const SizedBox(width: 6),
+      _button(Icons.gps_fixed_rounded, widget.onFire, 'Ateş et'),
+    ],
+  );
+  Widget _button(IconData icon, VoidCallback action, String label) => Semantics(
+    button: true,
+    label: label,
+    child: SizedBox(
+      width: 48,
+      height: 48,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: action,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .14),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Icon(icon, color: Colors.white),
+        ),
+      ),
+    ),
+  );
+}
+
+class _AnalogStickPainter extends CustomPainter {
+  final Offset value;
+  const _AnalogStickPainter(this.value);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = math.min(size.width, size.height) * .36;
+    canvas.drawCircle(c, r, Paint()..color = const Color(0x553d526e));
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = const Color(0x887ca2ce),
+    );
+    canvas.drawCircle(
+      c + value * r,
+      r * .43,
+      Paint()..color = const Color(0xff62d6ff),
+    );
+    canvas.drawCircle(
+      c + value * r,
+      r * .43,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white70,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _AnalogStickPainter old) => old.value != value;
 }
 
 class _TankPainter extends CustomPainter {
@@ -5346,6 +5513,8 @@ class _TankPainter extends CustomPainter {
           ? const Color(0xff2ec4b6)
           : powerup.kind == 'shield'
           ? const Color(0xff4cc9f0)
+          : powerup.kind == 'bomb'
+          ? const Color(0xffff5964)
           : const Color(0xffffb703);
       canvas.drawCircle(
         center,
@@ -5599,8 +5768,53 @@ class _TankPainter extends CustomPainter {
 }
 
 // ---------------------------------------------------------------------------
-// Space-defense shooter
+// Uzay Savunması: kahraman seçimi, kahramana özel gemiler, dalga tabanlı savaş.
 // ---------------------------------------------------------------------------
+enum _SpaceHero { cardabok, mivi, berkan, serkan }
+
+class _SpaceHeroInfo {
+  final String name, tagline, ability, ship;
+  final Color color;
+  const _SpaceHeroInfo(
+    this.name,
+    this.tagline,
+    this.ability,
+    this.ship,
+    this.color,
+  );
+}
+
+const _spaceHeroInfo = <_SpaceHero, _SpaceHeroInfo>{
+  _SpaceHero.cardabok: _SpaceHeroInfo(
+    'Cardabok',
+    'Tavşanıyla yıldızlara!',
+    'Mavi koruyucu gemi: düşman hasarına tamamen bağışık.',
+    'AY IŞIĞI',
+    Color(0xff52c9ff),
+  ),
+  _SpaceHero.mivi: _SpaceHeroInfo(
+    'Mivi',
+    'E-kitabından yıldız haritasını açtı.',
+    'Kızıl keşif gemisi: dengeli, başlangıç atışı daha seri.',
+    'KIRMIZI KIVILCIM',
+    Color(0xffff5364),
+  ),
+  _SpaceHero.berkan: _SpaceHeroInfo(
+    'Berkan',
+    'Telefonunda galaksinin en iyi rotası var.',
+    'Gri zırhlı gemi: sağlam gövde, ekstra başlangıç bombası.',
+    'GÜMÜŞ DEV',
+    Color(0xffb7c4d1),
+  ),
+  _SpaceHero.serkan: _SpaceHeroInfo(
+    'Serkan',
+    'Çekiciyle meteorları bile hizaya getirir.',
+    'Koyu hücum gemisi: roketleriyle başlar.',
+    'DEMİR ÇEKİÇ',
+    Color(0xffd39a63),
+  ),
+};
+
 class _SpaceGame extends StatefulWidget {
   final bool showPad;
   const _SpaceGame({required this.showPad});
@@ -5608,84 +5822,380 @@ class _SpaceGame extends StatefulWidget {
   State<_SpaceGame> createState() => _SpaceState();
 }
 
+class _SpaceEnemy {
+  double x, y, z, vx, phase;
+  int hp;
+  final int kind; // meteor, scout, fighter, carrier, zigzag, dasher, tank, boss
+  _SpaceEnemy(
+    this.x,
+    this.y,
+    this.z,
+    this.kind,
+    this.hp, {
+    this.vx = 0,
+    this.phase = 0,
+  });
+}
+
+class _SpaceShot {
+  double x, y, z;
+  final bool hostile;
+  final int kind; // normal, laser, rocket, enemy bolt
+  _SpaceShot(this.x, this.y, this.z, {this.hostile = false, this.kind = 0});
+}
+
+class _SpaceDrop {
+  double x, y, z;
+  final int
+  kind; // heart, shield, spread, bomb, score, electricity, laser, rockets
+  _SpaceDrop(this.x, this.y, this.z, this.kind);
+}
+
 class _SpaceState extends State<_SpaceGame> {
   Timer? _timer;
-  final List<Offset> _shots = [], _enemies = [];
-  double _ship = .5;
-  int _score = 0, _lives = 3, _waveTick = 0;
-  bool _over = false;
+  final _rng = math.Random();
+  final List<_SpaceEnemy> _foes = [];
+  final List<_SpaceShot> _shots = [];
+  final List<_SpaceDrop> _drops = [];
+  final List<Offset> _sparks = [];
+  _SpaceHero? _hero;
+  double _x = .5, _y = .82, _dx = 0, _dy = 0;
+  int _score = 0, _lives = 3, _wave = 1, _ticks = 0, _weapon = 1;
+  int _bombs = 1,
+      _shield = 0,
+      _electricTicks = 0,
+      _laserTicks = 0,
+      _rocketAmmo = 0;
+  bool _over = false, _victory = false;
+  static const _stageNames = [
+    'NEON NEBULA',
+    'ASTEROID BELT',
+    'CRIMSON MOON',
+    'UFO RUINS',
+    'VOID TITAN',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _spawnWave();
     _timer = Timer.periodic(const Duration(milliseconds: 30), (_) {
-      if (mounted && !_over) setState(_tick);
+      if (mounted && _hero != null && !_over && !_victory) setState(_tick);
+    });
+  }
+
+  void _chooseHero(_SpaceHero hero) {
+    setState(() {
+      _hero = hero;
+      _x = .5;
+      _y = .82;
+      _dx = _dy = 0;
+      _score = 0;
+      _lives = 3;
+      _wave = 1;
+      _ticks = 0;
+      _weapon = 1;
+      _bombs = hero == _SpaceHero.berkan ? 2 : 1;
+      _shield = 0;
+      _electricTicks = 0;
+      _laserTicks = 0;
+      _rocketAmmo = hero == _SpaceHero.serkan ? 4 : 0;
+      _over = false;
+      _victory = false;
+      _foes.clear();
+      _shots.clear();
+      _drops.clear();
+      _sparks.clear();
+      _spawnWave();
     });
   }
 
   void _spawnWave() {
-    for (var i = 0; i < 8; i++) {
-      _enemies.add(Offset(.13 + (i % 4) * .20, .10 + (i ~/ 4) * .12));
+    final count = 5 + _wave * 2;
+    for (var i = 0; i < count; i++) {
+      final kind = _wave % 5 == 0 && i == 0
+          ? 7
+          : _wave >= 4 && i % 7 == 0
+          ? 6
+          : _wave >= 3 && i % 6 == 0
+          ? 5
+          : _wave >= 2 && i % 5 == 0
+          ? 4
+          : i % 9 == 0
+          ? 3
+          : i % 3 == 0
+          ? 1
+          : 0;
+      final hp = switch (kind) {
+        7 => 18 + _wave,
+        6 => 7,
+        3 => 5,
+        2 => 4,
+        1 => 2,
+        4 => 2,
+        5 => 2,
+        _ => 2,
+      };
+      _foes.add(
+        _SpaceEnemy(
+          .10 + _rng.nextDouble() * .80,
+          .08 + _rng.nextDouble() * .34,
+          .22 + _rng.nextDouble() * .55,
+          kind,
+          hp,
+          vx: (_rng.nextDouble() - .5) * (kind == 5 ? .016 : .008),
+          phase: _rng.nextDouble() * 6.28,
+        ),
+      );
     }
   }
 
-  void _move(double d) {
-    if (!_over) setState(() => _ship = (_ship + d).clamp(.05, .95).toDouble());
+  bool get _immune => _hero == _SpaceHero.cardabok;
+  void _move(double x, double y) {
+    if (_over || _victory || _hero == null) return;
+    _dx = x.clamp(-1, 1).toDouble();
+    _dy = y.clamp(-1, 1).toDouble();
   }
 
   void _fire() {
-    if (!_over) _shots.add(Offset(_ship, .88));
+    if (!_over && !_victory && _hero != null) _shoot();
+  }
+
+  void _shoot() {
+    final spread = _weapon >= 3
+        ? [-.052, 0.0, .052]
+        : _weapon == 2
+        ? [-.027, .027]
+        : [0.0];
+    for (final offset in spread) {
+      _shots.add(
+        _SpaceShot((_x + offset).clamp(.02, .98).toDouble(), _y - .035, 1),
+      );
+    }
+  }
+
+  void _bomb() {
+    if (_bombs <= 0 || _over || _victory || _hero == null) return;
+    _bombs--;
+    _shield = math.max(_shield, 42).toInt();
+    for (final enemy in _foes) {
+      enemy.hp -= 6;
+    }
+    final killed = _foes.where((e) => e.hp <= 0).toList();
+    for (final e in killed) {
+      _score += _enemyScore(e);
+      _drop(e);
+    }
+    _foes.removeWhere((e) => e.hp <= 0);
+    _shots.removeWhere((s) => s.hostile);
+    _sparks.add(Offset(_x, _y));
+  }
+
+  int _enemyScore(_SpaceEnemy e) => e.kind == 7
+      ? 1500
+      : e.kind == 6
+      ? 300
+      : e.kind == 3
+      ? 240
+      : 100;
+  void _drop(_SpaceEnemy enemy) {
+    final roll = _rng.nextDouble();
+    final kind = roll < .15
+        ? 0
+        : roll < .29
+        ? 1
+        : roll < .43
+        ? 2
+        : roll < .54
+        ? 3
+        : roll < .63
+        ? 4
+        : roll < .74
+        ? 5
+        : roll < .84
+        ? 6
+        : 7;
+    _drops.add(_SpaceDrop(enemy.x, enemy.y, .68, kind));
   }
 
   void _tick() {
-    _waveTick++;
-    for (var i = 0; i < _shots.length; i++) {
-      _shots[i] = Offset(_shots[i].dx, _shots[i].dy - .025);
+    _sparks.clear();
+    _ticks++;
+    _x = (_x + _dx * .012).clamp(.045, .955).toDouble();
+    _y = (_y + _dy * .010).clamp(.53, .94).toDouble();
+    if (_shield > 0) _shield--;
+    if (_electricTicks > 0) _electricTicks--;
+    if (_laserTicks > 0) _laserTicks--;
+    if (_ticks % (_hero == _SpaceHero.mivi ? 7 : 9) == 0) _shoot();
+    if (_laserTicks > 0 && _ticks % 5 == 0) {
+      _shots.add(_SpaceShot(_x, _y - .08, 1, kind: 1));
     }
-    _shots.removeWhere((shot) => shot.dy < .02);
-    for (var i = 0; i < _enemies.length; i++) {
-      final e = _enemies[i];
-      _enemies[i] = Offset(
-        e.dx + math.sin((_waveTick / 22) + i) * .0008,
-        e.dy + .0015 + (_score / 10000),
-      );
+    if (_rocketAmmo > 0 && _ticks % 36 == 0) {
+      _rocketAmmo--;
+      _shots.add(_SpaceShot(_x, _y - .035, 1, kind: 2));
     }
-    final used = <Offset>{};
-    final removeShots = <Offset>{};
+
+    for (final e in _foes) {
+      e.phase += .045;
+      final descent = .0011 + (_wave * .00011) + (e.kind == 5 ? .0014 : 0);
+      e.y += descent;
+      if (e.kind == 4) {
+        e.x += math.sin(e.phase * 2.3) * .007;
+      } else if (e.kind == 5) {
+        e.x += e.vx + math.sin(e.phase * 1.4) * .003;
+      } else if (e.kind == 7) {
+        e.x += math.sin(e.phase * .7) * .004;
+      } else {
+        e.x += e.vx + math.sin(e.phase) * .0018;
+      }
+      if (e.x < .06 || e.x > .94) e.vx = -e.vx;
+      final fireRate = e.kind == 7
+          ? 29
+          : e.kind == 6
+          ? 52
+          : e.kind == 2 || e.kind == 5
+          ? 62
+          : 82;
+      if (e.kind > 0 && (_ticks + e.phase.toInt() * 3) % fireRate == 0) {
+        _shots.add(
+          _SpaceShot(e.x, e.y + .035, .1, hostile: true, kind: e.kind),
+        );
+      }
+    }
     for (final shot in _shots) {
-      for (final enemy in _enemies) {
-        if (used.contains(enemy)) continue;
-        if ((shot.dx - enemy.dx).abs() < .055 &&
-            (shot.dy - enemy.dy).abs() < .045) {
-          used.add(enemy);
-          removeShots.add(shot);
+      shot.y += shot.hostile
+          ? (shot.kind == 7 ? .016 : .012)
+          : (shot.kind == 2 ? -.017 : -.024);
+      shot.z += shot.hostile ? -.012 : .02;
+    }
+
+    final dead = <_SpaceEnemy>[];
+    final spent = <_SpaceShot>[];
+    final rocketBursts = <Offset>[];
+    for (final shot in _shots) {
+      if (shot.hostile) {
+        if ((shot.x - _x).abs() < .045 && (shot.y - _y).abs() < .04) {
+          spent.add(shot);
+          if (!_immune && _shield == 0) _takeDamage();
+        }
+        continue;
+      }
+      for (final enemy in _foes) {
+        final radius =
+            (.045 + enemy.z * .035) *
+            (enemy.kind == 7
+                ? 1.7
+                : enemy.kind == 6
+                ? 1.25
+                : 1);
+        if ((shot.x - enemy.x).abs() < radius &&
+            (shot.y - enemy.y).abs() < radius) {
+          enemy.hp -= shot.kind == 2
+              ? 5
+              : shot.kind == 1
+              ? 2
+              : _weapon >= 4
+              ? 2
+              : 1;
+          spent.add(shot);
+          if (shot.kind == 2) rocketBursts.add(Offset(enemy.x, enemy.y));
+          if (enemy.hp <= 0 && !dead.contains(enemy)) {
+            dead.add(enemy);
+            _score += _enemyScore(enemy);
+            _drop(enemy);
+          }
           break;
         }
       }
     }
-    _enemies.removeWhere(used.contains);
-    _shots.removeWhere(removeShots.contains);
-    _score += used.length * 10;
-    if (_enemies.any((e) => e.dy > .82)) {
-      _lives--;
-      _enemies.removeWhere((e) => e.dy > .82);
-      if (_lives <= 0) _over = true;
+    for (final burst in rocketBursts) {
+      for (final enemy in _foes) {
+        if ((enemy.x - burst.dx).abs() < .14 &&
+            (enemy.y - burst.dy).abs() < .13) {
+          enemy.hp -= 3;
+          if (enemy.hp <= 0 && !dead.contains(enemy)) {
+            dead.add(enemy);
+            _score += _enemyScore(enemy);
+            _drop(enemy);
+          }
+        }
+      }
     }
-    if (_enemies.isEmpty && !_over) _spawnWave();
+    // Charged electric shot chains to nearby enemies and leaves a readable arc effect.
+    if (_electricTicks > 0 && _ticks % 13 == 0 && _foes.isNotEmpty) {
+      final target = _foes[_rng.nextInt(_foes.length)];
+      target.hp -= 2;
+      _sparks.add(Offset(target.x, target.y));
+      if (target.hp <= 0 && !dead.contains(target)) {
+        dead.add(target);
+        _score += _enemyScore(target);
+        _drop(target);
+      }
+    }
+    _shots.removeWhere((s) => spent.contains(s) || s.y < -.05 || s.y > 1.02);
+    _foes.removeWhere((e) => dead.contains(e));
+    final breached = _foes.where((e) => e.y > .94).toList();
+    if (breached.isNotEmpty) {
+      _foes.removeWhere((e) => e.y > .94);
+      if (!_immune) {
+        _lives--;
+        if (_lives <= 0) _over = true;
+      }
+    }
+    _drops.removeWhere((drop) {
+      drop.y += .0035;
+      drop.z -= .0018;
+      if ((drop.x - _x).abs() < .055 && (drop.y - _y).abs() < .06) {
+        switch (drop.kind) {
+          case 0:
+            _lives = math.min(5, _lives + 1).toInt();
+            break;
+          case 1:
+            _shield = 190;
+            break;
+          case 2:
+            _weapon = math.min(4, _weapon + 1).toInt();
+            break;
+          case 3:
+            _bombs = math.min(3, _bombs + 1).toInt();
+            break;
+          case 4:
+            _score += 500;
+            break;
+          case 5:
+            _electricTicks = 260;
+            break;
+          case 6:
+            _laserTicks = 280;
+            break;
+          case 7:
+            _rocketAmmo = math.min(12, _rocketAmmo + 5).toInt();
+            break;
+        }
+        return true;
+      }
+      return drop.y > 1.02 || drop.z < 0;
+    });
+    if (_foes.isEmpty && !_over) {
+      if (_wave >= 15) {
+        _victory = true;
+      } else {
+        _wave++;
+        if (_wave % 3 == 0) _weapon = math.min(4, _weapon + 1).toInt();
+        _spawnWave();
+      }
+    }
+  }
+
+  void _takeDamage() {
+    if (_immune || _shield > 0) return;
+    _lives--;
+    _shield = 42;
+    if (_lives <= 0) _over = true;
   }
 
   void _reset() {
-    setState(() {
-      _shots.clear();
-      _enemies.clear();
-      _ship = .5;
-      _score = 0;
-      _lives = 3;
-      _waveTick = 0;
-      _over = false;
-      _spawnWave();
-    });
+    if (_hero == null) return;
+    _chooseHero(_hero!);
   }
 
   @override
@@ -5695,142 +6205,1106 @@ class _SpaceState extends State<_SpaceGame> {
   }
 
   @override
-  Widget build(BuildContext context) => _ArcadeFrame(
-    score: _over
-        ? 'FİLO GEÇTİ • $_score'
-        : 'DALGA ${1 + _score ~/ 80}  •  $_score  •  ♥ $_lives',
-    controls: widget.showPad
-        ? _VirtualGamepad(
-            left: () => _move(-.07),
-            right: () => _move(.07),
-            a: _fire,
-            b: _reset,
-          )
-        : null,
-    child: GestureDetector(
-      onTap: () {
-        if (_over) {
-          _reset();
-        } else {
-          _fire();
-        }
-      },
-      onHorizontalDragUpdate: (d) => _move(d.primaryDelta! / 300),
-      child: CustomPaint(
-        painter: _SpacePainter(_ship, _shots, _enemies, _over),
-        size: Size.infinite,
+  Widget build(BuildContext context) {
+    if (_hero == null) return _heroSelect();
+    final heroInfo = _spaceHeroInfo[_hero!]!;
+    final status = _over
+        ? 'SİNYAL KAYIP • $_score'
+        : _victory
+        ? 'GALAKSİ KURTULDU • $_score'
+        : '${_stageNames[((_wave - 1) ~/ 3).clamp(0, 4)]} • DALGA $_wave/15 • ♥ $_lives • $_weaponLabel • ⚡${_electricTicks > 0 ? 'AÇIK' : '—'} • 💣$_bombs';
+    return _ArcadeFrame(
+      score: status,
+      controls: widget.showPad
+          ? _SpaceControls(
+              onMove: _move,
+              onFire: _fire,
+              onBomb: _bomb,
+              onReset: _reset,
+            )
+          : null,
+      child: GestureDetector(
+        onTap: () {
+          if (_over || _victory) {
+            _reset();
+          } else {
+            _fire();
+          }
+        },
+        onPanUpdate: (d) => _move(d.delta.dx / 140, d.delta.dy / 140),
+        onPanEnd: (_) => _move(0, 0),
+        child: CustomPaint(
+          painter: _SpacePainter(
+            _x,
+            _y,
+            _foes,
+            _shots,
+            _drops,
+            _sparks,
+            _shield > 0,
+            _over,
+            _victory,
+            hero: _hero!,
+            heroColor: heroInfo.color,
+            electric: _electricTicks > 0,
+            laser: _laserTicks > 0,
+            rockets: _rocketAmmo,
+          ),
+          size: Size.infinite,
+        ),
+      ),
+    );
+  }
+
+  String get _weaponLabel =>
+      'GEMİ $_weapon • LZR ${_laserTicks > 0 ? 'ON' : '—'} • RKT $_rocketAmmo';
+
+  Widget _heroSelect() => Container(
+    color: const Color(0xff080d19),
+    child: SafeArea(
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          const Text(
+            'PİLOTUNU SEÇ',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Her kahramanın gemisi ve uçuş tarzı farklı.',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(14, 2, 14, 14),
+              itemCount: _SpaceHero.values.length,
+              itemBuilder: (context, index) {
+                final hero = _SpaceHero.values[index];
+                final info = _spaceHeroInfo[hero]!;
+                return _SpaceHeroCard(
+                  hero: hero,
+                  info: info,
+                  onTap: () => _chooseHero(hero),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     ),
   );
 }
 
-class _SpacePainter extends CustomPainter {
-  final double ship;
-  final List<Offset> shots, enemies;
-  final bool over;
-  const _SpacePainter(this.ship, this.shots, this.enemies, this.over);
+class _SpaceHeroCard extends StatelessWidget {
+  final _SpaceHero hero;
+  final _SpaceHeroInfo info;
+  final VoidCallback onTap;
+  const _SpaceHeroCard({
+    required this.hero,
+    required this.info,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Material(
+      color: const Color(0xff121b2d),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          height: 142,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: info.color.withValues(alpha: .48)),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 92,
+                height: 116,
+                child: CustomPaint(
+                  painter: _SpaceHeroPainter(hero, info.color),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      info.name,
+                      style: TextStyle(
+                        color: info.color,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      info.tagline,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      info.ability,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'GEMİ: ${info.ship}',
+                      style: TextStyle(
+                        color: info.color.withValues(alpha: .9),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: .6,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: info.color, size: 25),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _SpaceControls extends StatefulWidget {
+  final void Function(double, double) onMove;
+  final VoidCallback onFire, onBomb, onReset;
+  const _SpaceControls({
+    required this.onMove,
+    required this.onFire,
+    required this.onBomb,
+    required this.onReset,
+  });
+  @override
+  State<_SpaceControls> createState() => _SpaceControlsState();
+}
+
+class _SpaceControlsState extends State<_SpaceControls> {
+  Offset v = Offset.zero;
+  void upd(Offset p, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) * .35;
+    final delta = p - center;
+    final value = delta.distance > radius
+        ? delta * (radius / delta.distance)
+        : delta;
+    setState(() => v = value / radius);
+    widget.onMove(v.dx, v.dy);
+  }
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      SizedBox(
+        width: 112,
+        height: 94,
+        child: LayoutBuilder(
+          builder: (context, constraints) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (d) => upd(d.localPosition, constraints.biggest),
+            onPanUpdate: (d) => upd(d.localPosition, constraints.biggest),
+            onPanEnd: (_) {
+              setState(() => v = Offset.zero);
+              widget.onMove(0, 0);
+            },
+            child: CustomPaint(painter: _AnalogStickPainter(v)),
+          ),
+        ),
+      ),
+      const Spacer(),
+      _spButton(Icons.refresh_rounded, widget.onReset),
+      const SizedBox(width: 5),
+      _spButton(Icons.brightness_7_rounded, widget.onBomb),
+      const SizedBox(width: 5),
+      _spButton(Icons.gps_fixed_rounded, widget.onFire),
+    ],
+  );
+  Widget _spButton(IconData icon, VoidCallback action) => SizedBox(
+    width: 46,
+    height: 46,
+    child: GestureDetector(
+      onTap: action,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white12,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(icon, color: Colors.white),
+      ),
+    ),
+  );
+}
+
+class _SpaceHeroPainter extends CustomPainter {
+  final _SpaceHero hero;
+  final Color accent;
+  const _SpaceHeroPainter(this.hero, this.accent);
   @override
   void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final unit = size.width / 92;
+    final skin = hero == _SpaceHero.mivi
+        ? const Color(0xffd7a47b)
+        : hero == _SpaceHero.serkan
+        ? const Color(0xff8b593e)
+        : const Color(0xfff1c6a7);
+    final hair = hero == _SpaceHero.cardabok
+        ? const Color(0xff68402f)
+        : const Color(0xff17151b);
+    final headY = size.height * .27;
+    final headR = 15 * unit;
+    // soft character halo and body silhouette
+    canvas.drawCircle(
+      Offset(cx, headY + 16 * unit),
+      37 * unit,
+      Paint()..color = accent.withValues(alpha: .08),
+    );
+    final shoe = hero == _SpaceHero.cardabok
+        ? const Color(0xffed77bd)
+        : hero == _SpaceHero.mivi
+        ? const Color(0xff8a4be8)
+        : hero == _SpaceHero.berkan
+        ? const Color(0xff777d87)
+        : const Color(0xff171719);
+    final shirt = hero == _SpaceHero.cardabok
+        ? const Color(0xfffaf6ed)
+        : hero == _SpaceHero.mivi
+        ? const Color(0xffd9303e)
+        : hero == _SpaceHero.berkan
+        ? const Color(0xff377ed0)
+        : const Color(0xff171719);
+    final bodyWidth = hero == _SpaceHero.berkan ? 41.0 : 34.0;
+    final body = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(cx, size.height * .66),
+        width: bodyWidth * unit,
+        height: 47 * unit,
+      ),
+      Radius.circular(10 * unit),
+    );
+    canvas.drawRRect(body, Paint()..color = shirt);
+    if (hero == _SpaceHero.cardabok) {
+      final skirt = Path()
+        ..moveTo(cx - 13 * unit, size.height * .69)
+        ..lineTo(cx + 13 * unit, size.height * .69)
+        ..lineTo(cx + 20 * unit, size.height * .84)
+        ..lineTo(cx - 20 * unit, size.height * .84)
+        ..close();
+      canvas.drawPath(skirt, Paint()..color = const Color(0xfffaf6ed));
+      for (var row = 0; row < 3; row++) {
+        final count = row == 2 ? 4 : 3;
+        for (var col = 0; col < count; col++) {
+          final px = cx + (col - (count - 1) / 2) * 8 * unit;
+          final py = size.height * (.72 + row * .035);
+          canvas.drawCircle(
+            Offset(px, py),
+            1.35 * unit,
+            Paint()..color = const Color(0xffffc84a),
+          );
+        }
+      }
+    }
+    // Berkan has short trousers; Serkan wears cropped capri pants.
+    final pants = hero == _SpaceHero.cardabok
+        ? const Color(0xfff8f4eb)
+        : hero == _SpaceHero.mivi
+        ? const Color(0xffbd273a)
+        : hero == _SpaceHero.berkan
+        ? const Color(0xff17191f)
+        : const Color(0xff19191c);
+    final legTop = size.height * .78;
+    final legHeight = hero == _SpaceHero.berkan
+        ? 11.0
+        : hero == _SpaceHero.serkan
+        ? 16.0
+        : 19.0;
+    final legWidth = hero == _SpaceHero.berkan ? 15.0 : 11.0;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          cx - 14 * unit,
+          legTop,
+          legWidth * unit,
+          legHeight * unit,
+        ),
+        Radius.circular(3 * unit),
+      ),
+      Paint()..color = pants,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(cx + 1 * unit, legTop, legWidth * unit, legHeight * unit),
+        Radius.circular(3 * unit),
+      ),
+      Paint()..color = pants,
+    );
+    if (hero == _SpaceHero.berkan) {
+      canvas.drawLine(
+        Offset(cx - 6 * unit, legTop + legHeight * unit),
+        Offset(cx - 6 * unit, size.height * .92),
+        Paint()
+          ..color = skin
+          ..strokeWidth = 4 * unit,
+      );
+      canvas.drawLine(
+        Offset(cx + 8 * unit, legTop + legHeight * unit),
+        Offset(cx + 8 * unit, size.height * .92),
+        Paint()
+          ..color = skin
+          ..strokeWidth = 4 * unit,
+      );
+    }
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx - 7 * unit, size.height * .96),
+        width: 17 * unit,
+        height: 7 * unit,
+      ),
+      Paint()..color = shoe,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx + 8 * unit, size.height * .96),
+        width: 17 * unit,
+        height: 7 * unit,
+      ),
+      Paint()..color = shoe,
+    );
+    // arms
+    final armPaint = Paint()
+      ..color = skin
+      ..strokeWidth = 7 * unit
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(cx - 14 * unit, size.height * .49),
+      Offset(cx - 21 * unit, size.height * .69),
+      armPaint,
+    );
+    canvas.drawLine(
+      Offset(cx + 14 * unit, size.height * .49),
+      Offset(cx + 20 * unit, size.height * .67),
+      armPaint,
+    );
+    // head, ears, hair and face
+    if (hero == _SpaceHero.cardabok) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            cx - 13 * unit,
+            headY - 32 * unit,
+            10 * unit,
+            23 * unit,
+          ),
+          Radius.circular(7 * unit),
+        ),
+        Paint()..color = hair,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx + 3 * unit, headY - 32 * unit, 10 * unit, 23 * unit),
+          Radius.circular(7 * unit),
+        ),
+        Paint()..color = hair,
+      );
+    } else if (hero == _SpaceHero.mivi) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            cx - 20 * unit,
+            headY - 11 * unit,
+            40 * unit,
+            51 * unit,
+          ),
+          Radius.circular(18 * unit),
+        ),
+        Paint()..color = hair,
+      );
+    } else if (hero == _SpaceHero.serkan) {
+      canvas.drawArc(
+        Rect.fromCircle(
+          center: Offset(cx, headY - 2 * unit),
+          radius: 16 * unit,
+        ),
+        math.pi,
+        math.pi,
+        false,
+        Paint()
+          ..color = hair
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6 * unit,
+      );
+    }
+    canvas.drawCircle(Offset(cx, headY), headR, Paint()..color = skin);
+    if (hero == _SpaceHero.cardabok) {
+      // center part and two short side locks, plus dotted yellow dress
+      canvas.drawArc(
+        Rect.fromCircle(
+          center: Offset(cx, headY - 4 * unit),
+          radius: 15 * unit,
+        ),
+        math.pi,
+        math.pi,
+        false,
+        Paint()
+          ..color = hair
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6 * unit,
+      );
+      canvas.drawLine(
+        Offset(cx, headY - 15 * unit),
+        Offset(cx, headY - 2 * unit),
+        Paint()
+          ..color = const Color(0xffd9b383)
+          ..strokeWidth = 1.5 * unit,
+      );
+      for (var i = 0; i < 7; i++) {
+        final px = cx + (i % 3 - 1) * 8 * unit;
+        final py = size.height * .54 + (i ~/ 3) * 7 * unit;
+        canvas.drawCircle(
+          Offset(px, py),
+          1.4 * unit,
+          Paint()..color = const Color(0xffffc84a),
+        );
+      }
+    } else if (hero == _SpaceHero.mivi) {
+      canvas.drawArc(
+        Rect.fromCircle(
+          center: Offset(cx, headY - 3 * unit),
+          radius: 15 * unit,
+        ),
+        math.pi,
+        math.pi,
+        false,
+        Paint()
+          ..color = hair
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5 * unit,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx - 20 * unit, headY + 2 * unit, 5 * unit, 43 * unit),
+          Radius.circular(3 * unit),
+        ),
+        Paint()..color = hair,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx + 15 * unit, headY + 2 * unit, 5 * unit, 43 * unit),
+          Radius.circular(3 * unit),
+        ),
+        Paint()..color = hair,
+      );
+    } else if (hero == _SpaceHero.berkan) {
+      canvas.drawCircle(
+        Offset(cx, headY - 12 * unit),
+        3 * unit,
+        Paint()..color = const Color(0xffe9c6a6),
+      );
+    } else {
+      canvas.drawArc(
+        Rect.fromCircle(
+          center: Offset(cx, headY - 3 * unit),
+          radius: 15 * unit,
+        ),
+        math.pi,
+        math.pi,
+        false,
+        Paint()
+          ..color = hair
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6 * unit,
+      );
+    }
+    canvas.drawCircle(
+      Offset(cx - 5 * unit, headY),
+      1.2 * unit,
+      Paint()..color = const Color(0xff29232a),
+    );
+    canvas.drawCircle(
+      Offset(cx + 5 * unit, headY),
+      1.2 * unit,
+      Paint()..color = const Color(0xff29232a),
+    );
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(cx, headY + 5 * unit),
+        width: 7 * unit,
+        height: 4 * unit,
+      ),
+      0,
+      math.pi,
+      false,
+      Paint()
+        ..color = const Color(0xff9e4c57)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = unit,
+    );
+    // signature hand-held object: bunny, e-reader, phone, hammer
+    final prop = Offset(cx + 23 * unit, size.height * .66);
+    if (hero == _SpaceHero.cardabok) {
+      canvas.drawCircle(
+        prop,
+        7 * unit,
+        Paint()..color = const Color(0xfff4eee5),
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: prop.translate(-3 * unit, -8 * unit),
+          width: 5 * unit,
+          height: 13 * unit,
+        ),
+        Paint()..color = const Color(0xfff4eee5),
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: prop.translate(3 * unit, -8 * unit),
+          width: 5 * unit,
+          height: 13 * unit,
+        ),
+        Paint()..color = const Color(0xfff4eee5),
+      );
+      canvas.drawCircle(
+        prop.translate(-2 * unit, 0),
+        .8 * unit,
+        Paint()..color = hair,
+      );
+      canvas.drawCircle(
+        prop.translate(2 * unit, 0),
+        .8 * unit,
+        Paint()..color = hair,
+      );
+    } else if (hero == _SpaceHero.mivi) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: prop, width: 12 * unit, height: 17 * unit),
+          Radius.circular(2 * unit),
+        ),
+        Paint()..color = const Color(0xff5de1d1),
+      );
+      canvas.drawLine(
+        prop.translate(-4 * unit, -4 * unit),
+        prop.translate(4 * unit, -4 * unit),
+        Paint()
+          ..color = Colors.white
+          ..strokeWidth = unit,
+      );
+      canvas.drawLine(
+        prop.translate(-4 * unit, 0),
+        prop.translate(4 * unit, 0),
+        Paint()
+          ..color = Colors.white
+          ..strokeWidth = unit,
+      );
+    } else if (hero == _SpaceHero.berkan) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: prop, width: 11 * unit, height: 18 * unit),
+          Radius.circular(3 * unit),
+        ),
+        Paint()..color = const Color(0xff202a39),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: prop, width: 8 * unit, height: 13 * unit),
+          Radius.circular(2 * unit),
+        ),
+        Paint()..color = const Color(0xff65c7ff),
+      );
+    } else {
+      canvas.drawLine(
+        prop.translate(-4 * unit, 7 * unit),
+        prop.translate(5 * unit, -10 * unit),
+        Paint()
+          ..color = const Color(0xffb7c0cb)
+          ..strokeWidth = 3 * unit
+          ..strokeCap = StrokeCap.round,
+      );
+      canvas.drawLine(
+        prop.translate(1 * unit, -11 * unit),
+        prop.translate(10 * unit, -7 * unit),
+        Paint()
+          ..color = const Color(0xff7d8792)
+          ..strokeWidth = 4 * unit
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpaceHeroPainter old) =>
+      hero != old.hero || accent != old.accent;
+}
+
+class _SpacePainter extends CustomPainter {
+  final double shipX, shipY;
+  final List<_SpaceEnemy> enemies;
+  final List<_SpaceShot> shots;
+  final List<_SpaceDrop> drops;
+  final List<Offset> sparks;
+  final bool shield, over, victory, electric, laser;
+  final int rockets;
+  final _SpaceHero hero;
+  final Color heroColor;
+  const _SpacePainter(
+    this.shipX,
+    this.shipY,
+    this.enemies,
+    this.shots,
+    this.drops,
+    this.sparks,
+    this.shield,
+    this.over,
+    this.victory, {
+    required this.hero,
+    required this.heroColor,
+    required this.electric,
+    required this.laser,
+    required this.rockets,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
     canvas.drawRect(
-      Offset.zero & size,
+      rect,
       Paint()
         ..shader = const LinearGradient(
-          colors: [Color(0xff080d21), Color(0xff172348)],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-        ).createShader(Offset.zero & size),
+          colors: [Color(0xff050914), Color(0xff13133b), Color(0xff17102e)],
+        ).createShader(rect),
     );
-    for (var i = 0; i < 44; i++) {
-      final x = ((i * 67 + 17) % 997) / 997 * size.width;
-      final y = ((i * 131 + 29) % 991) / 991 * size.height;
+    for (var i = 0; i < 85; i++) {
+      final x = ((i * 131 + 17) % 997) / 997 * size.width;
+      final y = ((i * 223 + 37) % 991) / 991 * size.height;
       canvas.drawCircle(
         Offset(x, y),
-        i % 5 == 0 ? 1.6 : .8,
-        Paint()..color = Colors.white.withValues(alpha: i % 4 == 0 ? .65 : .24),
+        i % 11 == 0 ? 1.7 : .8,
+        Paint()..color = Colors.white.withValues(alpha: i % 4 == 0 ? .75 : .27),
       );
     }
-    for (final enemy in enemies) {
-      final rect = Rect.fromCenter(
-        center: Offset(enemy.dx * size.width, enemy.dy * size.height),
-        width: size.width * .07,
-        height: size.width * .048,
+    final horizon = size.height * .12;
+    final road = Path()
+      ..moveTo(size.width * .43, horizon)
+      ..lineTo(size.width * .57, horizon)
+      ..lineTo(size.width * 1.12, size.height)
+      ..lineTo(-size.width * .12, size.height)
+      ..close();
+    canvas.drawPath(road, Paint()..color = const Color(0x151cddff));
+    for (final x in [.25, .5, .75]) {
+      canvas.drawLine(
+        Offset(size.width * .5, horizon),
+        Offset(size.width * x, size.height),
+        Paint()
+          ..color = const Color(0x285f8fff)
+          ..strokeWidth = 1,
       );
-      final path = Path()
-        ..moveTo(rect.left, rect.center.dy)
-        ..lineTo(rect.left + rect.width * .23, rect.top)
-        ..lineTo(rect.right - rect.width * .16, rect.top)
-        ..lineTo(rect.right, rect.center.dy)
-        ..lineTo(rect.right - rect.width * .16, rect.bottom)
-        ..lineTo(rect.left + rect.width * .23, rect.bottom)
-        ..close();
-      canvas.drawPath(path, Paint()..color = const Color(0xfff36d7d));
+    }
+    for (var i = 0; i < 8; i++) {
+      final t = ((i / 8 + DateTime.now().millisecond / 8000) % 1);
+      final y = horizon + (size.height - horizon) * t * t;
+      canvas.drawLine(
+        Offset(size.width * (.43 - .55 * t * t), y),
+        Offset(size.width * (.57 + .55 * t * t), y),
+        Paint()
+          ..color = Colors.white.withValues(alpha: .08 * t)
+          ..strokeWidth = 1 + t * 2,
+      );
+    }
+    for (final e in enemies) {
+      _drawEnemy(canvas, size, e);
+    }
+    final dropColors = [
+      const Color(0xffff6b6b),
+      const Color(0xff53d8fb),
+      const Color(0xffffd166),
+      const Color(0xffc77dff),
+      const Color(0xff8dffb1),
+      const Color(0xff85fff2),
+      const Color(0xffa9f7ff),
+      const Color(0xffff8d56),
+    ];
+    final dropIcons = ['♥', 'S', '✦', 'B', '+', '⚡', 'L', 'R'];
+    for (final drop in drops) {
+      final center = Offset(drop.x * size.width, drop.y * size.height);
+      final color = dropColors[drop.kind];
       canvas.drawCircle(
-        rect.center,
-        2,
-        Paint()..color = const Color(0xffffd166),
+        center,
+        10,
+        Paint()..color = color.withValues(alpha: .22),
       );
+      canvas.drawCircle(center, 6, Paint()..color = color);
+      final tp = TextPainter(
+        textDirection: TextDirection.ltr,
+        text: TextSpan(
+          text: dropIcons[drop.kind],
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      )..layout();
+      tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
     for (final shot in shots) {
+      _drawShot(canvas, size, shot);
+    }
+    for (final spark in sparks) {
+      final c = Offset(spark.dx * size.width, spark.dy * size.height);
+      final p = Path()
+        ..moveTo(c.dx - 11, c.dy - 9)
+        ..lineTo(c.dx - 2, c.dy - 2)
+        ..lineTo(c.dx - 6, c.dy + 5)
+        ..lineTo(c.dx + 3, c.dy + 1)
+        ..lineTo(c.dx + 9, c.dy + 9);
+      canvas.drawPath(
+        p,
+        Paint()
+          ..color = const Color(0xffa6ffff)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+    final center = Offset(shipX * size.width, shipY * size.height);
+    _drawShip(canvas, center, size.width / 360);
+    if (shield) {
+      canvas.drawCircle(
+        center,
+        29 * size.width / 360,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = const Color(0x9966eaff),
+      );
+    }
+    if (electric) {
+      final rng = math.Random(41);
+      for (var i = 0; i < 3; i++) {
+        final start = center.translate((i - 1) * 9, -21);
+        final end = center.translate((i - 1) * 9, -size.height * .68);
+        final path = Path()..moveTo(start.dx, start.dy);
+        for (var j = 1; j < 7; j++) {
+          final yy = start.dy + (end.dy - start.dy) * j / 7;
+          path.lineTo(start.dx + (rng.nextDouble() - .5) * 16, yy);
+        }
+        path.lineTo(end.dx, end.dy);
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = const Color(0x995ffcff)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2,
+        );
+      }
+    }
+    if (laser) {
+      canvas.drawRect(
+        Rect.fromLTWH(center.dx - 2, 0, 4, center.dy - 18),
+        Paint()..color = const Color(0x7762fff4),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(center.dx - 1, 0, 2, center.dy - 18),
+        Paint()..color = Colors.white,
+      );
+    }
+    if (over || victory) {
+      canvas.drawRect(rect, Paint()..color = Colors.black54);
+      final tp = TextPainter(
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.center,
+        text: TextSpan(
+          text: victory ? 'GALAKSİ KURTULDU' : 'SİNYAL KAYIP',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 23,
+            fontWeight: FontWeight.w900,
+          ),
+          children: [
+            const TextSpan(
+              text: '\nDokun ve yeniden başla',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      )..layout(maxWidth: size.width - 20);
+      tp.paint(
+        canvas,
+        Offset((size.width - tp.width) / 2, (size.height - tp.height) / 2),
+      );
+    }
+  }
+
+  void _drawEnemy(Canvas canvas, Size size, _SpaceEnemy enemy) {
+    final scale = .35 + enemy.z * .95;
+    final c = Offset(enemy.x * size.width, enemy.y * size.height);
+    final shadow = Rect.fromCenter(
+      center: Offset(c.dx, c.dy + size.height * .025 * scale),
+      width: size.width * .07 * scale,
+      height: size.height * .018 * scale,
+    );
+    canvas.drawOval(shadow, Paint()..color = Colors.black54);
+    if (enemy.kind == 0) {
+      final r = size.width * .024 * scale;
+      canvas.drawCircle(c, r, Paint()..color = const Color(0xff8b5e3c));
+      canvas.drawCircle(
+        c.translate(-r * .2, -r * .25),
+        r * .35,
+        Paint()..color = const Color(0xffffb36b),
+      );
+      canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = const Color(0xffff8055),
+      );
+      // meteor crater details
+      canvas.drawCircle(
+        c.translate(r * .3, r * .2),
+        r * .2,
+        Paint()..color = const Color(0xff573d39),
+      );
+    } else {
+      final boss = enemy.kind == 7;
+      final w =
+          size.width *
+          (boss
+              ? .17
+              : enemy.kind == 6
+              ? .11
+              : .085) *
+          scale;
+      final h =
+          size.height *
+          (boss
+              ? .085
+              : enemy.kind == 6
+              ? .06
+              : .047) *
+          scale;
+      final r = Rect.fromCenter(center: c, width: w, height: h);
+      final color = boss
+          ? const Color(0xffb45cff)
+          : enemy.kind == 6
+          ? const Color(0xffffa23d)
+          : enemy.kind == 2 || enemy.kind == 5
+          ? const Color(0xffff536f)
+          : enemy.kind == 4
+          ? const Color(0xff8a78ff)
+          : const Color(0xff63e1e8);
+      canvas.drawOval(r, Paint()..color = color);
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(c.dx, c.dy - h * .24),
+          width: w * .38,
+          height: h * .7,
+        ),
+        Paint()..color = color.withValues(alpha: .65),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(c.dx, c.dy + h * .1),
+          width: w * .7,
+          height: h * .12,
+        ),
+        Paint()..color = const Color(0xffffe88b),
+      );
+      if (enemy.kind == 2 || enemy.kind == 5 || boss) {
+        final wing = Path()
+          ..moveTo(r.left + w * .18, c.dy)
+          ..lineTo(r.left - w * .2, r.top)
+          ..lineTo(r.left + w * .15, r.bottom)
+          ..close();
+        canvas.drawPath(wing, Paint()..color = color.withValues(alpha: .82));
+        final wing2 = Path()
+          ..moveTo(r.right - w * .18, c.dy)
+          ..lineTo(r.right + w * .2, r.top)
+          ..lineTo(r.right - w * .15, r.bottom)
+          ..close();
+        canvas.drawPath(wing2, Paint()..color = color.withValues(alpha: .82));
+      }
+      if (enemy.kind == 6 || boss) {
+        for (var i = -1; i <= 1; i++) {
+          canvas.drawCircle(
+            Offset(c.dx + i * w * .3, c.dy + h * .42),
+            h * .09,
+            Paint()..color = const Color(0xffff5f46),
+          );
+        }
+      }
+      if (enemy.hp > 1) {
+        final percent =
+            (enemy.hp /
+                    (boss
+                        ? math.max(1, 18)
+                        : enemy.kind == 6
+                        ? 7
+                        : 5))
+                .clamp(0.0, 1.0)
+                .toDouble();
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(r.left, r.top - 5, w, 2),
+            const Radius.circular(2),
+          ),
+          Paint()..color = Colors.white24,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(r.left, r.top - 5, w * percent, 2),
+            const Radius.circular(2),
+          ),
+          Paint()
+            ..color = boss ? const Color(0xffff4b8b) : const Color(0xff8bffb2),
+        );
+      }
+    }
+  }
+
+  void _drawShot(Canvas canvas, Size size, _SpaceShot shot) {
+    final c = Offset(shot.x * size.width, shot.y * size.height);
+    if (shot.hostile) {
+      canvas.drawCircle(
+        c,
+        shot.kind == 7 ? 5 : 3.5,
+        Paint()
+          ..color = shot.kind == 7
+              ? const Color(0xffff55d8)
+              : const Color(0xffff6b8a),
+      );
+    } else if (shot.kind == 2) {
+      final p = Path()
+        ..moveTo(c.dx, c.dy - 8)
+        ..lineTo(c.dx + 5, c.dy + 4)
+        ..lineTo(c.dx, c.dy + 2)
+        ..lineTo(c.dx - 5, c.dy + 4)
+        ..close();
+      canvas.drawPath(p, Paint()..color = const Color(0xffff8c42));
+      canvas.drawCircle(
+        c.translate(0, 7),
+        3,
+        Paint()..color = const Color(0xffffe680),
+      );
+    } else {
+      final color = shot.kind == 1
+          ? const Color(0xff72fff4)
+          : const Color(0xff81f7ff);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromCenter(
-            center: Offset(shot.dx * size.width, shot.dy * size.height),
-            width: 4,
-            height: 13,
+            center: c,
+            width: shot.kind == 1 ? 7 : 4,
+            height: shot.kind == 1 ? 24 : 14,
           ),
           const Radius.circular(3),
         ),
-        Paint()..color = const Color(0xffffe082),
+        Paint()..color = color,
       );
-    }
-    final center = Offset(ship * size.width, size.height * .90);
-    final shipPath = Path()
-      ..moveTo(center.dx, center.dy - 19)
-      ..lineTo(center.dx + 15, center.dy + 15)
-      ..lineTo(center.dx, center.dy + 9)
-      ..lineTo(center.dx - 15, center.dy + 15)
-      ..close();
-    canvas.drawPath(shipPath, Paint()..color = const Color(0xff61d9ff));
-    if (over) {
-      _paintOverlay(canvas, size, 'FİLO GEÇTİ', 'Dokun ve yeniden başla');
     }
   }
 
-  void _paintOverlay(Canvas canvas, Size size, String title, String subtitle) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = Colors.black.withValues(alpha: .62),
+  void _drawShip(Canvas canvas, Offset c, double unit) {
+    final color = switch (hero) {
+      _SpaceHero.cardabok => const Color(0xff45bfff),
+      _SpaceHero.mivi => const Color(0xffef394c),
+      _SpaceHero.berkan => const Color(0xffa9b5c2),
+      _SpaceHero.serkan => const Color(0xffd09862),
+    };
+    final flame = Path()
+      ..moveTo(c.dx - 7 * unit, c.dy + 8 * unit)
+      ..lineTo(c.dx, c.dy + 27 * unit)
+      ..lineTo(c.dx + 7 * unit, c.dy + 8 * unit)
+      ..close();
+    canvas.drawPath(flame, Paint()..color = const Color(0xffff8c42));
+    final ship = Path()
+      ..moveTo(c.dx, c.dy - 22 * unit)
+      ..lineTo(c.dx + 20 * unit, c.dy + 13 * unit)
+      ..lineTo(c.dx + 7 * unit, c.dy + 9 * unit)
+      ..lineTo(c.dx, c.dy + 15 * unit)
+      ..lineTo(c.dx - 7 * unit, c.dy + 9 * unit)
+      ..lineTo(c.dx - 20 * unit, c.dy + 13 * unit)
+      ..close();
+    canvas.drawPath(ship, Paint()..color = color);
+    canvas.drawPath(
+      ship,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = Colors.white,
     );
-    final p = TextPainter(
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-      text: TextSpan(
-        text: '$title\n',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 23,
-          fontWeight: FontWeight.w900,
-        ),
-        children: [
-          TextSpan(
-            text: subtitle,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
+    if (hero == _SpaceHero.cardabok) {
+      canvas.drawCircle(
+        c.translate(0, 1),
+        5 * unit,
+        Paint()..color = const Color(0xffa7eeff),
+      );
+    }
+    if (hero == _SpaceHero.mivi) {
+      canvas.drawCircle(
+        c.translate(0, 2),
+        4 * unit,
+        Paint()..color = const Color(0xffffb7c0),
+      );
+    }
+    if (hero == _SpaceHero.berkan) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: c.translate(0, 3),
+            width: 9 * unit,
+            height: 6 * unit,
           ),
-        ],
-      ),
-    )..layout(maxWidth: size.width - 20);
-    p.paint(
-      canvas,
-      Offset((size.width - p.width) / 2, (size.height - p.height) / 2),
-    );
+          const Radius.circular(2),
+        ),
+        Paint()..color = const Color(0xff5c6671),
+      );
+    }
+    if (hero == _SpaceHero.serkan) {
+      canvas.drawLine(
+        c.translate(-10 * unit, 8 * unit),
+        c.translate(10 * unit, 8 * unit),
+        Paint()
+          ..color = const Color(0xffffd28c)
+          ..strokeWidth = 2 * unit,
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _SpacePainter old) => true;
+  bool shouldRepaint(covariant _SpacePainter oldDelegate) => true;
 }
 
 // ---------------------------------------------------------------------------
