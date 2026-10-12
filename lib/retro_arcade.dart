@@ -39,8 +39,8 @@ const _retroGames = <RetroGame>[
   ),
   RetroGame(
     'space_defense',
-    'Uzay Savunması',
-    'Perspektifli uzay çatışmasında UFO’ları ve meteorları durdur.',
+    'Uzay Macerası',
+    'Gelişmiş uzay çatışması: farklı düşmanlar, meteor yağmuru ve özel silahlar.',
     Icons.rocket_launch_rounded,
     'Arcade',
     gamepad: true,
@@ -6078,14 +6078,14 @@ const _spaceHeroInfo = <_SpaceHero, _SpaceHeroInfo>{
     Color(0xffff5364),
   ),
   _SpaceHero.berkan: _SpaceHeroInfo(
-    'Berkan',
+    'Ber',
     'Telefonunda galaksinin en iyi rotası var.',
     'Takviyeli gövde: +1 can ve ekstra başlangıç bombası.',
     'GÜMÜŞ DEV',
     Color(0xffb7c4d1),
   ),
   _SpaceHero.serkan: _SpaceHeroInfo(
-    'Serkan',
+    'Ser',
     'Çekiciyle meteorları bile hizaya getirir.',
     'Koyu hücum gemisi: roketleriyle başlar.',
     'DEMİR ÇEKİÇ',
@@ -6103,7 +6103,7 @@ class _SpaceGame extends StatefulWidget {
 class _SpaceEnemy {
   double x, y, z, vx, phase;
   int hp;
-  final int kind; // meteor, scout, fighter, carrier, wraith, dasher, gunship, boss, crystal, bomber, shard, prism guard, lance
+  final int kind; // 0 meteor, 1 scout, 2 fighter, 3 carrier, 4 wraith, 5 dasher, 6 gunship, 7 boss, 8 crystal meteor, 9 bomber, 10 shard, 11 prism guard, 12 lance, 13 comic green alien, 14 magma meteor
   _SpaceEnemy(
     this.x,
     this.y,
@@ -6117,16 +6117,18 @@ class _SpaceEnemy {
 
 class _SpaceShot {
   double x, y, z;
+  double trailX, trailY;
   final bool hostile;
   final int kind; // normal, laser, rocket, enemy bolt
-  _SpaceShot(this.x, this.y, this.z, {this.hostile = false, this.kind = 0});
+  _SpaceShot(this.x, this.y, this.z, {this.hostile = false, this.kind = 0})
+      : trailX = x, trailY = y;
 }
 
 class _SpaceDrop {
   double x, y, z;
-  final int
-  kind; // heart, shield, spread, bomb, score, electricity, laser, rockets
-  _SpaceDrop(this.x, this.y, this.z, this.kind);
+  double phase, vx, vy;
+  final int kind; // heart, shield, spread, bomb, score, electricity, laser, rockets
+  _SpaceDrop(this.x, this.y, this.z, this.kind, {this.vx = 0, this.vy = .0035, this.phase = 0});
 }
 
 class _SpaceExplosion {
@@ -6160,6 +6162,7 @@ class _SpaceState extends State<_SpaceGame> {
       _electricTicks = 0,
       _laserTicks = 0,
       _rocketAmmo = 0;
+  int _waveBreakTicks = 0;
   bool _over = false, _victory = false;
   static const _stageNames = [
     'NEON NEBULA',
@@ -6194,6 +6197,7 @@ class _SpaceState extends State<_SpaceGame> {
       _electricTicks = 0;
       _laserTicks = 0;
       _rocketAmmo = hero == _SpaceHero.serkan ? 4 : 0;
+      _waveBreakTicks = 0;
       _over = false;
       _victory = false;
       _foes.clear();
@@ -6212,7 +6216,11 @@ class _SpaceState extends State<_SpaceGame> {
       final row = i ~/ 7;
       final lane = i % 7;
       final phase = i * 1.31 + _wave * .73;
-      final kind = _wave % 3 == 0 && i == 0
+      final kind = _wave >= 2 && (i + _wave) % 13 == 4
+          ? 13
+          : _wave >= 3 && (i * 3 + _wave) % 17 == 6
+          ? 14
+          : _wave % 3 == 0 && i == 0
           ? 7
           : _wave >= 10 && i % 12 == 0
           ? 12
@@ -6237,6 +6245,8 @@ class _SpaceState extends State<_SpaceGame> {
           : 0;
       final hp = switch (kind) {
         7 => 24 + _wave * 2,
+        14 => 5 + (_wave ~/ 3),
+        13 => 4 + (_wave ~/ 3),
         12 => 6 + (_wave ~/ 2),
         11 => 8 + (_wave ~/ 2),
         9 => 7 + (_wave ~/ 3),
@@ -6264,6 +6274,8 @@ class _SpaceState extends State<_SpaceGame> {
       final z = (1.0 - y * .62).clamp(.50, .97).toDouble();
       final speed = switch (kind) {
         5 || 10 || 12 => .018 + _rng.nextDouble() * .012,
+        14 => .003 + _rng.nextDouble() * .004,
+        13 => .005 + _rng.nextDouble() * .006,
         7 || 8 || 11 => .003 + _rng.nextDouble() * .005,
         _ => .006 + _rng.nextDouble() * .010,
       };
@@ -6297,19 +6309,19 @@ class _SpaceState extends State<_SpaceGame> {
   }
 
   void _fire() {
-    if (!_over && !_victory && _hero != null) _shoot();
+    if (!_over && !_victory && _waveBreakTicks == 0 && _hero != null) _shoot();
   }
 
   void _shoot() {
     final spread = _weapon >= 5
-        ? [-.095, -.047, 0.0, .047, .095]
+        ? [-.105, -.078, -.052, -.026, 0.0, .026, .052, .078, .105]
         : _weapon == 4
-        ? [-.072, 0.0, .072]
+        ? [-.084, -.056, -.028, 0.0, .028, .056, .084]
         : _weapon == 3
-        ? [-.052, 0.0, .052]
+        ? [-.064, -.032, 0.0, .032, .064]
         : _weapon == 2
-        ? [-.027, .027]
-        : [0.0];
+        ? [-.048, -.016, .016, .048]
+        : [-.028, .028];
     for (final offset in spread) {
       _shots.add(
         _SpaceShot((_x + offset).clamp(.02, .98).toDouble(), _y - .035, 1),
@@ -6318,7 +6330,7 @@ class _SpaceState extends State<_SpaceGame> {
   }
 
   void _bomb() {
-    if (_bombs <= 0 || _over || _victory || _hero == null) return;
+    if (_bombs <= 0 || _over || _victory || _waveBreakTicks > 0 || _hero == null) return;
     _bombs--;
     _shield = math.max(_shield, 42).toInt();
     _spawnSpaceExplosion(_x, _y - .08, strength: 3.4, color: const Color(0xff7cecff));
@@ -6358,6 +6370,8 @@ class _SpaceState extends State<_SpaceGame> {
 
   int _enemyScore(_SpaceEnemy e) => switch (e.kind) {
     7 => 2500,
+    14 => 210,
+    13 => 240,
     12 => 680,
     11 => 620,
     9 => 520,
@@ -6373,7 +6387,8 @@ class _SpaceState extends State<_SpaceGame> {
     // rewarding. This keeps the playfield readable while preserving excitement.
     final isBoss = enemy.kind == 7;
     final elite = isBoss || enemy.kind == 8 || enemy.kind == 9 ||
-        enemy.kind == 11 || enemy.kind == 12 || enemy.kind == 6;
+        enemy.kind == 11 || enemy.kind == 12 || enemy.kind == 13 ||
+        enemy.kind == 14 || enemy.kind == 6;
     if (!isBoss && _rng.nextDouble() >= (elite ? .72 : .34)) return;
 
     final roll = _rng.nextDouble();
@@ -6392,7 +6407,12 @@ class _SpaceState extends State<_SpaceGame> {
         : roll < .88
         ? 6
         : 7;
-    _drops.add(_SpaceDrop(enemy.x, enemy.y, enemy.z, kind));
+    _drops.add(_SpaceDrop(
+      enemy.x, enemy.y, enemy.z, kind,
+      vx: (_rng.nextDouble() - .5) * .0032,
+      vy: .0022 + _rng.nextDouble() * .0017,
+      phase: _rng.nextDouble() * math.pi * 2,
+    ));
   }
 
   void _spawnSpaceExplosion(
@@ -6427,11 +6447,11 @@ class _SpaceState extends State<_SpaceGame> {
     if (_shield > 0) _shield--;
     if (_electricTicks > 0) _electricTicks--;
     if (_laserTicks > 0) _laserTicks--;
-    if (_ticks % (_hero == _SpaceHero.mivi ? 7 : 9) == 0) _shoot();
-    if (_laserTicks > 0 && _ticks % 5 == 0) {
+    if (_waveBreakTicks == 0 && _ticks % (_hero == _SpaceHero.mivi ? 7 : 9) == 0) _shoot();
+    if (_waveBreakTicks == 0 && _laserTicks > 0 && _ticks % 5 == 0) {
       _shots.add(_SpaceShot(_x, _y - .08, 1, kind: 1));
     }
-    if (_rocketAmmo > 0 && _ticks % 36 == 0) {
+    if (_waveBreakTicks == 0 && _rocketAmmo > 0 && _ticks % 36 == 0) {
       _rocketAmmo--;
       _shots.add(_SpaceShot(_x, _y - .035, 1, kind: 2));
     }
@@ -6471,6 +6491,13 @@ class _SpaceState extends State<_SpaceGame> {
           e.x += e.vx + math.sin(e.phase * 1.7) * .007;
           if (_ticks % 88 == 0) e.vx = -e.vx;
           break;
+        case 13: // comic alien saucer wobbles as if its pilot has had too much space soda.
+          e.x += e.vx * .52 + math.sin(e.phase * 1.42) * .0055;
+          if (_ticks % 104 == 0) e.vx = -e.vx;
+          break;
+        case 14: // heavy magma meteor rolls slowly while drifting.
+          e.x += e.vx * .38 + math.sin(e.phase * .42) * .0015;
+          break;
         case 3: // carrier
           e.x += e.vx * .55 + math.sin(e.phase * .55) * .0022;
           break;
@@ -6484,6 +6511,8 @@ class _SpaceState extends State<_SpaceGame> {
       final fireRate = switch (e.kind) {
         7 => 22,
         12 => 28,
+        13 => 58,
+        14 => 82,
         11 => 35,
         9 => 40,
         6 || 8 => 46,
@@ -6497,6 +6526,8 @@ class _SpaceState extends State<_SpaceGame> {
           7 => [-.07, -.035, 0.0, .035, .07],
           9 || 11 => [-.055, 0.0, .055],
           12 => [-.09, -.03, .03, .09],
+          13 => [-.035, .035],
+          14 => <double>[0.0],
           _ => <double>[0.0],
         };
         for (final off in volley) {
@@ -6507,9 +6538,11 @@ class _SpaceState extends State<_SpaceGame> {
       }
     }
     for (final shot in _shots) {
+      shot.trailX = shot.x;
+      shot.trailY = shot.y;
       shot.y += shot.hostile
           ? (shot.kind == 7 ? .016 : .012)
-          : (shot.kind == 2 ? -.017 : -.024);
+          : (shot.kind == 2 ? -.017 : shot.kind == 1 ? -.031 : -.024);
       shot.z += shot.hostile ? -.012 : .02;
     }
 
@@ -6529,8 +6562,10 @@ class _SpaceState extends State<_SpaceGame> {
             (.045 + enemy.z * .035) *
             (enemy.kind == 7
                 ? 1.7
-                : enemy.kind == 6
-                ? 1.25
+                : enemy.kind == 6 || enemy.kind == 14
+                ? 1.35
+                : enemy.kind == 13
+                ? 1.12
                 : 1);
         if ((shot.x - enemy.x).abs() < radius &&
             (shot.y - enemy.y).abs() < radius) {
@@ -6616,15 +6651,25 @@ class _SpaceState extends State<_SpaceGame> {
     for (final enemy in dead) {
       final color = switch (enemy.kind) {
         7 || 9 || 12 => const Color(0xffff5ca8),
+        13 => const Color(0xff72ff79),
+        14 => const Color(0xffff783f),
         8 || 10 || 11 => const Color(0xff71fff1),
         _ => const Color(0xffffb16b),
       };
       _spawnSpaceExplosion(
         enemy.x,
         enemy.y,
-        strength: enemy.kind == 7 ? 2.5 : enemy.kind == 8 ? 1.5 : .8,
+        strength: enemy.kind == 7 ? 3.25 : enemy.kind == 8 || enemy.kind == 14 ? 2.0 : enemy.kind == 13 ? 1.25 : .95,
         color: color,
       );
+      if (enemy.kind == 7 || enemy.kind == 8 || enemy.kind == 9 || enemy.kind == 14) {
+        _spawnSpaceExplosion(
+          (enemy.x + math.sin(enemy.phase) * .025).clamp(.02, .98).toDouble(),
+          (enemy.y + math.cos(enemy.phase) * .018).clamp(.02, .98).toDouble(),
+          strength: enemy.kind == 7 ? 1.8 : .72,
+          color: const Color(0xffffd27a),
+        );
+      }
     }
     _foes.removeWhere((e) => dead.contains(e));
     _foes.addAll(shards);
@@ -6680,7 +6725,10 @@ class _SpaceState extends State<_SpaceGame> {
       }
     }
     _drops.removeWhere((drop) {
-      drop.y += .0035;
+      drop.phase += .09;
+      drop.x = (drop.x + drop.vx + math.sin(drop.phase) * .0007).clamp(.025, .975).toDouble();
+      drop.y += drop.vy;
+      drop.vx *= .995;
       drop.z -= .0018;
       if ((drop.x - _x).abs() < .055 && (drop.y - _y).abs() < .06) {
         switch (drop.kind) {
@@ -6713,13 +6761,21 @@ class _SpaceState extends State<_SpaceGame> {
       }
       return drop.y > 1.02 || drop.z < 0;
     });
-    if (_foes.isEmpty && !_over) {
-      if (_wave >= 15) {
+    if (_foes.isEmpty && !_over && !_victory) {
+      if (_waveBreakTicks > 0) {
+        _waveBreakTicks--;
+        if (_waveBreakTicks == 0) {
+          _wave++;
+          if (_wave % 3 == 0) _weapon = math.min(5, _weapon + 1).toInt();
+          _spawnWave();
+        }
+      } else if (_wave >= 15) {
         _victory = true;
       } else {
-        _wave++;
-        if (_wave % 3 == 0) _weapon = math.min(5, _weapon + 1).toInt();
-        _spawnWave();
+        // Let the last explosion finish and give the player a tactical breath.
+        _waveBreakTicks = 72; // about 2.2 seconds at the 30 ms game tick
+        _shots.removeWhere((shot) => shot.hostile);
+        _spawnSpaceExplosion(.5, .43, strength: 1.45, color: const Color(0xff79eaff));
       }
     }
   }
@@ -6755,6 +6811,8 @@ class _SpaceState extends State<_SpaceGame> {
         ? 'SİNYAL KAYIP • $_score'
         : _victory
         ? 'GALAKSİ KURTULDU • $_score'
+        : _waveBreakTicks > 0
+        ? '${_stageNames[_stage]} • DALGA $_wave TAMAMLANDI • YENİ DALGA ${_wave + 1} YAKLAŞIYOR'
         : '${_stageNames[_stage]} • DALGA $_wave/15 • ♥ $_lives • $_weaponLabel • ⚡${_electricTicks > 0 ? 'AÇIK' : '—'} • 💣$_bombs';
     return _ArcadeFrame(
       score: status,
@@ -6798,6 +6856,7 @@ class _SpaceState extends State<_SpaceGame> {
             wave: _wave,
             ticks: _ticks,
             bank: _dx,
+            waveBreakTicks: _waveBreakTicks,
           ),
           size: Size.infinite,
         ),
@@ -7497,7 +7556,7 @@ class _SpacePainter extends CustomPainter {
   final List<Offset> sparks;
   final List<_SpaceExplosion> explosions;
   final bool shield, over, victory, electric, laser;
-  final int rockets, wave, ticks;
+  final int rockets, wave, ticks, waveBreakTicks;
   final double bank;
   final _SpaceHero hero;
   const _SpacePainter(
@@ -7518,6 +7577,7 @@ class _SpacePainter extends CustomPainter {
     required this.wave,
     required this.ticks,
     required this.bank,
+    required this.waveBreakTicks,
   });
 
   @override
@@ -7635,11 +7695,24 @@ class _SpacePainter extends CustomPainter {
         radius * .46,
         Paint()..color = Colors.white.withValues(alpha: fade * .72),
       );
+      canvas.drawCircle(
+        c,
+        radius * 1.52,
+        Paint()..color = Color.lerp(effect.color, Colors.white, .4)!.withValues(alpha: fade * .42)..style = PaintingStyle.stroke..strokeWidth = (1.8 - progress) * unit,
+      );
+      // Hot core and layered shock rings make impacts read as explosions rather than static circles.
+      if (progress < .42) {
+        final core = radius * (1 - progress * 1.2);
+        canvas.drawCircle(c, core * .28, Paint()..color = Colors.white.withValues(alpha: fade));
+        canvas.drawCircle(c, core * .70, Paint()..color = const Color(0xffffdf8a).withValues(alpha: fade * .66));
+      }
       final debris = math.Random(effect.seed);
       for (var i = 0; i < 7; i++) {
         final angle = math.pi * 2 * i / 7 + effect.seed * .013;
         final travel = radius * (.62 + debris.nextDouble() * .52);
         final point = c + Offset(math.cos(angle) * travel, math.sin(angle) * travel);
+        final shardPaint = Paint()..color = effect.color.withValues(alpha: fade);
+        canvas.drawLine(point - Offset(math.cos(angle) * 4 * unit, math.sin(angle) * 4 * unit), point, shardPaint..strokeWidth = (1.2 + debris.nextDouble()) * unit..strokeCap = StrokeCap.round);
         canvas.drawCircle(
           point,
           (1.2 + debris.nextDouble() * 1.8) * unit * (1 - progress * .6),
@@ -7652,21 +7725,47 @@ class _SpacePainter extends CustomPainter {
       const Color(0xffc77dff), const Color(0xff8dffb1), const Color(0xff85fff2),
       const Color(0xffa9f7ff), const Color(0xffff8d56),
     ];
-    final dropIcons = ['♥', 'S', '✦', 'B', '+', '⚡', 'L', 'R'];
+    final dropIcons = ['♥', 'S', '✦', 'B', '+', 'ϟ', 'L', 'R'];
     for (final drop in drops) {
       final center = Offset(drop.x * size.width, drop.y * size.height);
       final color = dropColors[drop.kind];
-      final pulse = .92 + .08 * math.sin(ticks * .13 + drop.x * 12);
-      final depth = (.62 + (1.0 - drop.z) * .62).clamp(.62, 1.18).toDouble();
-      final r = 9.2 * pulse * depth * unit;
-      canvas.drawCircle(center.translate(0, 3), r * 1.28, Paint()..color = color.withValues(alpha: .12));
-      canvas.drawCircle(center, r * 1.12, Paint()..shader = RadialGradient(colors: [color.withValues(alpha: .02), color.withValues(alpha: .6), color.withValues(alpha: .05)]).createShader(Rect.fromCircle(center: center, radius: r * 1.12)));
-      final pickupRect = Rect.fromCenter(center: center, width: r * 1.62, height: r * 1.62);
-      canvas.drawRRect(RRect.fromRectAndRadius(pickupRect.shift(Offset(0, 2)), Radius.circular(4 * unit)), Paint()..color = Colors.black.withValues(alpha: .45));
-      canvas.drawRRect(RRect.fromRectAndRadius(pickupRect, Radius.circular(4 * unit)), Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.white, color, Color.lerp(color, Colors.black, .38)!]).createShader(pickupRect));
-      canvas.drawRRect(RRect.fromRectAndRadius(pickupRect, Radius.circular(4 * unit)), Paint()..color = Colors.white.withValues(alpha: .76)..style = PaintingStyle.stroke..strokeWidth = 1);
-      final tp = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(text: dropIcons[drop.kind], style: TextStyle(color: Colors.white, fontSize: 9.5 * unit, fontWeight: FontWeight.w900, shadows: const [Shadow(color: Colors.black54, blurRadius: 2)])))..layout();
-      tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
+      final pulse = .94 + .06 * math.sin(ticks * .16 + drop.phase);
+      final depth = (.68 + (1.0 - drop.z) * .58).clamp(.68, 1.18).toDouble();
+      final r = 10.5 * pulse * depth * unit;
+      canvas.drawCircle(center, r * 1.9, Paint()..color = color.withValues(alpha: .075));
+      canvas.drawCircle(center, r * 1.34, Paint()..color = color.withValues(alpha: .14));
+      canvas.drawCircle(center, r * 1.34, Paint()..color = color.withValues(alpha: .65)..style = PaintingStyle.stroke..strokeWidth = 1.0 * unit);
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(drop.phase * .72);
+      final pod = Path()
+        ..moveTo(0, -r * 1.12)
+        ..lineTo(r * .77, -r * .48)
+        ..lineTo(r * .77, r * .48)
+        ..lineTo(0, r * 1.12)
+        ..lineTo(-r * .77, r * .48)
+        ..lineTo(-r * .77, -r * .48)
+        ..close();
+      canvas.drawPath(pod.shift(Offset(0, 2 * unit)), Paint()..color = Colors.black.withValues(alpha: .52));
+      canvas.drawPath(pod, Paint()..shader = LinearGradient(
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+        colors: [Colors.white, color, Color.lerp(color, const Color(0xff10172b), .55)!],
+        stops: const [0, .32, 1],
+      ).createShader(Rect.fromCenter(center: Offset.zero, width: r * 1.7, height: r * 2.3)));
+      canvas.drawPath(pod, Paint()..color = Colors.white.withValues(alpha: .85)..style = PaintingStyle.stroke..strokeWidth = 1.0 * unit);
+      final inner = Rect.fromCenter(center: Offset.zero, width: r * .8, height: r * 1.1);
+      canvas.drawRRect(RRect.fromRectAndRadius(inner, Radius.circular(r * .18)), Paint()..color = const Color(0xff071425).withValues(alpha: .72));
+      final tp = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(text: dropIcons[drop.kind], style: TextStyle(
+        color: Colors.white, fontSize: (drop.kind == 0 ? 12 : 9.5) * unit,
+        fontWeight: FontWeight.w900, shadows: [Shadow(color: color, blurRadius: 5 * unit)],
+      )))..layout();
+      tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+      canvas.restore();
+      for (var i = 0; i < 3; i++) {
+        final a = drop.phase * 1.7 + i * math.pi * 2 / 3;
+        final orbit = Offset(center.dx + math.cos(a) * r * 1.55, center.dy + math.sin(a) * r * 1.55);
+        canvas.drawCircle(orbit, (1.0 + (i % 2) * .7) * unit, Paint()..color = Colors.white.withValues(alpha: .9));
+      }
     }
     for (final shot in shots) {
       _drawShot(canvas, size, shot);
@@ -7769,9 +7868,26 @@ class _SpacePainter extends CustomPainter {
         canvas.drawPath(
           path,
           Paint()
-            ..color = const Color(0x995ffcff)
+            ..color = const Color(0x555ffcff)
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 2,
+            ..strokeWidth = 6
+            ..strokeCap = StrokeCap.round,
+        );
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = const Color(0xff68faff)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.8
+            ..strokeCap = StrokeCap.round,
+        );
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.white.withValues(alpha: .78)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = .65
+            ..strokeCap = StrokeCap.round,
         );
       }
     }
@@ -7784,6 +7900,21 @@ class _SpacePainter extends CustomPainter {
         Rect.fromLTWH(center.dx - 1, 0, 2, center.dy - 18),
         Paint()..color = Colors.white,
       );
+    }
+    if (!over && !victory && waveBreakTicks > 0) {
+      final banner = Rect.fromCenter(center: Offset(size.width * .5, size.height * .43), width: size.width * .78, height: size.height * .13);
+      canvas.drawRRect(RRect.fromRectAndRadius(banner, const Radius.circular(16)), Paint()..color = const Color(0xd9152037));
+      canvas.drawRRect(RRect.fromRectAndRadius(banner, const Radius.circular(16)), Paint()..color = const Color(0x9968e8ff)..style = PaintingStyle.stroke..strokeWidth = 1.4 * unit);
+      final tp = TextPainter(
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.center,
+        text: TextSpan(
+          text: 'DALGA TEMİZLENDİ\n',
+          style: TextStyle(color: const Color(0xff8ceeff), fontSize: 17 * unit, fontWeight: FontWeight.w900, letterSpacing: 1.1),
+          children: [TextSpan(text: 'Yeni düşmanlar taranıyor  •  ${((waveBreakTicks * .03).ceil())} sn', style: TextStyle(color: Colors.white70, fontSize: 10.5 * unit, fontWeight: FontWeight.w600, letterSpacing: .2))],
+        ),
+      )..layout(maxWidth: banner.width - 12);
+      tp.paint(canvas, Offset(banner.center.dx - tp.width / 2, banner.center.dy - tp.height / 2));
     }
     if (over || victory) {
       canvas.drawRect(rect, Paint()..color = Colors.black54);
@@ -7828,6 +7959,53 @@ class _SpacePainter extends CustomPainter {
     final shard = enemy.kind == 10;
     final prismGuard = enemy.kind == 11;
     final lance = enemy.kind == 12;
+    if (enemy.kind == 13) {
+      final bob = math.sin(enemy.phase * 2.0) * 1.8 * unit;
+      canvas.save();
+      canvas.translate(c.dx, c.dy + bob);
+      final head = Rect.fromCenter(center: Offset(0, -2 * unit), width: 29 * unit, height: 25 * unit);
+      // Green aura and saucer beneath the tiny, chaotic pilot.
+      canvas.drawCircle(Offset.zero, 23 * unit, Paint()..color = const Color(0xff72ff68).withValues(alpha: .12));
+      canvas.drawOval(Rect.fromCenter(center: Offset(0, 10 * unit), width: 37 * unit, height: 10 * unit), Paint()..color = const Color(0xff26394a));
+      canvas.drawOval(Rect.fromCenter(center: Offset(0, 8.5 * unit), width: 35 * unit, height: 9 * unit), Paint()..shader = const LinearGradient(colors: [Color(0xffe6fffb), Color(0xff59d9ee), Color(0xff315d8a)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromCenter(center: Offset(0, 8.5 * unit), width: 35 * unit, height: 9 * unit)));
+      for (var i = -2; i <= 2; i++) {
+        canvas.drawCircle(Offset(i * 5.4 * unit, 10 * unit), 1.35 * unit, Paint()..color = i.isEven ? const Color(0xffffd76b) : const Color(0xffff7c9a));
+      }
+      // Wiggly antenna, tiny spherical tip and a glossy oversized head.
+      final antenna = Path()..moveTo(0, -13 * unit)..quadraticBezierTo(5 * unit, -22 * unit, 2 * unit, -25 * unit);
+      canvas.drawPath(antenna, Paint()..color = const Color(0xffa8ff8b)..style = PaintingStyle.stroke..strokeWidth = 2.2 * unit..strokeCap = StrokeCap.round);
+      canvas.drawCircle(Offset(2 * unit, -25 * unit), 3 * unit, Paint()..color = const Color(0xffffe36e));
+      canvas.drawOval(head, Paint()..shader = const RadialGradient(center: Alignment(-.35, -.55), colors: [Color(0xffe0ffc0), Color(0xff72e94f), Color(0xff248b52)]).createShader(head));
+      canvas.drawArc(head, math.pi * 1.08, math.pi * .78, false, Paint()..color = const Color(0xfff1ffdf).withValues(alpha: .72)..style = PaintingStyle.stroke..strokeWidth = 1.1 * unit);
+      // Eyes blink briefly every few seconds; pupils drift with the pilot's wobble.
+      final blinking = (enemy.phase * 10).toInt() % 47 == 0;
+      for (final side in [-1.0, 1.0]) {
+        final eye = Rect.fromCenter(center: Offset(side * 6.3 * unit, -3.3 * unit), width: 8.3 * unit, height: (blinking ? 1.8 : 10.2) * unit);
+        canvas.drawOval(eye, Paint()..color = const Color(0xfff9fff0));
+        if (!blinking) {
+          canvas.drawCircle(Offset(side * 6.3 * unit + math.sin(enemy.phase) * .8 * unit, -2.7 * unit), 2.8 * unit, Paint()..color = const Color(0xff17233b));
+          canvas.drawCircle(Offset(side * 6.3 * unit + math.sin(enemy.phase) * .8 * unit - .7 * unit, -3.7 * unit), .8 * unit, Paint()..color = Colors.white);
+        }
+      }
+      canvas.drawCircle(Offset(-11 * unit, 2.3 * unit), 2.3 * unit, Paint()..color = const Color(0xffff87a9).withValues(alpha: .66));
+      canvas.drawCircle(Offset(11 * unit, 2.3 * unit), 2.3 * unit, Paint()..color = const Color(0xffff87a9).withValues(alpha: .66));
+      final grin = Path()..moveTo(-5 * unit, 4 * unit)..quadraticBezierTo(0, 9 * unit, 6 * unit, 3.5 * unit);
+      canvas.drawPath(grin, Paint()..color = const Color(0xff164b37)..style = PaintingStyle.stroke..strokeWidth = 1.7 * unit..strokeCap = StrokeCap.round);
+      // Tiny arms flail as the saucer wobbles.
+      for (final side in [-1.0, 1.0]) {
+        final arm = Path()..moveTo(side * 12 * unit, 1 * unit)..quadraticBezierTo(side * 19 * unit, -4 * unit + bob, side * 18 * unit, 3 * unit);
+        canvas.drawPath(arm, Paint()..color = const Color(0xff4acb62)..style = PaintingStyle.stroke..strokeWidth = 3 * unit..strokeCap = StrokeCap.round);
+        canvas.drawCircle(Offset(side * 18 * unit, 3 * unit), 2.2 * unit, Paint()..color = const Color(0xffa8ff8b));
+      }
+      if (enemy.hp > 1) {
+        final hpMax = 4 + (wave ~/ 3);
+        final bar = Rect.fromLTWH(-15 * unit, -19 * unit, 30 * unit, 2.1 * unit);
+        canvas.drawRRect(RRect.fromRectAndRadius(bar, Radius.circular(unit)), Paint()..color = Colors.black.withValues(alpha: .65));
+        canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(bar.left, bar.top, bar.width * (enemy.hp / hpMax).clamp(0.0, 1.0).toDouble(), bar.height), Radius.circular(unit)), Paint()..color = const Color(0xff91ff68));
+      }
+      canvas.restore();
+      return;
+    }
     if (shard) {
       final radius = 7.5 * unit;
       canvas.save();
@@ -7850,12 +8028,12 @@ class _SpacePainter extends CustomPainter {
       canvas.restore();
       return;
     }
-    final shadowW = (enemy.kind == 0 || crystal ? 25 : boss ? 64 : 34) * unit;
+    final shadowW = (enemy.kind == 0 || enemy.kind == 14 || crystal ? 25 : boss ? 64 : 34) * unit;
     final shadow = Rect.fromCenter(center: c.translate(0, 8 * unit), width: shadowW, height: 8 * unit);
     canvas.drawOval(shadow, Paint()..color = Colors.black.withValues(alpha: .48));
 
-    if (enemy.kind == 0 || crystal) {
-      final radius = (enemy.kind == 0 ? 12 : 15) * unit;
+    if (enemy.kind == 0 || enemy.kind == 14 || crystal) {
+      final radius = (enemy.kind == 0 ? 12 : enemy.kind == 14 ? 17 : 15) * unit;
       final rotation = enemy.phase * (crystal ? -.32 : .42);
       canvas.save();
       canvas.translate(c.dx, c.dy);
@@ -7871,7 +8049,7 @@ class _SpacePainter extends CustomPainter {
         if (i == 0) { path.moveTo(point.dx, point.dy); } else { path.lineTo(point.dx, point.dy); }
       }
       path.close();
-      final base = crystal ? const Color(0xff54e2d0) : const Color(0xff86563f);
+      final base = crystal ? const Color(0xff54e2d0) : enemy.kind == 14 ? const Color(0xffb54a35) : const Color(0xff86563f);
       canvas.drawPath(path, Paint()..color = const Color(0x7758b9ee));
       canvas.drawPath(path.shift(Offset(0, 2 * unit)), Paint()..color = const Color(0xff332a37));
       canvas.drawPath(path, Paint()..shader = RadialGradient(
@@ -7898,7 +8076,13 @@ class _SpacePainter extends CustomPainter {
             Paint()..color = const Color(0xffd9a37a).withValues(alpha: .56)..style = PaintingStyle.stroke..strokeWidth = .8 * unit);
         }
         final crack = Path()..moveTo(radius * .10, -radius * .64)..lineTo(radius * .02, -radius * .23)..lineTo(radius * .22, -radius * .02)..lineTo(radius * .12, radius * .22);
-        canvas.drawPath(crack, Paint()..color = const Color(0xffffb26b).withValues(alpha: .64)..style = PaintingStyle.stroke..strokeWidth = 1.1 * unit);
+        final magma = enemy.kind == 14;
+        canvas.drawPath(crack, Paint()..color = (magma ? const Color(0xffffed79) : const Color(0xffffb26b)).withValues(alpha: magma ? .96 : .64)..style = PaintingStyle.stroke..strokeWidth = (magma ? 1.8 : 1.1) * unit);
+        if (magma) {
+          final crack2 = Path()..moveTo(-radius * .68, radius * .10)..lineTo(-radius * .24, radius * .02)..lineTo(radius * .02, radius * .30)..lineTo(radius * .45, radius * .22);
+          canvas.drawPath(crack2, Paint()..color = const Color(0xffff8c42).withValues(alpha: .9)..style = PaintingStyle.stroke..strokeWidth = 1.35 * unit);
+          canvas.drawCircle(Offset(radius * .43, -radius * .30), radius * .12, Paint()..color = const Color(0xffffb04d).withValues(alpha: .86));
+        }
       }
       canvas.restore();
       if (crystal) {
@@ -8016,6 +8200,8 @@ class _SpacePainter extends CustomPainter {
     if (enemy.hp > 1) {
       final hpMax = switch (enemy.kind) {
         7 => 24 + wave * 2,
+        14 => 5 + (wave ~/ 3),
+        13 => 4 + (wave ~/ 3),
         12 => 6 + (wave ~/ 2),
         11 => 8 + (wave ~/ 2),
         9 => 7 + (wave ~/ 3),
@@ -8038,6 +8224,7 @@ class _SpacePainter extends CustomPainter {
 
   void _drawShot(Canvas canvas, Size size, _SpaceShot shot) {
     final c = Offset(shot.x * size.width, shot.y * size.height);
+    final previous = Offset(shot.trailX * size.width, shot.trailY * size.height);
     final unit = size.width / 360;
     if (shot.hostile) {
       final color = switch (shot.kind) {
@@ -8047,31 +8234,56 @@ class _SpacePainter extends CustomPainter {
         6 => const Color(0xffffb24b),
         4 => const Color(0xffc4a0ff),
         12 => const Color(0xffff6f91),
+        13 => const Color(0xff91ff62),
+        14 => const Color(0xffff783f),
         _ => const Color(0xffff667e),
       };
-      final r = (shot.kind == 7 ? 5.6 : shot.kind == 9 || shot.kind == 11 ? 4.8 : 3.6) * unit;
-      canvas.drawCircle(c, r * 2.2, Paint()..color = color.withValues(alpha: .15));
-      if (shot.kind == 9 || shot.kind == 7) {
+      final r = (shot.kind == 7 ? 5.8 : shot.kind == 9 || shot.kind == 11 ? 4.8 : 3.6) * unit;
+      final tail = c + Offset(0, -r * (shot.kind == 7 ? 4.4 : 3.2));
+      canvas.drawLine(tail, c, Paint()..color = color.withValues(alpha: .28)..strokeWidth = r * 2.2..strokeCap = StrokeCap.round);
+      canvas.drawLine(tail, c, Paint()..color = color.withValues(alpha: .78)..strokeWidth = r * .72..strokeCap = StrokeCap.round);
+      canvas.drawCircle(c, r * 2.5, Paint()..color = color.withValues(alpha: .16));
+      if (shot.kind == 9 || shot.kind == 7 || shot.kind == 12) {
         final path = Path()..moveTo(c.dx, c.dy + r * 1.5)..lineTo(c.dx + r, c.dy - r * .8)..lineTo(c.dx, c.dy - r * 1.7)..lineTo(c.dx - r, c.dy - r * .8)..close();
         canvas.drawPath(path, Paint()..shader = RadialGradient(colors: [Colors.white, color, Color.lerp(color, Colors.black, .45)!]).createShader(Rect.fromCircle(center: c, radius: r * 1.7)));
+        canvas.drawPath(path, Paint()..color = Colors.white.withValues(alpha: .65)..style = PaintingStyle.stroke..strokeWidth = .65 * unit);
       } else {
         canvas.drawCircle(c, r, Paint()..shader = RadialGradient(colors: [Colors.white, color, Color.lerp(color, Colors.black, .55)!]).createShader(Rect.fromCircle(center: c, radius: r)));
-        canvas.drawLine(c.translate(-r * 1.2, -r * 2.2), c.translate(r * 1.2, -r * 4.4), Paint()..color = color.withValues(alpha: .45)..strokeWidth = unit);
+        canvas.drawCircle(c, r * .42, Paint()..color = Colors.white);
       }
     } else if (shot.kind == 2) {
-      final rocket = Path()..moveTo(c.dx, c.dy - 9 * unit)..lineTo(c.dx + 5 * unit, c.dy + 4 * unit)..lineTo(c.dx, c.dy + 2 * unit)..lineTo(c.dx - 5 * unit, c.dy + 4 * unit)..close();
-      canvas.drawCircle(c.translate(0, 8 * unit), 5 * unit, Paint()..color = const Color(0xffff8c42).withValues(alpha: .22));
-      canvas.drawPath(rocket, Paint()..shader = const LinearGradient(colors: [Color(0xfffff0c1), Color(0xffff8c42), Color(0xffd84031)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromCenter(center: c, width: 10 * unit, height: 15 * unit)));
-      canvas.drawLine(c.translate(0, 3 * unit), c.translate(0, 12 * unit), Paint()..color = const Color(0xffffe680)..strokeWidth = 2.2 * unit);
+      final rocket = Path()
+        ..moveTo(c.dx, c.dy - 11 * unit)
+        ..lineTo(c.dx + 4.6 * unit, c.dy - 2 * unit)
+        ..lineTo(c.dx + 4.0 * unit, c.dy + 5 * unit)
+        ..lineTo(c.dx - 4.0 * unit, c.dy + 5 * unit)
+        ..lineTo(c.dx - 4.6 * unit, c.dy - 2 * unit)
+        ..close();
+      final flame = Path()..moveTo(c.dx - 2.4 * unit, c.dy + 4 * unit)
+        ..quadraticBezierTo(c.dx + math.sin(ticks * .7) * 2 * unit, c.dy + (12 + ticks % 5) * unit, c.dx, c.dy + 16 * unit)
+        ..quadraticBezierTo(c.dx - 3 * unit, c.dy + 10 * unit, c.dx - 2.4 * unit, c.dy + 4 * unit)..close();
+      canvas.drawLine(previous, c, Paint()..color = const Color(0xffff6d43).withValues(alpha: .28)..strokeWidth = 8 * unit..strokeCap = StrokeCap.round);
+      canvas.drawPath(flame, Paint()..shader = const LinearGradient(colors: [Color(0xfffff4b1), Color(0xffffa13b), Color(0xfff13c49)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromLTWH(c.dx - 4 * unit, c.dy + 3 * unit, 8 * unit, 14 * unit)));
+      canvas.drawCircle(c.translate(0, 5 * unit), 7.8 * unit, Paint()..color = const Color(0xffff653d).withValues(alpha: .22));
+      canvas.drawPath(rocket, Paint()..shader = const LinearGradient(colors: [Color(0xffffffff), Color(0xffb9c8dc), Color(0xff4b6079)], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(Rect.fromCenter(center: c, width: 10 * unit, height: 17 * unit)));
+      canvas.drawPath(rocket, Paint()..color = Colors.white.withValues(alpha: .8)..style = PaintingStyle.stroke..strokeWidth = .7 * unit);
+      canvas.drawLine(c.translate(0, -6 * unit), c.translate(0, 2 * unit), Paint()..color = const Color(0xffff5d51)..strokeWidth = 1.5 * unit);
     } else {
-      final color = shot.kind == 1 ? const Color(0xff72fff4) : const Color(0xff81f7ff);
-      final width = shot.kind == 1 ? 7.4 : 4.2;
-      final height = shot.kind == 1 ? 30.0 : 15.0;
+      final laser = shot.kind == 1;
+      final color = laser ? const Color(0xff72fff4) : const Color(0xff81f7ff);
+      final width = laser ? 8.5 : 4.4;
+      final height = laser ? 34.0 : 17.0;
+      final top = c.translate(0, -height * .55 * unit);
+      final bottom = c.translate(0, height * .50 * unit);
+      canvas.drawLine(bottom, top, Paint()..color = color.withValues(alpha: .20)..strokeWidth = width * 2.5 * unit..strokeCap = StrokeCap.round);
+      canvas.drawLine(bottom, top, Paint()..color = color.withValues(alpha: .62)..strokeWidth = width * .95 * unit..strokeCap = StrokeCap.round);
       final bolt = Rect.fromCenter(center: c, width: width * unit, height: height * unit);
-      canvas.drawRRect(RRect.fromRectAndRadius(bolt.inflate(2.4 * unit), Radius.circular(3 * unit)), Paint()..color = color.withValues(alpha: .20));
       canvas.drawRRect(RRect.fromRectAndRadius(bolt, Radius.circular(3 * unit)), Paint()..shader = LinearGradient(colors: [Colors.white, color, const Color(0xff159ac5)], begin: Alignment.centerLeft, end: Alignment.centerRight).createShader(bolt));
-      if (shot.kind == 1) {
-        canvas.drawLine(c.translate(-6 * unit, -height * .42), c.translate(6 * unit, -height * .42), Paint()..color = Colors.white.withValues(alpha: .8)..strokeWidth = unit);
+      canvas.drawLine(c.translate(-width * .2 * unit, -height * .36 * unit), c.translate(width * .2 * unit, height * .34 * unit), Paint()..color = Colors.white.withValues(alpha: .9)..strokeWidth = 1.1 * unit);
+      if (laser) {
+        for (var i = -1; i <= 1; i += 2) {
+          canvas.drawLine(c.translate(i * 6 * unit, -height * .35 * unit), c.translate(i * 9 * unit, height * .4 * unit), Paint()..color = color.withValues(alpha: .72)..strokeWidth = .8 * unit);
+        }
       }
     }
   }
@@ -8125,6 +8337,44 @@ class _SpacePainter extends CustomPainter {
       stops: const [0, .47, 1],
     ).createShader(Rect.fromCenter(center: Offset.zero, width: 58 * unit, height: 65 * unit)));
     canvas.drawPath(hull, Paint()..color = Colors.white.withValues(alpha: .72)..style = PaintingStyle.stroke..strokeWidth = 1.1 * unit);
+
+    // Twin forward cannons: armored barrels, glowing capacitors and a pulsing muzzle flash.
+    for (final side in [-1.0, 1.0]) {
+      final barrel = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(side * 10.2 * unit, -14.5 * unit), width: 4.2 * unit, height: 13.5 * unit),
+        Radius.circular(1.4 * unit),
+      );
+      canvas.drawRRect(barrel, Paint()..shader = const LinearGradient(
+        colors: [Color(0xfff4fbff), Color(0xff7c9db7), Color(0xff243b56)],
+        begin: Alignment.centerLeft, end: Alignment.centerRight,
+      ).createShader(barrel.outerRect));
+      canvas.drawRRect(barrel, Paint()..color = Colors.white.withValues(alpha: .65)..style = PaintingStyle.stroke..strokeWidth = .55 * unit);
+      final muzzle = Offset(side * 10.2 * unit, -21.2 * unit);
+      canvas.drawCircle(muzzle, 2.3 * unit, Paint()..color = const Color(0xff7cfbff).withValues(alpha: .48));
+      canvas.drawCircle(muzzle, 1.0 * unit, Paint()..color = Colors.white);
+      if (ticks % 9 < 3) {
+        final flash = Path()..moveTo(muzzle.dx, muzzle.dy - 2 * unit)
+          ..lineTo(muzzle.dx + 2.1 * unit, muzzle.dy - 7 * unit)
+          ..lineTo(muzzle.dx, muzzle.dy - 5.5 * unit)
+          ..lineTo(muzzle.dx - 2.1 * unit, muzzle.dy - 7 * unit)..close();
+        canvas.drawPath(flash, Paint()..color = const Color(0xff8cffff).withValues(alpha: .9));
+      }
+    }
+
+    // Extra hull etching, segmented armor and luminous navigation marks.
+    for (final side in [-1.0, 1.0]) {
+      final seam = Path()
+        ..moveTo(side * 7.5 * unit, -7 * unit)
+        ..lineTo(side * 14.5 * unit, 1.5 * unit)
+        ..lineTo(side * 18.5 * unit, 6.5 * unit);
+      canvas.drawPath(seam, Paint()..color = Colors.white.withValues(alpha: .38)..style = PaintingStyle.stroke..strokeWidth = .85 * unit..strokeCap = StrokeCap.round);
+      canvas.drawLine(Offset(side * 11 * unit, 6.8 * unit), Offset(side * 17.5 * unit, 8.5 * unit), Paint()..color = Color.lerp(color, Colors.white, .62)!.withValues(alpha: .7)..strokeWidth = 1.25 * unit..strokeCap = StrokeCap.round);
+      final vent = Rect.fromCenter(center: Offset(side * 9.3 * unit, 7.5 * unit), width: 3.5 * unit, height: 5.2 * unit);
+      canvas.drawRRect(RRect.fromRectAndRadius(vent, Radius.circular(unit)), Paint()..color = const Color(0xff18283b).withValues(alpha: .9));
+      for (var rivet = 0; rivet < 2; rivet++) {
+        canvas.drawCircle(Offset(side * (11 + rivet * 2.2) * unit, -1.5 * unit), .75 * unit, Paint()..color = Colors.white.withValues(alpha: .78));
+      }
+    }
 
     // Engine pods and armor plates.
     for (final side in [-1.0, 1.0]) {
@@ -8203,6 +8453,12 @@ class _SnakeState extends State<_SnakeGame> {
     _score = 0;
     _over = false;
     _placeFood();
+    if (_timer != null) {
+      _timer!.cancel();
+      _timer = Timer.periodic(const Duration(milliseconds: 135), (_) {
+        if (mounted && !_over) setState(_tick);
+      });
+    }
   }
 
   void _placeFood() {
@@ -8239,6 +8495,15 @@ class _SnakeState extends State<_SnakeGame> {
     _snake.insert(0, next);
     if (eating) {
       _score += 10;
+      // Every five snacks, the arcade tempo rises; the timer is recreated safely
+      // so the speed change is visible in play rather than only in the score.
+      if (_score % 50 == 0) {
+        _timer?.cancel();
+        final interval = math.max(68, 135 - (_score ~/ 50) * 7).toInt();
+        _timer = Timer.periodic(Duration(milliseconds: interval), (_) {
+          if (mounted && !_over) setState(_tick);
+        });
+      }
       _placeFood();
     } else {
       _snake.removeLast();
@@ -8297,7 +8562,15 @@ class _SnakePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(
       Offset.zero & size,
-      Paint()..color = const Color(0xff0c1720),
+      Paint()..shader = const LinearGradient(
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+        colors: [Color(0xff08131f), Color(0xff102b35), Color(0xff071019)],
+      ).createShader(Offset.zero & size),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(4, 4, size.width - 8, size.height - 8),
+      Paint()..color = const Color(0xff59f5c4).withValues(alpha: .20)
+        ..style = PaintingStyle.stroke..strokeWidth = 1.2,
     );
     final cell = math.min(size.width / 15, size.height / 19).toDouble();
     final ox = (size.width - cell * 15) / 2, oy = (size.height - cell * 19) / 2;
@@ -8318,11 +8591,11 @@ class _SnakePainter extends CustomPainter {
         );
       }
     }
-    canvas.drawCircle(
-      Offset(ox + (food.x + .5) * cell, oy + (food.y + .5) * cell),
-      cell * .30,
-      Paint()..color = const Color(0xffff6878),
-    );
+    final foodCenter = Offset(ox + (food.x + .5) * cell, oy + (food.y + .5) * cell);
+    canvas.drawCircle(foodCenter, cell * .42, Paint()..color = const Color(0xffff526f).withValues(alpha: .18));
+    canvas.drawOval(Rect.fromCenter(center: foodCenter.translate(0, cell * .04), width: cell * .55, height: cell * .49), Paint()..shader = const RadialGradient(center: Alignment(-.35, -.45), colors: [Color(0xffffb0a0), Color(0xfffc536f), Color(0xffa51f50)]).createShader(Rect.fromCircle(center: foodCenter, radius: cell * .34)));
+    canvas.drawLine(foodCenter.translate(0, -cell * .20), foodCenter.translate(cell * .03, -cell * .36), Paint()..color = const Color(0xff9b6a40)..strokeWidth = math.max(1.2, cell * .07).toDouble());
+    canvas.drawOval(Rect.fromCenter(center: foodCenter.translate(cell * .13, -cell * .29), width: cell * .22, height: cell * .11), Paint()..color = const Color(0xff79e36e));
     for (var i = snake.length - 1; i >= 0; i--) {
       final p = snake[i];
       final r = Rect.fromLTWH(
@@ -8332,16 +8605,28 @@ class _SnakePainter extends CustomPainter {
         cell - 3,
       );
       canvas.drawRRect(
-        RRect.fromRectAndRadius(r, Radius.circular(cell * .22)),
-        Paint()
-          ..color = i == 0
-              ? const Color(0xffb7f36b)
-              : Color.lerp(
-                  const Color(0xff68d391),
-                  const Color(0xff25916a),
-                  i / snake.length,
-                )!,
+        RRect.fromRectAndRadius(r.inflate(i == 0 ? 1.1 : .2), Radius.circular(cell * .25)),
+        Paint()..color = const Color(0x2b73ffc2),
       );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(r, Radius.circular(cell * .22)),
+        Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: i == 0 ? const [Color(0xffedff9b), Color(0xffa8f15f), Color(0xff48b96c)] : [Color.lerp(const Color(0xff90efb2), const Color(0xff4abf8a), i / snake.length)!, Color.lerp(const Color(0xff4acb8a), const Color(0xff17664f), i / snake.length)!]).createShader(r),
+      );
+      if (i == 0) {
+        final eyeY = r.top + r.height * .34;
+        canvas.drawCircle(Offset(r.left + r.width * .30, eyeY), cell * .075, Paint()..color = const Color(0xff12352d));
+        canvas.drawCircle(Offset(r.left + r.width * .69, eyeY), cell * .075, Paint()..color = const Color(0xff12352d));
+        canvas.drawCircle(Offset(r.left + r.width * .32, eyeY - cell * .025), cell * .025, Paint()..color = Colors.white);
+        canvas.drawCircle(Offset(r.left + r.width * .71, eyeY - cell * .025), cell * .025, Paint()..color = Colors.white);
+        final smile = Path()
+          ..moveTo(r.left + r.width * .35, r.top + r.height * .62)
+          ..quadraticBezierTo(r.center.dx, r.top + r.height * .76, r.left + r.width * .65, r.top + r.height * .62);
+        canvas.drawPath(smile, Paint()..color = const Color(0xff1b6848)
+          ..style = PaintingStyle.stroke..strokeWidth = math.max(1.0, cell * .035).toDouble()
+          ..strokeCap = StrokeCap.round);
+      } else {
+        canvas.drawLine(r.topLeft + Offset(3, 3), r.topRight + Offset(-4, 3), Paint()..color = Colors.white.withValues(alpha: .16)..strokeWidth = math.max(1.0, cell * .035).toDouble());
+      }
     }
     if (over) _center(canvas, size, 'GAME OVER', 'Dokun ve yeniden başla');
   }
@@ -8429,7 +8714,17 @@ class _BreakoutState extends State<_BreakoutGame> {
             _y <= b + .018) {
           _bricks[i] = false;
           _score += 10 * _level;
-          _vy = -_vy;
+          // Determine which face was struck to avoid the ball tunnelling along
+          // a brick row at higher levels.
+          final overlapX = math.min((_x - l).abs(), (_x - r).abs());
+          final overlapY = math.min((_y - t).abs(), (_y - b).abs());
+          if (overlapX < overlapY && _x > l && _x < r) {
+            _vx = -_vx;
+          } else {
+            _vy = -_vy;
+          }
+          _vx = _vx.clamp(-.032, .032).toDouble();
+          _vy = _vy.clamp(-.032, .032).toDouble();
           break;
         }
       }
@@ -8437,13 +8732,16 @@ class _BreakoutState extends State<_BreakoutGame> {
     if (_bricks.every((b) => !b)) {
       _level++;
       _bricks = List<bool>.filled(40, true);
-      _vx *= 1.06;
-      _vy *= 1.06;
+      _vx = (_vx * 1.06).clamp(-.029, .029).toDouble();
+      _vy = (_vy * 1.06).clamp(-.029, .029).toDouble();
       _serve();
     }
     if (_y > .86 && _y < .95 && (_x - _paddle).abs() < .16 && _vy > 0) {
       _vy = -_vy.abs();
-      _vx = (_vx + (_x - _paddle) * .055).clamp(-.025, .025).toDouble();
+      final impact = ((_x - _paddle) / .16).clamp(-1.0, 1.0).toDouble();
+      _vx = (_vx + impact * .012).clamp(-.030, .030).toDouble();
+      // Keep a minimum horizontal component so long rallies do not become flat.
+      if (_vx.abs() < .004) _vx = _vx.isNegative ? -.004 : .004;
     }
     if (_y > 1) {
       _lives--;
@@ -8520,7 +8818,15 @@ class _BreakPainter extends CustomPainter {
   const _BreakPainter(this.x, this.y, this.paddle, this.bricks, this.over);
   @override
   void paint(Canvas c, Size s) {
-    c.drawRect(Offset.zero & s, Paint()..color = const Color(0xff111729));
+    c.drawRect(Offset.zero & s, Paint()..shader = const LinearGradient(
+      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+      colors: [Color(0xff111729), Color(0xff101b32), Color(0xff080f1c)],
+    ).createShader(Offset.zero & s));
+    for (var i = 0; i < 9; i++) {
+      final yy = s.height * (.18 + i * .085);
+      c.drawLine(Offset(0, yy), Offset(s.width, yy),
+        Paint()..color = const Color(0xff6d8aff).withValues(alpha: .045)..strokeWidth = 1);
+    }
     for (var row = 0; row < 5; row++) {
       for (var col = 0; col < 8; col++) {
         if (!bricks[row * 8 + col]) continue;
@@ -8530,30 +8836,29 @@ class _BreakPainter extends CustomPainter {
           s.width * .105,
           s.height * .05,
         );
+        final brickColor = [const Color(0xfffb7185), const Color(0xfffb923c), const Color(0xfffacc15), const Color(0xff4ade80), const Color(0xff60a5fa)][row];
+        c.drawRRect(RRect.fromRectAndRadius(r.inflate(2), const Radius.circular(5)),
+          Paint()..color = brickColor.withValues(alpha: .12));
         c.drawRRect(
           RRect.fromRectAndRadius(r, const Radius.circular(4)),
-          Paint()
-            ..color = [
-              const Color(0xfffb7185),
-              const Color(0xfffb923c),
-              const Color(0xfffacc15),
-              const Color(0xff4ade80),
-              const Color(0xff60a5fa),
-            ][row],
+          Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [
+            Color.lerp(brickColor, Colors.white, .42)!, brickColor,
+            Color.lerp(brickColor, Colors.black, .34)!,
+          ]).createShader(r),
         );
+        c.drawRRect(RRect.fromRectAndRadius(r.deflate(1.5), const Radius.circular(3)),
+          Paint()..color = Colors.white.withValues(alpha: .22)..style = PaintingStyle.stroke..strokeWidth = .8);
+        c.drawLine(r.topLeft + const Offset(4, 2), r.topRight + const Offset(-4, 2),
+          Paint()..color = Colors.white.withValues(alpha: .34)..strokeWidth = 1.2);
       }
     }
-    c.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(x * s.width, y * s.height),
-          width: 12,
-          height: 12,
-        ),
-        const Radius.circular(6),
-      ),
-      Paint()..color = Colors.white,
-    );
+    final ball = Offset(x * s.width, y * s.height);
+    c.drawLine(ball + Offset(-s.width * .025, s.height * .035), ball,
+      Paint()..color = const Color(0xff7deaff).withValues(alpha: .22)..strokeWidth = 7..strokeCap = StrokeCap.round);
+    c.drawCircle(ball, 14, Paint()..color = const Color(0xff7deaff).withValues(alpha: .12));
+    c.drawCircle(ball, 9, Paint()..color = const Color(0xff7deaff).withValues(alpha: .18));
+    c.drawCircle(ball.translate(-s.width * .018, -s.height * .022), 2.4, Paint()..color = Colors.white.withValues(alpha: .16));
+    c.drawCircle(ball, 5.8, Paint()..shader = const RadialGradient(center: Alignment(-.38, -.42), colors: [Colors.white, Color(0xffd6fff7), Color(0xff50d9ed)]).createShader(Rect.fromCircle(center: ball, radius: 6)));
     c.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(
@@ -8563,7 +8868,14 @@ class _BreakPainter extends CustomPainter {
         ),
         const Radius.circular(6),
       ),
-      Paint()..color = const Color(0xff62e6c7),
+      Paint()..shader = const LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [Color(0xffd6fff4), Color(0xff62e6c7), Color(0xff168e9e)],
+      ).createShader(Rect.fromCenter(center: Offset(paddle * s.width, s.height * .90), width: s.width * .26, height: 12)),
+    );
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(paddle * s.width, s.height * .90 - 3), width: s.width * .20, height: 2), const Radius.circular(2)),
+      Paint()..color = Colors.white.withValues(alpha: .72),
     );
     if (over) {
       c.drawRect(
@@ -8620,14 +8932,18 @@ class _PongState extends State<_PongGame> {
       _vy = -_vy;
       _by = _by.clamp(.035, .965).toDouble();
     }
-    _ai += (_by - _ai) * .035;
+    final reaction = .028 + math.min(.018, (_score + _aiScore) * .001);
+    final error = _by - _ai;
+    if (error.abs() > .035) {
+      _ai += error.clamp(-reaction, reaction).toDouble();
+    }
     if (_vx < 0 && _bx < .075 && (_by - _me).abs() < .14) {
       _vx = _vx.abs() * 1.025;
-      _vy += (_by - _me) * .025;
+      _vy = (_vy + (_by - _me) * .025).clamp(-.022, .022).toDouble();
     }
     if (_vx > 0 && _bx > .925 && (_by - _ai).abs() < .14) {
       _vx = -_vx.abs() * 1.015;
-      _vy += (_by - _ai) * .015;
+      _vy = (_vy + (_by - _ai) * .015).clamp(-.022, .022).toDouble();
     }
     if (_bx < -.03 || _bx > 1.03) {
       if (_bx < 0) {
@@ -8697,7 +9013,17 @@ class _PongPainter extends CustomPainter {
   const _PongPainter(this.bx, this.by, this.me, this.ai, this.over);
   @override
   void paint(Canvas c, Size s) {
-    c.drawRect(Offset.zero & s, Paint()..color = const Color(0xff111729));
+    c.drawRect(Offset.zero & s, Paint()..shader = const LinearGradient(
+      begin: Alignment.topLeft, end: Alignment.bottomRight,
+      colors: [Color(0xff10182b), Color(0xff182444), Color(0xff090f1d)],
+    ).createShader(Offset.zero & s));
+    for (var i = 0; i < 12; i++) {
+      final yy = s.height * (i / 12);
+      c.drawLine(Offset(0, yy), Offset(s.width, yy),
+        Paint()..color = const Color(0xff7d9cff).withValues(alpha: .025)..strokeWidth = 1);
+    }
+    c.drawCircle(Offset(s.width * .5, s.height * .5), s.width * .30, Paint()..color = const Color(0xff4168d8).withValues(alpha: .045));
+    c.drawCircle(Offset(s.width * .5, s.height * .5), s.width * .22, Paint()..color = Colors.transparent..style = PaintingStyle.stroke..strokeWidth = 1.2..color = const Color(0xff8aa8ff).withValues(alpha: .2));
     final line = Paint()
       ..color = Colors.white24
       ..strokeWidth = 2;
@@ -8713,7 +9039,7 @@ class _PongPainter extends CustomPainter {
         ),
         const Radius.circular(5),
       ),
-      Paint()..color = const Color(0xff60a5fa),
+      Paint()..shader = const LinearGradient(colors: [Color(0xffb8e8ff), Color(0xff60a5fa), Color(0xff2655b8)], begin: Alignment.centerLeft, end: Alignment.centerRight).createShader(Rect.fromCenter(center: Offset(s.width * .06, me * s.height), width: 10, height: s.height * .21)),
     );
     c.drawRRect(
       RRect.fromRectAndRadius(
@@ -8724,13 +9050,11 @@ class _PongPainter extends CustomPainter {
         ),
         const Radius.circular(5),
       ),
-      Paint()..color = const Color(0xffff758f),
+      Paint()..shader = const LinearGradient(colors: [Color(0xffffd0d8), Color(0xffff758f), Color(0xffb92e5a)], begin: Alignment.centerLeft, end: Alignment.centerRight).createShader(Rect.fromCenter(center: Offset(s.width * .94, ai * s.height), width: 10, height: s.height * .21)),
     );
-    c.drawCircle(
-      Offset(bx * s.width, by * s.height),
-      7,
-      Paint()..color = Colors.white,
-    );
+    final ball = Offset(bx * s.width, by * s.height);
+    c.drawCircle(ball, 15, Paint()..color = const Color(0xff9efcff).withValues(alpha: .12));
+    c.drawCircle(ball, 7, Paint()..shader = const RadialGradient(center: Alignment(-.3, -.35), colors: [Colors.white, Color(0xffd7ffff), Color(0xff63e6ec)]).createShader(Rect.fromCircle(center: ball, radius: 7)));
     if (over) {
       c.drawRect(
         Offset.zero & s,
@@ -8877,14 +9201,36 @@ class _BlockDropState extends State<_BlockDropGame> {
   void _rotate() {
     if (_over) return;
     setState(() {
-      final old = _rotation;
+      final oldRotation = _rotation;
+      final oldX = _x;
       _rotation = (_rotation + 1) % 4;
-      if (!_can(_x, _y)) _rotation = old;
+      if (_can(_x, _y)) return;
+      // Small wall kicks let rotations work near edges and stacked blocks.
+      var placed = false;
+      for (final kick in const [-1, 1, -2, 2]) {
+        if (_can(oldX + kick, _y)) {
+          _x = oldX + kick;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        _rotation = oldRotation;
+        _x = oldX;
+      }
     });
   }
 
   void _softDrop() {
-    if (!_over) setState(_step);
+    if (_over) return;
+    setState(() {
+      if (_can(_x, _y + 1)) {
+        _score += 1;
+        _y++;
+      } else {
+        _step();
+      }
+    });
   }
 
   void _hardDrop() {
@@ -8893,9 +9239,12 @@ class _BlockDropState extends State<_BlockDropGame> {
       return;
     }
     setState(() {
+      var distance = 0;
       while (_can(_x, _y + 1)) {
         _y++;
+        distance++;
       }
+      _score += distance * 2;
       _step();
     });
   }
@@ -8983,6 +9332,41 @@ class _BlockPainter extends CustomPainter {
         );
       }
     }
+    // Landing ghost: outline the exact column where the active piece will lock.
+    var ghostY = y;
+    bool ghostCan(int gy) {
+      for (var gy2 = 0; gy2 < shape.length; gy2++) {
+        for (var gx2 = 0; gx2 < shape[gy2].length; gx2++) {
+          if (shape[gy2][gx2] == 0) continue;
+          final bx = x + gx2, by = gy + gy2;
+          if (bx < 0 || bx >= 10 || by >= 20 ||
+              (by >= 0 && board[by][bx] != 0)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+    while (ghostCan(ghostY + 1)) {
+      ghostY++;
+    }
+    for (var gy = 0; gy < shape.length; gy++) {
+      for (var gx = 0; gx < shape[gy].length; gx++) {
+        if (shape[gy][gx] == 0 || ghostY + gy < 0) continue;
+        final ghostRect = Rect.fromLTWH(
+          ox + (x + gx) * cell, oy + (ghostY + gy) * cell, cell - 1, cell - 1,
+        ).deflate(1.5);
+        c.drawRRect(
+          RRect.fromRectAndRadius(ghostRect, const Radius.circular(3)),
+          Paint()..color = colors[kind % colors.length].withValues(alpha: .12),
+        );
+        c.drawRRect(
+          RRect.fromRectAndRadius(ghostRect, const Radius.circular(3)),
+          Paint()..color = colors[kind % colors.length].withValues(alpha: .78)
+            ..style = PaintingStyle.stroke..strokeWidth = 1.1,
+        );
+      }
+    }
     for (var yy = 0; yy < shape.length; yy++) {
       for (var xx = 0; xx < shape[yy].length; xx++) {
         if (shape[yy][xx] != 0 && y + yy >= 0) {
@@ -9021,14 +9405,11 @@ class _BlockPainter extends CustomPainter {
   }
 
   void _cell(Canvas c, Rect r, Color color) {
-    c.drawRRect(
-      RRect.fromRectAndRadius(r.deflate(1), const Radius.circular(3)),
-      Paint()..color = color,
-    );
-    c.drawRect(
-      Rect.fromLTWH(r.left + 3, r.top + 3, r.width - 6, 2),
-      Paint()..color = Colors.white.withValues(alpha: .19),
-    );
+    final body = r.deflate(1);
+    c.drawRRect(RRect.fromRectAndRadius(body.inflate(1.2), const Radius.circular(4)), Paint()..color = color.withValues(alpha: .13));
+    c.drawRRect(RRect.fromRectAndRadius(body, const Radius.circular(3)), Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color.lerp(color, Colors.white, .30)!, color, Color.lerp(color, Colors.black, .30)!]).createShader(body));
+    c.drawRRect(RRect.fromRectAndRadius(body, const Radius.circular(3)), Paint()..color = Colors.white.withValues(alpha: .19)..style = PaintingStyle.stroke..strokeWidth = .7);
+    c.drawRect(Rect.fromLTWH(r.left + 3, r.top + 3, math.max(0, r.width - 6).toDouble(), 2), Paint()..color = Colors.white.withValues(alpha: .24));
   }
 
   @override
@@ -9059,6 +9440,7 @@ class _ReversiState extends State<_ReversiGame> {
   bool _thinking = false, _finished = false;
   String _notice = 'Sen siyah taşlarla başlıyorsun.';
   int _moves = 0;
+  int _generation = 0;
   @override
   void initState() {
     super.initState();
@@ -9066,6 +9448,7 @@ class _ReversiState extends State<_ReversiGame> {
   }
 
   void _reset() {
+    _generation++;
     _board = List.filled(64, 0);
     _board[27] = 2;
     _board[28] = 1;
@@ -9132,7 +9515,15 @@ class _ReversiState extends State<_ReversiGame> {
       return;
     }
     setState(() => _thinking = true);
-    Future<void>.delayed(const Duration(milliseconds: 420), () => _cpuTurn());
+    _scheduleCpuTurn(const Duration(milliseconds: 420));
+  }
+
+  void _scheduleCpuTurn(Duration delay) {
+    final generation = _generation;
+    Future<void>.delayed(delay, () {
+      if (!mounted || generation != _generation) return;
+      _cpuTurn();
+    });
   }
 
   void _cpuTurn() {
@@ -9154,16 +9545,51 @@ class _ReversiState extends State<_ReversiGame> {
     });
     if (playerMoves.isEmpty && cpuMoves.isNotEmpty) {
       setState(() => _thinking = true);
-      Future<void>.delayed(const Duration(milliseconds: 350), () => _cpuTurn());
+      _scheduleCpuTurn(const Duration(milliseconds: 350));
     }
   }
 
   int _moveValue(int index) {
     const corners = {0, 7, 56, 63};
-    if (corners.contains(index)) return 1000 + _flips(index, 2).length;
+    if (corners.contains(index)) return 1200 + _flips(index, 2).length;
     final x = index % 8, y = index ~/ 8;
     final edge = x == 0 || x == 7 || y == 0 || y == 7;
-    return _flips(index, 2).length + (edge ? 4 : 0);
+    // Avoid gifting corners from the three neighbouring squares.
+    const cornerNeighbours = {
+      1: 0, 8: 0, 9: 0, 6: 7, 14: 7, 15: 7,
+      48: 56, 49: 56, 57: 56, 54: 63, 55: 63, 62: 63,
+    };
+    final adjacentCorner = cornerNeighbours[index];
+    final dangerous = adjacentCorner != null && _board[adjacentCorner] == 0;
+    final flips = _flips(index, 2).length;
+    final opponentMobility = _legalOnBoard(index, 2);
+    return flips + (edge ? 14 : 0) - (dangerous ? 90 : 0) - opponentMobility;
+  }
+
+  int _legalOnBoard(int index, int player) {
+    final simulated = List<int>.from(_board);
+    simulated[index] = player;
+    var mobility = 0;
+    for (var i = 0; i < 64; i++) {
+      if (simulated[i] != 0) continue;
+      final x = i % 8, y = i ~/ 8;
+      for (final d in _dirs) {
+        var xx = x + d.x, yy = y + d.y;
+        var seenOpponent = false;
+        while (xx >= 0 && xx < 8 && yy >= 0 && yy < 8 &&
+            simulated[yy * 8 + xx] == 3 - player) {
+          seenOpponent = true;
+          xx += d.x;
+          yy += d.y;
+        }
+        if (seenOpponent && xx >= 0 && xx < 8 && yy >= 0 && yy < 8 &&
+            simulated[yy * 8 + xx] == player) {
+          mobility++;
+          break;
+        }
+      }
+    }
+    return mobility;
   }
 
   void _finish() {
@@ -9243,9 +9669,7 @@ class _ReversiState extends State<_ReversiGame> {
                                   width: 25,
                                   height: 25,
                                   decoration: BoxDecoration(
-                                    color: _board[i] == 1
-                                        ? const Color(0xff10151a)
-                                        : const Color(0xfff4f0dd),
+                                    gradient: RadialGradient(center: const Alignment(-.35, -.4), colors: _board[i] == 1 ? const [Color(0xff596575), Color(0xff1c2430), Color(0xff070a0f)] : const [Color(0xffffffff), Color(0xffe7e4d7), Color(0xffaaa99f)]),
                                     shape: BoxShape.circle,
                                     boxShadow: const [
                                       BoxShadow(
@@ -9383,7 +9807,10 @@ class _MinesState extends State<_MinesGame> {
 
   void _flag(int i) {
     if (_over || _won || _open[i]) return;
-    setState(() => _flags[i] = !_flags[i]);
+    setState(() {
+      if (!_flags[i] && _flags.where((v) => v).length >= _mineCount) return;
+      _flags[i] = !_flags[i];
+    });
   }
 
   @override
@@ -9438,8 +9865,10 @@ class _MinesState extends State<_MinesGame> {
                             : const Color(0xff344754),
                         borderRadius: BorderRadius.circular(7),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: .06),
+                          color: Colors.white.withValues(alpha: _open[i] ? .04 : .14),
+                          width: 1,
                         ),
+                        boxShadow: _open[i] ? const [] : [BoxShadow(color: Colors.black.withValues(alpha: .16), offset: const Offset(0, 2), blurRadius: 2)],
                       ),
                       child: Center(
                         child: showMine
@@ -9655,8 +10084,11 @@ class _MergeState extends State<_MergeGame> {
                     itemBuilder: (context, index) => AnimatedContainer(
                       duration: const Duration(milliseconds: 100),
                       decoration: BoxDecoration(
-                        color: _tile(_board[index]),
+                        gradient: _board[index] == 0 ? null : LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color.lerp(_tile(_board[index]), Colors.white, .18)!, _tile(_board[index]), Color.lerp(_tile(_board[index]), Colors.black, .22)!]),
+                        color: _board[index] == 0 ? _tile(0) : null,
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withValues(alpha: _board[index] == 0 ? .035 : .16)),
+                        boxShadow: _board[index] == 0 ? const [] : [BoxShadow(color: _tile(_board[index]).withValues(alpha: .14), blurRadius: 8, offset: const Offset(0, 3))],
                       ),
                       child: Center(
                         child: Text(

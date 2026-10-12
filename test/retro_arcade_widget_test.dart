@@ -6,7 +6,7 @@ void main() {
   const games = [
     'Piksel Macerası',
     'Tank Arenası',
-    'Uzay Savunması',
+    'Uzay Macerası',
     'Yılan',
     'Tuğla Kırıcı',
     'Raket Düellosu',
