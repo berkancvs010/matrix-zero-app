@@ -1355,7 +1355,7 @@ class _PlatformerState extends State<_PlatformerGame> {
     _levelIndex = index;
     _grid = grid;
     _cols = grid.first.length;
-    _theme = _levelThemes[index.clamp(0, _levelThemes.length - 1)];
+    _theme = _levelThemes[index.clamp(0, _levelThemes.length - 1).toInt()];
     _enemies.clear();
     _pickups.clear();
     _sparks.clear();
@@ -4334,7 +4334,7 @@ void _drawHeroFigure(
   }
 
   // Seviye rütbesi: ilerledikçe kol üzerinde artan çentikler.
-  final chevrons = (level - 1).clamp(0, 4);
+  final chevrons = (level - 1).clamp(0, 4).toInt();
   for (var i = 0; i < chevrons; i++) {
     px(.95, 6.8 - i * .4, .5, .34, const Color(0xfffff3c4), .35);
   }
@@ -4343,7 +4343,7 @@ void _drawHeroFigure(
 }
 
 // ---------------------------------------------------------------------------
-// Tank arena: grid movement, destructible-looking cover, enemy volleys
+// Tank arena: continuous analog movement, tactical cover, enemy volleys
 // ---------------------------------------------------------------------------
 class _TankGame extends StatefulWidget {
   final bool showPad;
@@ -4355,21 +4355,20 @@ class _TankGame extends StatefulWidget {
 
 enum _TankWeapon { standard, twin, shotgun, bouncing, missile }
 
-enum _TankEnemyKind { scout, heavy, sniper, boss }
+enum _TankEnemyKind { scout, heavy, sniper, raider, artillery, sentinel, boss }
 
 class _TankUnit {
-  math.Point<int> position;
-  math.Point<int> direction;
   double x, y;
   double angle, turretAngle;
   int hp, maxHp;
   final _TankEnemyKind kind;
   final double speed;
   int shootCooldown = 25;
+  double strafePhase = 0;
 
   _TankUnit(
-    this.position,
-    this.direction, {
+    math.Point<int> position,
+    math.Point<int> direction, {
     this.kind = _TankEnemyKind.scout,
     this.hp = 2,
     int? maxHp,
@@ -4384,7 +4383,6 @@ class _TankUnit {
 class _TankBullet {
   double x, y;
   double vx, vy;
-  final int dx, dy;
   final bool enemy;
   final _TankWeapon weapon;
   int bounces;
@@ -4393,8 +4391,8 @@ class _TankBullet {
   _TankBullet(
     this.x,
     this.y,
-    this.dx,
-    this.dy,
+    int dx,
+    int dy,
     this.enemy, {
     this.weapon = _TankWeapon.standard,
     double speed = 0.35,
@@ -4471,12 +4469,10 @@ class _TankState extends State<_TankGame> {
   final Set<String> _destructibleWalls = {};
   final math.Random _random = math.Random();
 
-  math.Point<int> _player = const math.Point(6, 14);
-  math.Point<int> _direction = const math.Point(0, -1);
   double _px = 6, _py = 14;
   double _playerAngle = -math.pi / 2, _turretAngle = -math.pi / 2;
-  int _lives = 3, _score = 0, _ticks = 0, _wave = 1, _bombs = 1;
-  static const int _maxWave = 5;
+  int _lives = 3, _score = 0, _wave = 1, _bombs = 1;
+  static const int _maxWave = 6;
   bool _over = false, _won = false;
   double _shieldTimer = 0, _shake = 0;
   _TankWeapon _currentWeapon = _TankWeapon.standard;
@@ -4500,18 +4496,35 @@ class _TankState extends State<_TankGame> {
     _destructibleWalls.clear();
     _barrels.clear();
 
-    if (wave >= 2) {
-      _destructibleWalls.addAll({'6:5', '6:6', '3:8', '9:8'});
-      _barrels.addAll([_ExplosiveBarrel(6, 4), _ExplosiveBarrel(6, 9)]);
-    }
-    if (wave >= 3) {
-      _barrels.addAll([_ExplosiveBarrel(3, 5), _ExplosiveBarrel(9, 5)]);
+    // Each round reshapes the combat lanes: cover and explosive barrels are tactical,
+    // while movement itself remains fully continuous (never snapped to a tile).
+    switch (wave) {
+      case 1:
+        _destructibleWalls.addAll({'2:5', '10:5', '5:11', '7:11'});
+        break;
+      case 2:
+        _destructibleWalls.addAll({'6:5', '6:6', '3:8', '9:8'});
+        _barrels.addAll([_ExplosiveBarrel(6, 4), _ExplosiveBarrel(6, 9)]);
+        break;
+      case 3:
+        _destructibleWalls.addAll({'2:4', '10:4', '4:8', '8:8', '6:12'});
+        _barrels.addAll([_ExplosiveBarrel(3, 5), _ExplosiveBarrel(9, 5)]);
+        break;
+      case 4:
+        _destructibleWalls.addAll({'4:4', '8:4', '1:9', '11:9', '6:6', '6:10'});
+        _barrels.addAll([_ExplosiveBarrel(2, 6), _ExplosiveBarrel(10, 6)]);
+        break;
+      case 5:
+        _destructibleWalls.addAll({'2:5', '10:5', '4:7', '8:7', '4:11', '8:11'});
+        _barrels.addAll([_ExplosiveBarrel(3, 4), _ExplosiveBarrel(9, 4), _ExplosiveBarrel(6, 11)]);
+        break;
+      default:
+        _destructibleWalls.addAll({'3:5', '9:5', '5:8', '7:8', '3:11', '9:11'});
+        _barrels.addAll([_ExplosiveBarrel(2, 4), _ExplosiveBarrel(10, 4), _ExplosiveBarrel(6, 9)]);
     }
 
     _px = 6;
     _py = 14;
-    _player = const math.Point(6, 14);
-    _direction = const math.Point(0, -1);
     _playerAngle = _turretAngle = -math.pi / 2;
     _shieldTimer = 0;
 
@@ -4637,6 +4650,46 @@ class _TankState extends State<_TankGame> {
           ),
         ]);
         break;
+      case 6:
+        _enemies.addAll([
+          _TankUnit(
+            const math.Point(6, 1),
+            const math.Point(0, 1),
+            kind: _TankEnemyKind.boss,
+            hp: 22,
+            maxHp: 22,
+            speed: .028,
+          ),
+          _TankUnit(
+            const math.Point(2, 2),
+            const math.Point(0, 1),
+            kind: _TankEnemyKind.artillery,
+            hp: 5,
+            speed: .018,
+          ),
+          _TankUnit(
+            const math.Point(10, 2),
+            const math.Point(0, 1),
+            kind: _TankEnemyKind.sentinel,
+            hp: 7,
+            speed: .021,
+          ),
+          _TankUnit(
+            const math.Point(4, 1),
+            const math.Point(0, 1),
+            kind: _TankEnemyKind.raider,
+            hp: 3,
+            speed: .065,
+          ),
+          _TankUnit(
+            const math.Point(8, 1),
+            const math.Point(0, 1),
+            kind: _TankEnemyKind.raider,
+            hp: 3,
+            speed: .065,
+          ),
+        ]);
+        break;
       default:
         _enemies.addAll([
           _TankUnit(
@@ -4671,11 +4724,49 @@ class _TankState extends State<_TankGame> {
     return _walls.contains(key) || _destructibleWalls.contains(key);
   }
 
-  bool _blocked(math.Point<int> p, {_TankUnit? movingEnemy}) =>
-      _isWall(p.x, p.y) ||
-      p == _player ||
-      _barrels.any((b) => b.x == p.x && b.y == p.y) ||
-      _enemies.any((e) => !identical(e, movingEnemy) && e.position == p);
+  // Collision is evaluated with a rounded tank footprint against obstacle boxes.
+  // This avoids the old floor-cell snap and lets the player glide/slide naturally.
+  bool _tankBlocked(double x, double y, {_TankUnit? movingEnemy}) {
+    const radius = .29;
+    final cx = x + .5, cy = y + .5;
+    if (cx - radius < .14 || cy - radius < .14 ||
+        cx + radius > _cols - .14 || cy + radius > _rows - .14) {
+      return true;
+    }
+    final minX = (cx - radius).floor();
+    final maxX = (cx + radius).floor();
+    final minY = (cy - radius).floor();
+    final maxY = (cy + radius).floor();
+    for (var by = minY; by <= maxY; by++) {
+      for (var bx = minX; bx <= maxX; bx++) {
+        final barrel = _barrels.any((b) => b.x == bx && b.y == by);
+        if (!_isWall(bx, by) && !barrel) continue;
+        final nearX = cx.clamp(bx.toDouble(), bx + 1.0).toDouble();
+        final nearY = cy.clamp(by.toDouble(), by + 1.0).toDouble();
+        final dx = cx - nearX, dy = cy - nearY;
+        if (dx * dx + dy * dy < radius * radius) return true;
+      }
+    }
+    if (movingEnemy == null) {
+      for (final enemy in _enemies) {
+        final dx = cx - (enemy.x + .5), dy = cy - (enemy.y + .5);
+        if (dx * dx + dy * dy < .62 * .62) return true;
+      }
+    } else {
+      final px = _px + .5, py = _py + .5;
+      final dx = cx - px, dy = cy - py;
+      if (dx * dx + dy * dy < .62 * .62) return true;
+      for (final other in _enemies) {
+        if (identical(other, movingEnemy)) continue;
+        final ex = cx - (other.x + .5), ey = cy - (other.y + .5);
+        if (ex * ex + ey * ey < .60 * .60) return true;
+      }
+    }
+    return false;
+  }
+
+  double _angleDelta(double from, double to) =>
+      math.atan2(math.sin(to - from), math.cos(to - from));
 
   double _driveX = 0, _driveY = 0;
 
@@ -4688,13 +4779,7 @@ class _TankState extends State<_TankGame> {
     }
     _driveX = dx;
     _driveY = dy;
-    if (magnitude > .12) {
-      _playerAngle = math.atan2(dy, dx);
-      _direction = math.Point(
-        dx.abs() > dy.abs() ? dx.sign.toInt() : 0,
-        dy.abs() >= dx.abs() ? dy.sign.toInt() : 0,
-      );
-    }
+    if (magnitude > .12) _playerAngle = math.atan2(dy, dx);
   }
 
   void _fire() {
@@ -4810,7 +4895,7 @@ class _TankState extends State<_TankGame> {
     _bombs--;
     _arcadePlaySfx('smash');
     _shake = 8;
-    _damageArea(_px.floor(), _py.floor(), radius: 5);
+    _damageArea(_px.floor(), _py.floor(), radius: 5, damagePlayer: false);
     for (final enemy in _enemies) {
       enemy.hp -= 4;
     }
@@ -4894,20 +4979,21 @@ class _TankState extends State<_TankGame> {
   }
 
   void _tick() {
-    _ticks++;
     if (_shieldTimer > 0) {
       _shieldTimer = math.max(0.0, _shieldTimer - .032).toDouble();
     }
     if (_shake > 0) {
       _shake = math.max(0.0, _shake - .2).toDouble();
     }
-    // Smooth tank steering: analog input accelerates continuously; no tile snapping.
-    final speed = _currentWeapon == _TankWeapon.missile ? .105 : .085;
-    final nx = (_px + _driveX * speed).clamp(.15, _cols - .15).toDouble();
-    final ny = (_py + _driveY * speed).clamp(.15, _rows - .15).toDouble();
-    if (!_isWall(nx.floor(), _py.floor())) _px = nx;
-    if (!_isWall(_px.floor(), ny.floor())) _py = ny;
-    _player = math.Point(_px.floor(), _py.floor());
+    // Continuous analog driving with independent X/Y collision sliding.
+    final speed = _currentWeapon == _TankWeapon.missile ? .105 : .088;
+    final nx = (_px + _driveX * speed).clamp(.0, _cols - 1.0).toDouble();
+    final ny = (_py + _driveY * speed).clamp(.0, _rows - 1.0).toDouble();
+    if (!_tankBlocked(nx, _py)) _px = nx;
+    if (!_tankBlocked(_px, ny)) _py = ny;
+    if (_driveX.abs() + _driveY.abs() > .12) {
+      _playerAngle = math.atan2(_driveY, _driveX);
+    }
     _turretAngle = _playerAngle;
 
     _particles.removeWhere((p) {
@@ -4917,62 +5003,108 @@ class _TankState extends State<_TankGame> {
       return p.life <= 0;
     });
 
-    // Move enemies and let them aim and fire along their actual turret angle.
+    // Enemy pilots steer in continuous space. Each class has its own movement
+    // personality instead of jumping between integer grid coordinates.
     final newEnemyBullets = <_TankBullet>[];
     for (final enemy in _enemies) {
-      enemy.x += (enemy.position.x.toDouble() - enemy.x) * .25;
-      enemy.y += (enemy.position.y.toDouble() - enemy.y) * .25;
-      enemy.turretAngle = math.atan2(
-        (_py + .5) - (enemy.y + .5),
-        (_px + .5) - (enemy.x + .5),
-      );
-
-      if (_ticks % 20 == 0 &&
-          _random.nextDouble() < (enemy.speed * 9).clamp(0.0, .8)) {
-        const options = [
-          math.Point(0, 1),
-          math.Point(1, 0),
-          math.Point(-1, 0),
-          math.Point(0, -1),
-        ];
-        final direction = options[_random.nextInt(options.length)];
-        final next = math.Point(
-          enemy.position.x + direction.x,
-          enemy.position.y + direction.y,
-        );
-        if (!_blocked(next, movingEnemy: enemy) && next.y < 14) {
-          enemy.position = next;
-          enemy.direction = direction;
-          enemy.angle = math.atan2(
-            direction.y.toDouble(),
-            direction.x.toDouble(),
-          );
-        }
+      enemy.strafePhase += .035 + enemy.speed * .25;
+      final dxToPlayer = (_px + .5) - (enemy.x + .5);
+      final dyToPlayer = (_py + .5) - (enemy.y + .5);
+      final distance = math.sqrt(dxToPlayer * dxToPlayer + dyToPlayer * dyToPlayer);
+      final targetAngle = math.atan2(dyToPlayer, dxToPlayer);
+      enemy.turretAngle = targetAngle;
+      var moveAngle = targetAngle;
+      var moveMultiplier = 1.0;
+      switch (enemy.kind) {
+        case _TankEnemyKind.scout:
+          moveAngle += math.sin(enemy.strafePhase * 2.1) * .32;
+          moveMultiplier = 1.0;
+          break;
+        case _TankEnemyKind.heavy:
+          moveAngle += math.sin(enemy.strafePhase) * .10;
+          moveMultiplier = .68;
+          break;
+        case _TankEnemyKind.sniper:
+          moveAngle += math.pi / 2 + math.sin(enemy.strafePhase) * .25;
+          moveMultiplier = distance < 4 ? -.75 : .55;
+          break;
+        case _TankEnemyKind.raider:
+          moveAngle += math.sin(enemy.strafePhase * 1.8) * .85;
+          moveMultiplier = 1.25;
+          break;
+        case _TankEnemyKind.artillery:
+          moveAngle += math.sin(enemy.strafePhase * .65) * .25;
+          moveMultiplier = distance < 5 ? -.2 : .32;
+          break;
+        case _TankEnemyKind.sentinel:
+          moveAngle += math.sin(enemy.strafePhase * .8) * .4;
+          moveMultiplier = .42;
+          break;
+        case _TankEnemyKind.boss:
+          moveAngle += math.sin(enemy.strafePhase * .7) * .5;
+          moveMultiplier = .72;
+          break;
+      }
+      final turn = _angleDelta(enemy.angle, moveAngle);
+      enemy.angle += turn.clamp(-.10, .10).toDouble();
+      final enemySpeed = (enemy.speed * .65 * moveMultiplier).abs();
+      final sign = moveMultiplier < 0 ? -1.0 : 1.0;
+      final mx = math.cos(enemy.angle) * enemySpeed * sign;
+      final my = math.sin(enemy.angle) * enemySpeed * sign;
+      final wantedX = enemy.x + mx;
+      final wantedY = enemy.y + my;
+      if (!_tankBlocked(wantedX, enemy.y, movingEnemy: enemy)) {
+        enemy.x = wantedX;
+      } else {
+        enemy.angle += (enemy.strafePhase % 2 < 1 ? 1 : -1) * .65;
+      }
+      if (!_tankBlocked(enemy.x, wantedY, movingEnemy: enemy)) {
+        enemy.y = wantedY;
+      } else if ((enemy.strafePhase * 10).floor().isEven) {
+        enemy.angle -= .42;
       }
 
       enemy.shootCooldown--;
       if (enemy.shootCooldown <= 0) {
-        enemy.shootCooldown = enemy.kind == _TankEnemyKind.boss
-            ? 18
-            : enemy.kind == _TankEnemyKind.sniper
-            ? 35
-            : 45;
-        final distance = (enemy.x - _px).abs() + (enemy.y - _py).abs();
-        if (distance < 10) {
-          final angle = enemy.turretAngle;
-          final speed = enemy.kind == _TankEnemyKind.sniper ? .48 : .30;
-          newEnemyBullets.add(
-            _TankBullet(
-              enemy.x + .5 + math.cos(angle) * .55,
-              enemy.y + .5 + math.sin(angle) * .55,
-              enemy.direction.x,
-              enemy.direction.y,
-              true,
-              speed: speed,
-              directionX: math.cos(angle),
-              directionY: math.sin(angle),
-            ),
-          );
+        enemy.shootCooldown = switch (enemy.kind) {
+          _TankEnemyKind.boss => 15,
+          _TankEnemyKind.artillery => 30,
+          _TankEnemyKind.sniper => 31,
+          _TankEnemyKind.sentinel => 38,
+          _TankEnemyKind.raider => 42,
+          _TankEnemyKind.heavy => 47,
+          _TankEnemyKind.scout => 39,
+        };
+        if (distance < 11) {
+          final shotAngle = enemy.turretAngle;
+          final shotSpeed = switch (enemy.kind) {
+            _TankEnemyKind.sniper => .48,
+            _TankEnemyKind.artillery => .34,
+            _TankEnemyKind.boss => .36,
+            _TankEnemyKind.raider => .33,
+            _ => .30,
+          };
+          final volleys = enemy.kind == _TankEnemyKind.boss ||
+                  enemy.kind == _TankEnemyKind.artillery
+              ? [-.13, 0.0, .13]
+              : enemy.kind == _TankEnemyKind.raider
+              ? [-.08, .08]
+              : [0.0];
+          for (final offset in volleys) {
+            final a = shotAngle + offset;
+            newEnemyBullets.add(
+              _TankBullet(
+                enemy.x + .5 + math.cos(a) * .55,
+                enemy.y + .5 + math.sin(a) * .55,
+                math.cos(a).sign.toInt(),
+                math.sin(a).sign.toInt(),
+                true,
+                speed: shotSpeed,
+                directionX: math.cos(a),
+                directionY: math.sin(a),
+              ),
+            );
+          }
         }
       }
     }
@@ -5096,7 +5228,7 @@ class _TankState extends State<_TankGame> {
     }
   }
 
-  void _damageArea(int cx, int cy, {int radius = 1}) {
+  void _damageArea(int cx, int cy, {int radius = 1, bool damagePlayer = true}) {
     final damagedEnemies = <_TankUnit>{};
     var playerDamaged = false;
     for (var dy = -radius; dy <= radius; dy++) {
@@ -5111,7 +5243,7 @@ class _TankState extends State<_TankGame> {
             damagedEnemies.add(enemy);
           }
         }
-        if (!playerDamaged &&
+        if (damagePlayer && !playerDamaged &&
             (_px - tx).abs() < 1 &&
             (_py - ty).abs() < 1 &&
             _shieldTimer <= 0) {
@@ -5134,16 +5266,18 @@ class _TankState extends State<_TankGame> {
 
   void _spawnLoot(double x, double y) {
     final roll = _random.nextDouble();
-    if (roll < .25) {
+    if (roll < .20) {
       _powerups.add(_TankPowerup(x, y, 'repair'));
-    } else if (roll < .50) {
+    } else if (roll < .37) {
       _powerups.add(_TankPowerup(x, y, 'shield'));
-    } else if (roll < .75) {
+    } else if (roll < .56) {
       _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.twin));
-    } else if (roll < .85) {
+    } else if (roll < .68) {
       _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.shotgun));
-    } else if (roll < .95) {
+    } else if (roll < .78) {
       _powerups.add(_TankPowerup(x, y, 'bomb'));
+    } else if (roll < .90) {
+      _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.bouncing));
     } else {
       _powerups.add(_TankPowerup(x, y, 'weapon', weapon: _TankWeapon.missile));
     }
@@ -5160,7 +5294,7 @@ class _TankState extends State<_TankGame> {
         _shieldTimer = 8;
         break;
       case 'bomb':
-        _bombs = (_bombs + 1).clamp(0, 3);
+        _bombs = (_bombs + 1).clamp(0, 3).toInt();
         break;
       case 'weapon':
         if (powerup.weapon != null) {
@@ -5171,12 +5305,19 @@ class _TankState extends State<_TankGame> {
     }
   }
 
+  String get _weaponLabel => switch (_currentWeapon) {
+    _TankWeapon.standard => 'STANDART',
+    _TankWeapon.twin => 'ÇİFT $_weaponAmmo',
+    _TankWeapon.shotgun => 'SAÇMA $_weaponAmmo',
+    _TankWeapon.bouncing => 'SEKEN $_weaponAmmo',
+    _TankWeapon.missile => 'ROKET $_weaponAmmo',
+  };
+
   void _reset() {
     _score = 0;
     _lives = 3;
     _bombs = 1;
     _driveX = _driveY = 0;
-    _ticks = 0;
     _over = false;
     _won = false;
     _shieldTimer = 0;
@@ -5199,7 +5340,7 @@ class _TankState extends State<_TankGame> {
         ? 'ZAFER • SKOR: $_score'
         : _over
         ? 'TANK İMHA EDİLDİ'
-        : 'BÖLÜM $_wave/$_maxWave  •  ♥ $_lives  •  💣 $_bombs  •  $_score P',
+        : 'BÖLÜM $_wave/$_maxWave  •  ♥ $_lives  •  💣 $_bombs  •  $_weaponLabel  •  $_score P',
     controls: widget.showPad
         ? _TankControls(
             onMove: _move,
@@ -5217,12 +5358,11 @@ class _TankState extends State<_TankGame> {
         }
       },
       onPanUpdate: (details) =>
-          _move(details.delta.dx / 18, details.delta.dy / 18),
+          _move(details.delta.dx / 4, details.delta.dy / 4),
       onPanEnd: (_) => _move(0, 0),
+      onPanCancel: () => _move(0, 0),
       child: CustomPaint(
         painter: _TankPainter(
-          player: _player,
-          direction: _direction,
           px: _px,
           py: _py,
           playerAngle: _playerAngle,
@@ -5237,6 +5377,7 @@ class _TankState extends State<_TankGame> {
           over: _over,
           won: _won,
           shake: _shake,
+          wave: _wave,
         ),
         size: Size.infinite,
       ),
@@ -5283,6 +5424,10 @@ class _TankControlsState extends State<_TankControls> {
             onPanStart: (d) => _update(d.localPosition, constraints.biggest),
             onPanUpdate: (d) => _update(d.localPosition, constraints.biggest),
             onPanEnd: (_) {
+              setState(() => _stick = Offset.zero);
+              widget.onMove(0, 0);
+            },
+            onPanCancel: () {
               setState(() => _stick = Offset.zero);
               widget.onMove(0, 0);
             },
@@ -5356,7 +5501,6 @@ class _AnalogStickPainter extends CustomPainter {
 }
 
 class _TankPainter extends CustomPainter {
-  final math.Point<int> player, direction;
   final double px, py, playerAngle, turretAngle, shake;
   final List<_TankUnit> enemies;
   final List<_TankBullet> bullets;
@@ -5365,10 +5509,9 @@ class _TankPainter extends CustomPainter {
   final List<_ExplosiveBarrel> barrels;
   final Set<String> destructibleWalls;
   final bool shieldActive, over, won;
+  final int wave;
 
   const _TankPainter({
-    required this.player,
-    required this.direction,
     required this.px,
     required this.py,
     required this.playerAngle,
@@ -5383,6 +5526,7 @@ class _TankPainter extends CustomPainter {
     required this.over,
     required this.won,
     required this.shake,
+    required this.wave,
   });
 
   @override
@@ -5394,13 +5538,32 @@ class _TankPainter extends CustomPainter {
         (math.Random().nextDouble() - .5) * shake * 2,
       );
     }
+    final palettes = const [
+      [Color(0xff101d27), Color(0xff182c37), Color(0xff0a151e)],
+      [Color(0xff201b21), Color(0xff352529), Color(0xff15151f)],
+      [Color(0xff10242a), Color(0xff14363a), Color(0xff09181e)],
+      [Color(0xff1b1730), Color(0xff2c2145), Color(0xff111321)],
+      [Color(0xff2a1c19), Color(0xff472820), Color(0xff171519)],
+      [Color(0xff121a2d), Color(0xff292746), Color(0xff0b1425)],
+    ];
+    final palette = palettes[(wave - 1).clamp(0, palettes.length - 1).toInt()];
     final background = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xff0d161d), Color(0xff14242d), Color(0xff091016)],
+        colors: palette,
       ).createShader(Offset.zero & size);
     canvas.drawRect(Offset.zero & size, background);
+    // Low-contrast floor panels and glowing perimeter strips add depth without
+    // implying that tanks must move from tile to tile.
+    final floorGlow = Paint()..color = const Color(0x142edcff);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(5, 5, size.width - 10, size.height - 10),
+        const Radius.circular(18),
+      ),
+      floorGlow,
+    );
 
     final cell = math.min(size.width / 13, size.height / 16).toDouble();
     if (!cell.isFinite || cell <= 0) {
@@ -5410,22 +5573,45 @@ class _TankPainter extends CustomPainter {
     final left = (size.width - cell * 13) / 2;
     final top = (size.height - cell * 16) / 2;
     final gridPaint = Paint()
-      ..color = Colors.cyanAccent.withValues(alpha: .045)
-      ..strokeWidth = 1;
+      ..color = Color.lerp(
+        const Color(0xff6ceeff),
+        const Color(0xffffa66c),
+        (wave - 1) / 5,
+      )!.withValues(alpha: .028)
+      ..strokeWidth = .75;
     for (var x = 0; x <= 13; x++) {
-      canvas.drawLine(
-        Offset(left + x * cell, top),
-        Offset(left + x * cell, top + 16 * cell),
-        gridPaint,
-      );
+      if (x % 2 == 0) {
+        canvas.drawLine(
+          Offset(left + x * cell, top + cell * .22),
+          Offset(left + x * cell, top + cell * 15.78),
+          gridPaint,
+        );
+      }
     }
     for (var y = 0; y <= 16; y++) {
-      canvas.drawLine(
-        Offset(left, top + y * cell),
-        Offset(left + 13 * cell, top + y * cell),
-        gridPaint,
-      );
+      if (y % 2 == 0) {
+        canvas.drawLine(
+          Offset(left + cell * .22, top + y * cell),
+          Offset(left + cell * 12.78, top + y * cell),
+          gridPaint,
+        );
+      }
     }
+    final borderPaint = Paint()
+      ..color = Color.lerp(
+        const Color(0xff48dfff),
+        const Color(0xffff754a),
+        (wave - 1) / 5,
+      )!.withValues(alpha: .45)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(left + 1, top + 1, cell * 13 - 2, cell * 16 - 2),
+        Radius.circular(cell * .16),
+      ),
+      borderPaint,
+    );
 
     for (var y = 0; y < 16; y++) {
       for (var x = 0; x < 13; x++) {
@@ -5504,6 +5690,13 @@ class _TankPainter extends CustomPainter {
       );
     }
 
+    final stageNames = const ['DOCK-09', 'KROM KANYONU', 'NÖTRON ÜSSÜ', 'MOR FIRTINA', 'KIZIL MADEN', 'TİTAN ÇEKİRDEĞİ'];
+    final stageLabel = TextPainter(
+      textDirection: TextDirection.ltr,
+      text: TextSpan(text: stageNames[(wave - 1).clamp(0, stageNames.length - 1).toInt()], style: const TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.4)),
+    )..layout();
+    stageLabel.paint(canvas, Offset(left + cell * .26, top + cell * .16));
+
     for (final powerup in powerups) {
       final center = Offset(
         left + powerup.x * cell,
@@ -5522,6 +5715,24 @@ class _TankPainter extends CustomPainter {
         Paint()..color = color.withValues(alpha: .3),
       );
       canvas.drawCircle(center, cell * .18, Paint()..color = color);
+      final symbol = switch (powerup.kind) {
+        'repair' => '♥',
+        'shield' => 'S',
+        'bomb' => 'B',
+        'weapon' when powerup.weapon == _TankWeapon.twin => '2',
+        'weapon' when powerup.weapon == _TankWeapon.shotgun => '✦',
+        'weapon' when powerup.weapon == _TankWeapon.bouncing => '↗',
+        'weapon' when powerup.weapon == _TankWeapon.missile => 'R',
+        _ => '+',
+      };
+      final label = TextPainter(
+        textDirection: TextDirection.ltr,
+        text: TextSpan(
+          text: symbol,
+          style: TextStyle(color: Colors.white, fontSize: math.max(8.0, cell * .28).toDouble(), fontWeight: FontWeight.w900),
+        ),
+      )..layout();
+      label.paint(canvas, center - Offset(label.width / 2, label.height / 2));
     }
 
     for (final enemy in enemies) {
@@ -5529,6 +5740,9 @@ class _TankPainter extends CustomPainter {
         _TankEnemyKind.boss => const Color(0xff9d0208),
         _TankEnemyKind.heavy => const Color(0xffd00000),
         _TankEnemyKind.sniper => const Color(0xffffba08),
+        _TankEnemyKind.raider => const Color(0xffa855f7),
+        _TankEnemyKind.artillery => const Color(0xffff7b00),
+        _TankEnemyKind.sentinel => const Color(0xff3c9cff),
         _TankEnemyKind.scout => const Color(0xfff72585),
       };
       _drawTank(
@@ -5544,6 +5758,7 @@ class _TankPainter extends CustomPainter {
         isBoss: enemy.kind == _TankEnemyKind.boss,
         hp: enemy.hp,
         maxHp: enemy.maxHp,
+        kind: enemy.kind,
       );
     }
 
@@ -5635,94 +5850,157 @@ class _TankPainter extends CustomPainter {
     bool shield = false,
     int hp = 1,
     int maxHp = 1,
+    _TankEnemyKind? kind,
   }) {
-    final scale = isBoss ? 1.4 : 1.0;
-    final tankWidth = cell * .78 * scale;
-    final tankHeight = cell * .78 * scale;
+    final classScale = switch (kind) {
+      _TankEnemyKind.scout => .86,
+      _TankEnemyKind.heavy => 1.13,
+      _TankEnemyKind.sniper => .94,
+      _TankEnemyKind.raider => 1.02,
+      _TankEnemyKind.artillery => 1.08,
+      _TankEnemyKind.sentinel => 1.05,
+      _TankEnemyKind.boss => 1.42,
+      null => 1.0,
+    };
+    final scale = classScale;
+    final tankWidth = cell * (isBoss ? .94 : .82) * scale;
+    final tankHeight = cell * (isBoss ? .92 : .80) * scale;
+    final edge = Color.lerp(color, Colors.black, .42)!;
 
     canvas.save();
-    canvas.translate(center.dx + 4, center.dy + 5);
+    canvas.translate(center.dx + 4, center.dy + cell * .09);
     canvas.rotate(bodyAngle);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset.zero,
-          width: tankWidth,
-          height: tankHeight,
-        ),
-        const Radius.circular(5),
+        Rect.fromCenter(center: Offset.zero, width: tankWidth * 1.08, height: tankHeight * 1.05),
+        Radius.circular(cell * .14),
       ),
-      Paint()..color = Colors.black.withValues(alpha: .45),
+      Paint()..color = Colors.black.withValues(alpha: .48),
     );
     canvas.restore();
 
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(bodyAngle);
-    final trackPaint = Paint()..color = const Color(0xff1b262c);
+    final trackPaint = Paint()..color = const Color(0xff111b24);
+    final trackHi = Paint()..color = const Color(0xff637786);
+    for (final side in [-1.0, 1.0]) {
+      final track = RRect.fromRectAndRadius(
+        Rect.fromLTWH(side < 0 ? -tankWidth / 2 : tankWidth / 2 - tankWidth * .21,
+            -tankHeight / 2, tankWidth * .21, tankHeight),
+        Radius.circular(cell * .08),
+      );
+      canvas.drawRRect(track, trackPaint);
+      for (var tread = 0; tread < 5; tread++) {
+        final yy = -tankHeight * .40 + tread * tankHeight * .20;
+        canvas.drawLine(
+          Offset(side < 0 ? -tankWidth * .40 : tankWidth * .40, yy),
+          Offset(side < 0 ? -tankWidth * .31 : tankWidth * .31, yy),
+          Paint()..color = trackHi.color.withValues(alpha: .5),
+        );
+      }
+    }
+    final hull = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(0, cell * .015), width: tankWidth * .72, height: tankHeight * .83),
+      Radius.circular(cell * .13),
+    );
+    canvas.drawRRect(hull, Paint()..color = edge);
+    canvas.drawRRect(
+      hull.shift(Offset(0, -cell * .045)),
+      Paint()..shader = LinearGradient(
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+        colors: [Color.lerp(color, Colors.white, .34)!, color, edge],
+      ).createShader(hull.outerRect),
+    );
+    if (kind == _TankEnemyKind.heavy || kind == _TankEnemyKind.boss) {
+      for (final side in [-1.0, 1.0]) {
+        final plate = RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(side * tankWidth * .31, cell * .04), width: tankWidth * .15, height: tankHeight * .63),
+          Radius.circular(cell * .035),
+        );
+        canvas.drawRRect(plate, Paint()..color = const Color(0xff1b2830));
+        canvas.drawRRect(plate.deflate(cell * .025), Paint()..color = Color.lerp(color, Colors.white, .22)!);
+      }
+    }
+    if (kind == _TankEnemyKind.raider) {
+      for (final side in [-1.0, 1.0]) {
+        final spike = Path()
+          ..moveTo(side * tankWidth * .30, -tankHeight * .28)
+          ..lineTo(side * tankWidth * .58, -tankHeight * .18)
+          ..lineTo(side * tankWidth * .30, -tankHeight * .06)
+          ..close();
+        canvas.drawPath(spike, Paint()..color = const Color(0xfff0abfc));
+      }
+    }
+    if (kind == _TankEnemyKind.sentinel) {
+      canvas.drawCircle(Offset.zero, tankWidth * .60, Paint()..color = const Color(0x223caeff));
+      canvas.drawCircle(Offset.zero, tankWidth * .60, Paint()..color = const Color(0xff63b3ff)..style = PaintingStyle.stroke..strokeWidth = cell * .035);
+    }
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          -tankWidth / 2,
-          -tankHeight / 2,
-          tankWidth * .22,
-          tankHeight,
-        ),
-        const Radius.circular(3),
+        Rect.fromCenter(center: Offset(0, -tankHeight * .17), width: tankWidth * .46, height: tankHeight * .18),
+        Radius.circular(cell * .05),
       ),
-      trackPaint,
+      Paint()..color = Color.lerp(color, Colors.white, .48)!,
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          tankWidth / 2 - tankWidth * .22,
-          -tankHeight / 2,
-          tankWidth * .22,
-          tankHeight,
-        ),
-        const Radius.circular(3),
-      ),
-      trackPaint,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset.zero,
-          width: tankWidth * .65,
-          height: tankHeight * .85,
-        ),
-        const Radius.circular(4),
-      ),
-      Paint()..color = color,
-    );
+    for (final side in [-1.0, 1.0]) {
+      canvas.drawCircle(
+        Offset(side * tankWidth * .24, -tankHeight * .22),
+        cell * .035,
+        Paint()..color = const Color(0xffffdb70),
+      );
+    }
     canvas.restore();
 
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(turretAngle);
-    final barrelLength = cell * (isBoss ? .65 : .50);
+    final barrelLength = cell * (isBoss ? .78 : .58);
     canvas.drawLine(
-      Offset.zero,
-      Offset(barrelLength, 0),
-      Paint()
-        ..color = const Color(0xffdbe2ef)
-        ..strokeWidth = cell * (isBoss ? .22 : .14)
-        ..strokeCap = StrokeCap.square,
+      Offset(cell * .04, 0), Offset(barrelLength, 0),
+      Paint()..color = const Color(0xff071019)..strokeWidth = cell * (isBoss ? .25 : kind == _TankEnemyKind.sniper ? .105 : .18)..strokeCap = StrokeCap.round,
+    );
+    if (kind == _TankEnemyKind.artillery || isBoss) {
+      canvas.drawLine(
+        Offset(cell * .06, cell * .12),
+        Offset(barrelLength * .78, cell * .12),
+        Paint()..color = const Color(0xff172431)..strokeWidth = cell * .10..strokeCap = StrokeCap.round,
+      );
+      canvas.drawLine(
+        Offset(cell * .06, -cell * .12),
+        Offset(barrelLength * .78, -cell * .12),
+        Paint()..color = const Color(0xff172431)..strokeWidth = cell * .10..strokeCap = StrokeCap.round,
+      );
+    }
+    canvas.drawLine(
+      Offset(cell * .06, -cell * .035), Offset(barrelLength * .96, -cell * .035),
+      Paint()..color = const Color(0xffc8e3ee)..strokeWidth = cell * (isBoss ? .13 : .085)..strokeCap = StrokeCap.round,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(barrelLength * .84, 0), width: cell * .12, height: cell * (isBoss ? .31 : .22)),
+        Radius.circular(cell * .035),
+      ),
+      Paint()..color = const Color(0xffdce7ed),
     );
     canvas.drawCircle(
-      Offset(barrelLength, 0),
-      cell * .08,
-      Paint()..color = const Color(0xff112d4e),
+      Offset.zero, cell * (isBoss ? .34 : .25),
+      Paint()..color = edge,
     );
     canvas.drawCircle(
-      Offset.zero,
-      cell * (isBoss ? .32 : .22),
-      Paint()..color = Color.lerp(color, Colors.white, .25)!,
+      Offset.zero, cell * (isBoss ? .29 : .21),
+      Paint()..shader = RadialGradient(
+        colors: [Color.lerp(color, Colors.white, .45)!, color, edge],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: cell * .3)),
     );
     canvas.drawCircle(
-      Offset.zero,
-      cell * (isBoss ? .18 : .12),
-      Paint()..color = const Color(0xff112d4e),
+      Offset.zero, cell * (isBoss ? .14 : .105),
+      Paint()..color = const Color(0xff142636),
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset.zero, radius: cell * (isBoss ? .22 : .16)),
+      math.pi * 1.1, math.pi * .78, false,
+      Paint()..color = Colors.white.withValues(alpha: .58)..style = PaintingStyle.stroke..strokeWidth = cell * .035,
     );
     canvas.restore();
 
@@ -5788,7 +6066,7 @@ const _spaceHeroInfo = <_SpaceHero, _SpaceHeroInfo>{
   _SpaceHero.cardabok: _SpaceHeroInfo(
     'Cardabok',
     'Tavşanıyla yıldızlara!',
-    'Mavi koruyucu gemi: düşman hasarına tamamen bağışık.',
+    'Mavi Ay Işığı gemisi: çarpışma ve mermi hasarı işlemez.',
     'AY IŞIĞI',
     Color(0xff52c9ff),
   ),
@@ -5802,7 +6080,7 @@ const _spaceHeroInfo = <_SpaceHero, _SpaceHeroInfo>{
   _SpaceHero.berkan: _SpaceHeroInfo(
     'Berkan',
     'Telefonunda galaksinin en iyi rotası var.',
-    'Gri zırhlı gemi: sağlam gövde, ekstra başlangıç bombası.',
+    'Takviyeli gövde: +1 can ve ekstra başlangıç bombası.',
     'GÜMÜŞ DEV',
     Color(0xffb7c4d1),
   ),
@@ -5825,7 +6103,7 @@ class _SpaceGame extends StatefulWidget {
 class _SpaceEnemy {
   double x, y, z, vx, phase;
   int hp;
-  final int kind; // meteor, scout, fighter, carrier, zigzag, dasher, tank, boss
+  final int kind; // meteor, scout, fighter, carrier, wraith, dasher, gunship, boss, crystal, bomber, shard, prism guard, lance
   _SpaceEnemy(
     this.x,
     this.y,
@@ -5851,6 +6129,21 @@ class _SpaceDrop {
   _SpaceDrop(this.x, this.y, this.z, this.kind);
 }
 
+class _SpaceExplosion {
+  final double x, y, strength;
+  final Color color;
+  final int seed;
+  double age = 0;
+
+  _SpaceExplosion(
+    this.x,
+    this.y, {
+    this.strength = 1,
+    this.color = const Color(0xffff9b56),
+    this.seed = 1,
+  });
+}
+
 class _SpaceState extends State<_SpaceGame> {
   Timer? _timer;
   final _rng = math.Random();
@@ -5858,6 +6151,7 @@ class _SpaceState extends State<_SpaceGame> {
   final List<_SpaceShot> _shots = [];
   final List<_SpaceDrop> _drops = [];
   final List<Offset> _sparks = [];
+  final List<_SpaceExplosion> _explosions = [];
   _SpaceHero? _hero;
   double _x = .5, _y = .82, _dx = 0, _dy = 0;
   int _score = 0, _lives = 3, _wave = 1, _ticks = 0, _weapon = 1;
@@ -5874,6 +6168,7 @@ class _SpaceState extends State<_SpaceGame> {
     'UFO RUINS',
     'VOID TITAN',
   ];
+  int get _stage => ((_wave - 1) ~/ 3).clamp(0, _stageNames.length - 1).toInt();
 
   @override
   void initState() {
@@ -5890,7 +6185,7 @@ class _SpaceState extends State<_SpaceGame> {
       _y = .82;
       _dx = _dy = 0;
       _score = 0;
-      _lives = 3;
+      _lives = hero == _SpaceHero.berkan ? 4 : 3;
       _wave = 1;
       _ticks = 0;
       _weapon = 1;
@@ -5905,45 +6200,82 @@ class _SpaceState extends State<_SpaceGame> {
       _shots.clear();
       _drops.clear();
       _sparks.clear();
+      _explosions.clear();
       _spawnWave();
     });
   }
 
   void _spawnWave() {
-    final count = 5 + _wave * 2;
+    final count = 7 + _wave * 2;
+    final stage = _stage;
     for (var i = 0; i < count; i++) {
-      final kind = _wave % 5 == 0 && i == 0
+      final row = i ~/ 7;
+      final lane = i % 7;
+      final phase = i * 1.31 + _wave * .73;
+      final kind = _wave % 3 == 0 && i == 0
           ? 7
+          : _wave >= 10 && i % 12 == 0
+          ? 12
+          : _wave >= 7 && i % 9 == 5
+          ? 11
+          : _wave >= 8 && i % 11 == 0
+          ? 9
+          : _wave >= 6 && i % 8 == 0
+          ? 8
           : _wave >= 4 && i % 7 == 0
           ? 6
           : _wave >= 3 && i % 6 == 0
           ? 5
           : _wave >= 2 && i % 5 == 0
           ? 4
-          : i % 9 == 0
+          : i % 10 == 0
           ? 3
+          : i % 4 == 0
+          ? 2
           : i % 3 == 0
           ? 1
           : 0;
       final hp = switch (kind) {
-        7 => 18 + _wave,
+        7 => 24 + _wave * 2,
+        12 => 6 + (_wave ~/ 2),
+        11 => 8 + (_wave ~/ 2),
+        9 => 7 + (_wave ~/ 3),
+        8 => 6 + (_wave ~/ 3),
         6 => 7,
         3 => 5,
         2 => 4,
         1 => 2,
-        4 => 2,
-        5 => 2,
+        4 || 5 => 3,
         _ => 2,
+      };
+
+      // Each world has a recognisable formation instead of a random cloud:
+      // parade line, zig-zag, staggered asteroid lanes, V-wing, or portal spiral.
+      final laneX = switch (stage) {
+        0 => .105 + lane * .132,
+        1 => .50 + (lane - 3) * .117 * (row.isEven ? 1 : -1),
+        2 => .12 + ((lane + row * 2) % 7) * .126,
+        3 => .50 + (lane - 3).abs() * .105 * (lane < 3 ? -1 : 1),
+        _ => .50 + math.sin(phase) * (.23 + row * .025),
+      };
+      final x = (laneX + (_rng.nextDouble() - .5) * .035).clamp(.06, .94).toDouble();
+      final y = (.055 + row * .105 + _rng.nextDouble() * .025).clamp(.05, .78).toDouble();
+      // z=1 is far away and z approaches 0 as the enemy advances toward the ship.
+      final z = (1.0 - y * .62).clamp(.50, .97).toDouble();
+      final speed = switch (kind) {
+        5 || 10 || 12 => .018 + _rng.nextDouble() * .012,
+        7 || 8 || 11 => .003 + _rng.nextDouble() * .005,
+        _ => .006 + _rng.nextDouble() * .010,
       };
       _foes.add(
         _SpaceEnemy(
-          .10 + _rng.nextDouble() * .80,
-          .08 + _rng.nextDouble() * .34,
-          .22 + _rng.nextDouble() * .55,
+          x,
+          y,
+          z,
           kind,
           hp,
-          vx: (_rng.nextDouble() - .5) * (kind == 5 ? .016 : .008),
-          phase: _rng.nextDouble() * 6.28,
+          vx: (_rng.nextBool() ? 1 : -1) * speed,
+          phase: phase + _rng.nextDouble() * 1.7,
         ),
       );
     }
@@ -5952,8 +6284,16 @@ class _SpaceState extends State<_SpaceGame> {
   bool get _immune => _hero == _SpaceHero.cardabok;
   void _move(double x, double y) {
     if (_over || _victory || _hero == null) return;
-    _dx = x.clamp(-1, 1).toDouble();
-    _dy = y.clamp(-1, 1).toDouble();
+    var dx = x.clamp(-1.0, 1.0).toDouble();
+    var dy = y.clamp(-1.0, 1.0).toDouble();
+    // Cap diagonals without amplifying small canvas-drag deltas.
+    final magnitude = math.sqrt(dx * dx + dy * dy);
+    if (magnitude > 1) {
+      dx /= magnitude;
+      dy /= magnitude;
+    }
+    _dx = dx;
+    _dy = dy;
   }
 
   void _fire() {
@@ -5961,7 +6301,11 @@ class _SpaceState extends State<_SpaceGame> {
   }
 
   void _shoot() {
-    final spread = _weapon >= 3
+    final spread = _weapon >= 5
+        ? [-.095, -.047, 0.0, .047, .095]
+        : _weapon == 4
+        ? [-.072, 0.0, .072]
+        : _weapon == 3
         ? [-.052, 0.0, .052]
         : _weapon == 2
         ? [-.027, .027]
@@ -5977,6 +6321,7 @@ class _SpaceState extends State<_SpaceGame> {
     if (_bombs <= 0 || _over || _victory || _hero == null) return;
     _bombs--;
     _shield = math.max(_shield, 42).toInt();
+    _spawnSpaceExplosion(_x, _y - .08, strength: 3.4, color: const Color(0xff7cecff));
     for (final enemy in _foes) {
       enemy.hp -= 6;
     }
@@ -5984,42 +6329,99 @@ class _SpaceState extends State<_SpaceGame> {
     for (final e in killed) {
       _score += _enemyScore(e);
       _drop(e);
+      _spawnSpaceExplosion(
+        e.x,
+        e.y,
+        strength: e.kind == 7 ? 2.5 : e.kind == 8 ? 1.5 : .8,
+        color: const Color(0xff8beeff),
+      );
+      if (e.kind == 8) {
+        for (final side in [-1.0, 1.0]) {
+          _foes.add(
+            _SpaceEnemy(
+              (e.x + side * .025).clamp(.06, .94).toDouble(),
+              e.y,
+              (e.z - .05).clamp(.15, .8).toDouble(),
+              10,
+              2,
+              vx: side * .022,
+              phase: e.phase + side,
+            ),
+          );
+        }
+      }
     }
     _foes.removeWhere((e) => e.hp <= 0);
     _shots.removeWhere((s) => s.hostile);
     _sparks.add(Offset(_x, _y));
   }
 
-  int _enemyScore(_SpaceEnemy e) => e.kind == 7
-      ? 1500
-      : e.kind == 6
-      ? 300
-      : e.kind == 3
-      ? 240
-      : 100;
+  int _enemyScore(_SpaceEnemy e) => switch (e.kind) {
+    7 => 2500,
+    12 => 680,
+    11 => 620,
+    9 => 520,
+    8 => 480,
+    6 => 360,
+    3 => 300,
+    2 || 5 || 10 => 180,
+    _ => 100,
+  };
+
   void _drop(_SpaceEnemy enemy) {
+    // Regular enemies are not loot piñatas; tougher units and bosses are more
+    // rewarding. This keeps the playfield readable while preserving excitement.
+    final isBoss = enemy.kind == 7;
+    final elite = isBoss || enemy.kind == 8 || enemy.kind == 9 ||
+        enemy.kind == 11 || enemy.kind == 12 || enemy.kind == 6;
+    if (!isBoss && _rng.nextDouble() >= (elite ? .72 : .34)) return;
+
     final roll = _rng.nextDouble();
-    final kind = roll < .15
+    final kind = roll < .10
         ? 0
-        : roll < .29
+        : roll < .23
         ? 1
-        : roll < .43
+        : roll < .39
         ? 2
-        : roll < .54
+        : roll < .50
         ? 3
-        : roll < .63
+        : roll < .61
         ? 4
-        : roll < .74
+        : roll < .75
         ? 5
-        : roll < .84
+        : roll < .88
         ? 6
         : 7;
-    _drops.add(_SpaceDrop(enemy.x, enemy.y, .68, kind));
+    _drops.add(_SpaceDrop(enemy.x, enemy.y, enemy.z, kind));
+  }
+
+  void _spawnSpaceExplosion(
+    double x,
+    double y, {
+    double strength = 1,
+    Color color = const Color(0xffff9b56),
+  }) {
+    _explosions.add(
+      _SpaceExplosion(
+        x.clamp(0.0, 1.0).toDouble(),
+        y.clamp(0.0, 1.0).toDouble(),
+        strength: strength,
+        color: color,
+        seed: _ticks + _explosions.length * 31 + _wave * 17,
+      ),
+    );
+    if (_explosions.length > 42) {
+      _explosions.removeRange(0, _explosions.length - 42);
+    }
   }
 
   void _tick() {
     _sparks.clear();
     _ticks++;
+    for (final effect in _explosions) {
+      effect.age += .055;
+    }
+    _explosions.removeWhere((effect) => effect.age >= 1);
     _x = (_x + _dx * .012).clamp(.045, .955).toDouble();
     _y = (_y + _dy * .010).clamp(.53, .94).toDouble();
     if (_shield > 0) _shield--;
@@ -6035,30 +6437,73 @@ class _SpaceState extends State<_SpaceGame> {
     }
 
     for (final e in _foes) {
-      e.phase += .045;
-      final descent = .0011 + (_wave * .00011) + (e.kind == 5 ? .0014 : 0);
+      e.phase += .045 + e.z * .012;
+      final descent = .00085 + (_wave * .000075) +
+          (e.kind == 5 ? .0011 : 0) + (e.kind == 9 ? .0007 : 0) +
+          (e.kind == 10 ? .0017 : 0) + (e.kind == 12 ? .00025 : 0);
       e.y += descent;
-      if (e.kind == 4) {
-        e.x += math.sin(e.phase * 2.3) * .007;
-      } else if (e.kind == 5) {
-        e.x += e.vx + math.sin(e.phase * 1.4) * .003;
-      } else if (e.kind == 7) {
-        e.x += math.sin(e.phase * .7) * .004;
-      } else {
-        e.x += e.vx + math.sin(e.phase) * .0018;
+      e.z = (e.z - descent * .42).clamp(.12, 1.0).toDouble();
+      switch (e.kind) {
+        case 4: // wraith: sharp zig-zag movement
+          e.x += e.vx + math.sin(e.phase * 2.8) * .008;
+          break;
+        case 5: // dasher: short, fast lateral lunges
+          e.x += e.vx + math.sin(e.phase * 1.45) * .006;
+          if (_ticks % 95 == 0) e.vx = -e.vx;
+          break;
+        case 7: // boss: broad orbit, with a small lateral drift
+          e.x += math.sin(e.phase * .72) * .0048;
+          break;
+        case 8: // crystal meteor: slow, heavy and shielded-looking
+          e.x += e.vx * .48 + math.sin(e.phase * .8) * .0015;
+          break;
+        case 9: // bomber: tracks the lane before diving
+          e.x += e.vx + math.sin(e.phase * .7) * .0035;
+          if (_ticks % 120 == 0) e.y += .018;
+          break;
+        case 10: // crystal fragments: fast shards that fan out after splitting.
+          e.x += e.vx + math.sin(e.phase * 2.4) * .004;
+          break;
+        case 11: // prism guard: slow movement while firing denser volleys.
+          e.x += e.vx * .32 + math.sin(e.phase * .58) * .002;
+          break;
+        case 12: // lance fighter: sweeping cross-lane strafes.
+          e.x += e.vx + math.sin(e.phase * 1.7) * .007;
+          if (_ticks % 88 == 0) e.vx = -e.vx;
+          break;
+        case 3: // carrier
+          e.x += e.vx * .55 + math.sin(e.phase * .55) * .0022;
+          break;
+        default:
+          e.x += e.vx + math.sin(e.phase) * .0022;
       }
-      if (e.x < .06 || e.x > .94) e.vx = -e.vx;
-      final fireRate = e.kind == 7
-          ? 29
-          : e.kind == 6
-          ? 52
-          : e.kind == 2 || e.kind == 5
-          ? 62
-          : 82;
-      if (e.kind > 0 && (_ticks + e.phase.toInt() * 3) % fireRate == 0) {
-        _shots.add(
-          _SpaceShot(e.x, e.y + .035, .1, hostile: true, kind: e.kind),
-        );
+      if (e.x < .055 || e.x > .945) {
+        e.x = e.x.clamp(.055, .945).toDouble();
+        e.vx = -e.vx;
+      }
+      final fireRate = switch (e.kind) {
+        7 => 22,
+        12 => 28,
+        11 => 35,
+        9 => 40,
+        6 || 8 => 46,
+        2 || 5 => 53,
+        3 => 64,
+        1 || 4 => 72,
+        _ => 95,
+      };
+      if (e.kind > 0 && (_ticks + (e.phase * 4).toInt()) % fireRate == 0) {
+        final volley = switch (e.kind) {
+          7 => [-.07, -.035, 0.0, .035, .07],
+          9 || 11 => [-.055, 0.0, .055],
+          12 => [-.09, -.03, .03, .09],
+          _ => <double>[0.0],
+        };
+        for (final off in volley) {
+          _shots.add(
+            _SpaceShot(e.x + off, e.y + .035, .1, hostile: true, kind: e.kind),
+          );
+        }
       }
     }
     for (final shot in _shots) {
@@ -6121,10 +6566,28 @@ class _SpaceState extends State<_SpaceGame> {
       }
     }
     // Charged electric shot chains to nearby enemies and leaves a readable arc effect.
-    if (_electricTicks > 0 && _ticks % 13 == 0 && _foes.isNotEmpty) {
+    if (_electricTicks > 0 && _ticks % 11 == 0 && _foes.isNotEmpty) {
       final target = _foes[_rng.nextInt(_foes.length)];
       target.hp -= 2;
       _sparks.add(Offset(target.x, target.y));
+      // Arc lightning jumps to nearby enemies, turning the pickup into a real
+      // crowd-control weapon rather than only a cosmetic beam.
+      final nearest = _foes.where((other) => !identical(other, target)).toList()
+        ..sort((a, b) {
+          final da = math.pow(a.x - target.x, 2) + math.pow(a.y - target.y, 2);
+          final db = math.pow(b.x - target.x, 2) + math.pow(b.y - target.y, 2);
+          return da.compareTo(db);
+        });
+      if (nearest.isNotEmpty &&
+          (nearest.first.x - target.x).abs() + (nearest.first.y - target.y).abs() < .28) {
+        nearest.first.hp -= 2;
+        _sparks.add(Offset(nearest.first.x, nearest.first.y));
+        if (nearest.first.hp <= 0 && !dead.contains(nearest.first)) {
+          dead.add(nearest.first);
+          _score += _enemyScore(nearest.first);
+          _drop(nearest.first);
+        }
+      }
       if (target.hp <= 0 && !dead.contains(target)) {
         dead.add(target);
         _score += _enemyScore(target);
@@ -6132,12 +6595,87 @@ class _SpaceState extends State<_SpaceGame> {
       }
     }
     _shots.removeWhere((s) => spent.contains(s) || s.y < -.05 || s.y > 1.02);
+
+    // A crystal meteor fractures into two dangerous shards rather than vanishing.
+    final shards = <_SpaceEnemy>[];
+    for (final crystal in dead.where((enemy) => enemy.kind == 8)) {
+      for (final side in [-1.0, 1.0]) {
+        shards.add(
+          _SpaceEnemy(
+            (crystal.x + side * .025).clamp(.06, .94).toDouble(),
+            crystal.y,
+            (crystal.z - .05).clamp(.15, .8).toDouble(),
+            10,
+            2,
+            vx: side * (.018 + _rng.nextDouble() * .008),
+            phase: crystal.phase + side,
+          ),
+        );
+      }
+    }
+    for (final enemy in dead) {
+      final color = switch (enemy.kind) {
+        7 || 9 || 12 => const Color(0xffff5ca8),
+        8 || 10 || 11 => const Color(0xff71fff1),
+        _ => const Color(0xffffb16b),
+      };
+      _spawnSpaceExplosion(
+        enemy.x,
+        enemy.y,
+        strength: enemy.kind == 7 ? 2.5 : enemy.kind == 8 ? 1.5 : .8,
+        color: color,
+      );
+    }
     _foes.removeWhere((e) => dead.contains(e));
+    _foes.addAll(shards);
+
+    // Body collisions were missing: an enemy could pass through the player's
+    // flight lane without hurting anyone. Remove the impact craft and apply the
+    // same shield/hero rules as projectile damage.
+    final contactHits = _foes.where((e) =>
+        (e.x - _x).abs() < (e.kind == 7 ? .095 : .060) &&
+        (e.y - _y).abs() < (e.kind == 7 ? .070 : .048)).toList();
+    if (contactHits.isNotEmpty) {
+      final impact = contactHits.first;
+      // A ram destroys ordinary craft; bosses survive contact and deal damage.
+      if (impact.kind != 7) {
+        _foes.remove(impact);
+        _score += _enemyScore(impact);
+        _drop(impact);
+        final impactColor = impact.kind == 8 || impact.kind == 11
+            ? const Color(0xff71fff1)
+            : const Color(0xffffa36c);
+        _spawnSpaceExplosion(
+          impact.x,
+          impact.y,
+          strength: impact.kind == 8 ? 1.5 : .85,
+          color: impactColor,
+        );
+        if (impact.kind == 8) {
+          for (final side in [-1.0, 1.0]) {
+            _foes.add(
+              _SpaceEnemy(
+                (impact.x + side * .025).clamp(.06, .94).toDouble(),
+                impact.y,
+                (impact.z - .05).clamp(.15, .8).toDouble(),
+                10,
+                2,
+                vx: side * .022,
+                phase: impact.phase + side,
+              ),
+            );
+          }
+        }
+      }
+      if (!_immune && _shield == 0) _takeDamage();
+    }
+
     final breached = _foes.where((e) => e.y > .94).toList();
     if (breached.isNotEmpty) {
       _foes.removeWhere((e) => e.y > .94);
-      if (!_immune) {
+      if (!_immune && _shield == 0) {
         _lives--;
+        _shield = 30;
         if (_lives <= 0) _over = true;
       }
     }
@@ -6153,7 +6691,7 @@ class _SpaceState extends State<_SpaceGame> {
             _shield = 190;
             break;
           case 2:
-            _weapon = math.min(4, _weapon + 1).toInt();
+            _weapon = math.min(5, _weapon + 1).toInt();
             break;
           case 3:
             _bombs = math.min(3, _bombs + 1).toInt();
@@ -6180,7 +6718,7 @@ class _SpaceState extends State<_SpaceGame> {
         _victory = true;
       } else {
         _wave++;
-        if (_wave % 3 == 0) _weapon = math.min(4, _weapon + 1).toInt();
+        if (_wave % 3 == 0) _weapon = math.min(5, _weapon + 1).toInt();
         _spawnWave();
       }
     }
@@ -6190,6 +6728,12 @@ class _SpaceState extends State<_SpaceGame> {
     if (_immune || _shield > 0) return;
     _lives--;
     _shield = 42;
+    _spawnSpaceExplosion(
+      _x,
+      _y,
+      strength: .95,
+      color: const Color(0xffff5b73),
+    );
     if (_lives <= 0) _over = true;
   }
 
@@ -6207,12 +6751,11 @@ class _SpaceState extends State<_SpaceGame> {
   @override
   Widget build(BuildContext context) {
     if (_hero == null) return _heroSelect();
-    final heroInfo = _spaceHeroInfo[_hero!]!;
     final status = _over
         ? 'SİNYAL KAYIP • $_score'
         : _victory
         ? 'GALAKSİ KURTULDU • $_score'
-        : '${_stageNames[((_wave - 1) ~/ 3).clamp(0, 4)]} • DALGA $_wave/15 • ♥ $_lives • $_weaponLabel • ⚡${_electricTicks > 0 ? 'AÇIK' : '—'} • 💣$_bombs';
+        : '${_stageNames[_stage]} • DALGA $_wave/15 • ♥ $_lives • $_weaponLabel • ⚡${_electricTicks > 0 ? 'AÇIK' : '—'} • 💣$_bombs';
     return _ArcadeFrame(
       score: status,
       controls: widget.showPad
@@ -6231,8 +6774,11 @@ class _SpaceState extends State<_SpaceGame> {
             _fire();
           }
         },
-        onPanUpdate: (d) => _move(d.delta.dx / 140, d.delta.dy / 140),
+        // Convert finger travel to movement speed; dividing by the old 140px
+        // made a full-screen swipe move the ship only a few pixels.
+        onPanUpdate: (d) => _move(d.delta.dx / 5, d.delta.dy / 6),
         onPanEnd: (_) => _move(0, 0),
+        onPanCancel: () => _move(0, 0),
         child: CustomPaint(
           painter: _SpacePainter(
             _x,
@@ -6241,14 +6787,17 @@ class _SpaceState extends State<_SpaceGame> {
             _shots,
             _drops,
             _sparks,
+            _explosions,
             _shield > 0,
             _over,
             _victory,
             hero: _hero!,
-            heroColor: heroInfo.color,
             electric: _electricTicks > 0,
             laser: _laserTicks > 0,
             rockets: _rocketAmmo,
+            wave: _wave,
+            ticks: _ticks,
+            bank: _dx,
           ),
           size: Size.infinite,
         ),
@@ -6257,7 +6806,7 @@ class _SpaceState extends State<_SpaceGame> {
   }
 
   String get _weaponLabel =>
-      'GEMİ $_weapon • LZR ${_laserTicks > 0 ? 'ON' : '—'} • RKT $_rocketAmmo';
+      'SİLAH $_weapon/5 • LZR ${_laserTicks > 0 ? 'ON' : '—'} • RKT $_rocketAmmo';
 
   Widget _heroSelect() => Container(
     color: const Color(0xff080d19),
@@ -6276,8 +6825,8 @@ class _SpaceState extends State<_SpaceGame> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Her kahramanın gemisi ve uçuş tarzı farklı.',
-            style: TextStyle(color: Colors.white70, fontSize: 13),
+            'Pilotunu seç • düşmanlardan modül topla • silahını evrimleştir',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
           ),
           const SizedBox(height: 12),
           Expanded(
@@ -6314,7 +6863,7 @@ class _SpaceHeroCard extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: Material(
-      color: const Color(0xff121b2d),
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
@@ -6324,7 +6873,23 @@ class _SpaceHeroCard extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: info.color.withValues(alpha: .48)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.lerp(info.color, const Color(0xff101727), .80)!,
+                const Color(0xff0c1321),
+                Color.lerp(info.color, const Color(0xff101727), .91)!,
+              ],
+            ),
+            border: Border.all(color: info.color.withValues(alpha: .68)),
+            boxShadow: [
+              BoxShadow(
+                color: info.color.withValues(alpha: .14),
+                blurRadius: 17,
+                spreadRadius: .4,
+              ),
+            ],
           ),
           child: Row(
             children: [
@@ -6433,6 +6998,10 @@ class _SpaceControlsState extends State<_SpaceControls> {
               setState(() => v = Offset.zero);
               widget.onMove(0, 0);
             },
+            onPanCancel: () {
+              setState(() => v = Offset.zero);
+              widget.onMove(0, 0);
+            },
             child: CustomPaint(painter: _AnalogStickPainter(v)),
           ),
         ),
@@ -6469,6 +7038,65 @@ class _SpaceHeroPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
     final unit = size.width / 92;
+    final panel = Rect.fromLTWH(1, 1, size.width - 2, size.height - 2);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(panel, const Radius.circular(14)),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(accent, const Color(0xff08111d), .72)!,
+            const Color(0xff080e19),
+          ],
+        ).createShader(panel),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(panel, const Radius.circular(14)),
+      Paint()
+        ..color = accent.withValues(alpha: .42)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+    final planet = Offset(cx + 20 * unit, size.height * .18);
+    canvas.drawCircle(
+      planet,
+      17 * unit,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-.45, -.55),
+          colors: [
+            Color.lerp(accent, Colors.white, .30)!,
+            accent.withValues(alpha: .65),
+            const Color(0xff09111d),
+          ],
+        ).createShader(Rect.fromCircle(center: planet, radius: 17 * unit)),
+    );
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: planet.translate(0, 2 * unit),
+        width: 43 * unit,
+        height: 12 * unit,
+      ),
+      .12,
+      math.pi * .86,
+      false,
+      Paint()
+        ..color = accent.withValues(alpha: .58)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.1 * unit,
+    );
+    for (var i = 0; i < 9; i++) {
+      final star = Offset(
+        ((i * 29 + 7) % 89) * unit,
+        ((i * 37 + 11) % 111) * unit,
+      );
+      canvas.drawCircle(
+        star,
+        (i % 3 == 0 ? 1.1 : .55) * unit,
+        Paint()..color = Colors.white.withValues(alpha: i % 3 == 0 ? .76 : .36),
+      );
+    }
     final skin = hero == _SpaceHero.mivi
         ? const Color(0xffd7a47b)
         : hero == _SpaceHero.serkan
@@ -6867,10 +7495,11 @@ class _SpacePainter extends CustomPainter {
   final List<_SpaceShot> shots;
   final List<_SpaceDrop> drops;
   final List<Offset> sparks;
+  final List<_SpaceExplosion> explosions;
   final bool shield, over, victory, electric, laser;
-  final int rockets;
+  final int rockets, wave, ticks;
+  final double bank;
   final _SpaceHero hero;
-  final Color heroColor;
   const _SpacePainter(
     this.shipX,
     this.shipY,
@@ -6878,99 +7507,165 @@ class _SpacePainter extends CustomPainter {
     this.shots,
     this.drops,
     this.sparks,
+    this.explosions,
     this.shield,
     this.over,
     this.victory, {
     required this.hero,
-    required this.heroColor,
     required this.electric,
     required this.laser,
     required this.rockets,
+    required this.wave,
+    required this.ticks,
+    required this.bank,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
+    final unit = size.width / 360;
     final rect = Offset.zero & size;
+    final themes = const [
+      [Color(0xff050914), Color(0xff171a4b), Color(0xff160e32)],
+      [Color(0xff080d18), Color(0xff303044), Color(0xff211b2a)],
+      [Color(0xff10070d), Color(0xff51202d), Color(0xff1f0e22)],
+      [Color(0xff03121b), Color(0xff123447), Color(0xff101a32)],
+      [Color(0xff030611), Color(0xff24133d), Color(0xff100b24)],
+    ];
+    final theme = themes[((wave - 1) ~/ 3).clamp(0, themes.length - 1).toInt()];
     canvas.drawRect(
       rect,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xff050914), Color(0xff13133b), Color(0xff17102e)],
-        ).createShader(rect),
+      Paint()..shader = LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: theme,
+      ).createShader(rect),
     );
-    for (var i = 0; i < 85; i++) {
-      final x = ((i * 131 + 17) % 997) / 997 * size.width;
-      final y = ((i * 223 + 37) % 991) / 991 * size.height;
+    // Nebula clouds are layered radial gradients, giving the field depth without
+    // importing image assets or a 3D engine.
+    final nebulaColors = const [
+      Color(0x663b42ff), Color(0x556a30c7), Color(0x554dbbd0),
+      Color(0x664e273d), Color(0x6650209a),
+    ];
+    for (var i = 0; i < 4; i++) {
+      final c = Offset(size.width * ((i * 37 + 18) % 100) / 100,
+          size.height * ((i * 23 + 8) % 42) / 100);
       canvas.drawCircle(
-        Offset(x, y),
-        i % 11 == 0 ? 1.7 : .8,
-        Paint()..color = Colors.white.withValues(alpha: i % 4 == 0 ? .75 : .27),
+        c, size.width * (.28 + (i % 2) * .11),
+        Paint()..shader = RadialGradient(colors: [nebulaColors[((wave - 1) ~/ 3 + i) % nebulaColors.length], Colors.transparent]).createShader(Rect.fromCircle(center: c, radius: size.width * (.28 + (i % 2) * .11))),
       );
     }
-    final horizon = size.height * .12;
+    final horizon = size.height * .16;
+    // Stage landmark / planet silhouettes at the horizon.
+    final planetCenter = Offset(size.width * (0.2 + (((wave - 1) ~/ 3) % 3) * .30), horizon + size.height * .015);
+    final planetRadius = size.width * (.30 + (((wave - 1) ~/ 3) % 2) * .06);
+    final planetColors = const [Color(0xff323b9d), Color(0xff76635e), Color(0xffa44154), Color(0xff166b79), Color(0xff4e2878)];
+    canvas.drawCircle(planetCenter.translate(0, 4), planetRadius, Paint()..color = Colors.black.withValues(alpha: .36));
+    canvas.drawCircle(planetCenter, planetRadius, Paint()..shader = RadialGradient(
+      center: const Alignment(-.35, -.55), radius: 1.2,
+      colors: [Color.lerp(planetColors[(wave - 1) ~/ 3], Colors.white, .26)!, planetColors[(wave - 1) ~/ 3], const Color(0xff080b19)],
+    ).createShader(Rect.fromCircle(center: planetCenter, radius: planetRadius)));
+    for (var band = 0; band < 4; band++) {
+      final yy = planetCenter.dy - planetRadius * .42 + band * planetRadius * .21;
+      canvas.drawArc(
+        Rect.fromCenter(center: Offset(planetCenter.dx, yy), width: planetRadius * 1.65, height: planetRadius * .19),
+        math.pi, math.pi, false,
+        Paint()..color = Colors.white.withValues(alpha: .055 + band * .012)..style = PaintingStyle.stroke..strokeWidth = planetRadius * .045,
+      );
+    }
+    if (((wave - 1) ~/ 3) == 1 || ((wave - 1) ~/ 3) == 4) {
+      canvas.drawOval(Rect.fromCenter(center: planetCenter.translate(0, planetRadius * .1), width: planetRadius * 2.55, height: planetRadius * .42),
+        Paint()..color = planetColors[(wave - 1) ~/ 3].withValues(alpha: .42)..style = PaintingStyle.stroke..strokeWidth = planetRadius * .12);
+    }
+    for (var i = 0; i < 105; i++) {
+      final x = ((i * 131 + 17) % 997) / 997 * size.width;
+      final baseY = ((i * 223 + 37) % 991) / 991 * size.height;
+      final parallax = ((ticks * (i % 4 + 1) * .17) % (size.height + 20));
+      final y = (baseY + parallax) % (size.height + 1);
+      final radius = i % 13 == 0 ? 1.7 : i % 3 == 0 ? 1.0 : .55;
+      canvas.drawCircle(Offset(x, y), radius, Paint()..color = Colors.white.withValues(alpha: i % 4 == 0 ? .82 : .30));
+      if (i % 17 == 0) {
+        canvas.drawLine(Offset(x, y), Offset(x - 1.4, y + 7 + (ticks % 5)), Paint()..color = Colors.white.withValues(alpha: .24)..strokeWidth = .8);
+      }
+    }
+    // A receding flight corridor and curved energy lanes sell a 3D forward rush.
     final road = Path()
-      ..moveTo(size.width * .43, horizon)
-      ..lineTo(size.width * .57, horizon)
-      ..lineTo(size.width * 1.12, size.height)
-      ..lineTo(-size.width * .12, size.height)
+      ..moveTo(size.width * .40, horizon)
+      ..quadraticBezierTo(size.width * .50, horizon - 8, size.width * .60, horizon)
+      ..lineTo(size.width * 1.13, size.height)
+      ..lineTo(-size.width * .13, size.height)
       ..close();
-    canvas.drawPath(road, Paint()..color = const Color(0x151cddff));
-    for (final x in [.25, .5, .75]) {
-      canvas.drawLine(
-        Offset(size.width * .5, horizon),
-        Offset(size.width * x, size.height),
-        Paint()
-          ..color = const Color(0x285f8fff)
-          ..strokeWidth = 1,
-      );
+    canvas.drawPath(road, Paint()..shader = LinearGradient(
+      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+      colors: [Colors.white.withValues(alpha: .015), Color.lerp(planetColors[(wave - 1) ~/ 3], const Color(0xff36d9ff), .22)!.withValues(alpha: .055)],
+    ).createShader(rect));
+    for (var i = 0; i < 5; i++) {
+      final bottomX = size.width * (i / 4);
+      canvas.drawLine(Offset(size.width * .5, horizon), Offset(bottomX, size.height),
+        Paint()..color = Colors.white.withValues(alpha: i == 2 ? .10 : .045)..strokeWidth = i == 2 ? 1.5 : .8);
     }
-    for (var i = 0; i < 8; i++) {
-      final t = ((i / 8 + DateTime.now().millisecond / 8000) % 1);
+    for (var i = 0; i < 12; i++) {
+      final t = ((i / 12 + ticks * .0035) % 1);
       final y = horizon + (size.height - horizon) * t * t;
-      canvas.drawLine(
-        Offset(size.width * (.43 - .55 * t * t), y),
-        Offset(size.width * (.57 + .55 * t * t), y),
-        Paint()
-          ..color = Colors.white.withValues(alpha: .08 * t)
-          ..strokeWidth = 1 + t * 2,
-      );
+      final half = size.width * (.025 + .64 * t * t);
+      canvas.drawLine(Offset(size.width * .5 - half, y), Offset(size.width * .5 + half, y),
+        Paint()..color = Colors.white.withValues(alpha: .025 + .045 * t)..strokeWidth = .6 + t * 1.8);
     }
     for (final e in enemies) {
       _drawEnemy(canvas, size, e);
     }
+    for (final effect in explosions) {
+      final progress = effect.age.clamp(0.0, 1.0).toDouble();
+      final c = Offset(effect.x * size.width, effect.y * size.height);
+      final unit = size.width / 360;
+      final radius = (5 + 38 * progress) * unit * effect.strength;
+      final fade = (1 - progress) * .72;
+      canvas.drawCircle(
+        c,
+        radius * 1.28,
+        Paint()..color = effect.color.withValues(alpha: fade * .18),
+      );
+      canvas.drawCircle(
+        c,
+        radius,
+        Paint()
+          ..color = effect.color.withValues(alpha: fade)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = (3.0 - progress * 2.1) * unit,
+      );
+      canvas.drawCircle(
+        c,
+        radius * .46,
+        Paint()..color = Colors.white.withValues(alpha: fade * .72),
+      );
+      final debris = math.Random(effect.seed);
+      for (var i = 0; i < 7; i++) {
+        final angle = math.pi * 2 * i / 7 + effect.seed * .013;
+        final travel = radius * (.62 + debris.nextDouble() * .52);
+        final point = c + Offset(math.cos(angle) * travel, math.sin(angle) * travel);
+        canvas.drawCircle(
+          point,
+          (1.2 + debris.nextDouble() * 1.8) * unit * (1 - progress * .6),
+          Paint()..color = effect.color.withValues(alpha: fade),
+        );
+      }
+    }
     final dropColors = [
-      const Color(0xffff6b6b),
-      const Color(0xff53d8fb),
-      const Color(0xffffd166),
-      const Color(0xffc77dff),
-      const Color(0xff8dffb1),
-      const Color(0xff85fff2),
-      const Color(0xffa9f7ff),
-      const Color(0xffff8d56),
+      const Color(0xffff6b80), const Color(0xff53d8fb), const Color(0xffffd166),
+      const Color(0xffc77dff), const Color(0xff8dffb1), const Color(0xff85fff2),
+      const Color(0xffa9f7ff), const Color(0xffff8d56),
     ];
     final dropIcons = ['♥', 'S', '✦', 'B', '+', '⚡', 'L', 'R'];
     for (final drop in drops) {
       final center = Offset(drop.x * size.width, drop.y * size.height);
       final color = dropColors[drop.kind];
-      canvas.drawCircle(
-        center,
-        10,
-        Paint()..color = color.withValues(alpha: .22),
-      );
-      canvas.drawCircle(center, 6, Paint()..color = color);
-      final tp = TextPainter(
-        textDirection: TextDirection.ltr,
-        text: TextSpan(
-          text: dropIcons[drop.kind],
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 9,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      )..layout();
+      final pulse = .92 + .08 * math.sin(ticks * .13 + drop.x * 12);
+      final depth = (.62 + (1.0 - drop.z) * .62).clamp(.62, 1.18).toDouble();
+      final r = 9.2 * pulse * depth * unit;
+      canvas.drawCircle(center.translate(0, 3), r * 1.28, Paint()..color = color.withValues(alpha: .12));
+      canvas.drawCircle(center, r * 1.12, Paint()..shader = RadialGradient(colors: [color.withValues(alpha: .02), color.withValues(alpha: .6), color.withValues(alpha: .05)]).createShader(Rect.fromCircle(center: center, radius: r * 1.12)));
+      final pickupRect = Rect.fromCenter(center: center, width: r * 1.62, height: r * 1.62);
+      canvas.drawRRect(RRect.fromRectAndRadius(pickupRect.shift(Offset(0, 2)), Radius.circular(4 * unit)), Paint()..color = Colors.black.withValues(alpha: .45));
+      canvas.drawRRect(RRect.fromRectAndRadius(pickupRect, Radius.circular(4 * unit)), Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.white, color, Color.lerp(color, Colors.black, .38)!]).createShader(pickupRect));
+      canvas.drawRRect(RRect.fromRectAndRadius(pickupRect, Radius.circular(4 * unit)), Paint()..color = Colors.white.withValues(alpha: .76)..style = PaintingStyle.stroke..strokeWidth = 1);
+      final tp = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(text: dropIcons[drop.kind], style: TextStyle(color: Colors.white, fontSize: 9.5 * unit, fontWeight: FontWeight.w900, shadows: const [Shadow(color: Colors.black54, blurRadius: 2)])))..layout();
       tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
     for (final shot in shots) {
@@ -6994,7 +7689,62 @@ class _SpacePainter extends CustomPainter {
       );
     }
     final center = Offset(shipX * size.width, shipY * size.height);
-    _drawShip(canvas, center, size.width / 360);
+    _SpaceEnemy? boss;
+    for (final enemy in enemies) {
+      if (enemy.kind == 7) {
+        boss = enemy;
+        break;
+      }
+    }
+    if (boss != null) {
+      final barWidth = size.width * .64;
+      final bar = Rect.fromLTWH((size.width - barWidth) / 2, size.height * .028, barWidth, 5.5 * size.width / 360);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(bar, const Radius.circular(5)),
+        Paint()..color = Colors.black.withValues(alpha: .7),
+      );
+      final maxHp = math.max(1, 24 + wave * 2).toDouble();
+      final percent = (boss.hp / maxHp).clamp(0.0, 1.0).toDouble();
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(bar.left, bar.top, bar.width * percent, bar.height),
+          const Radius.circular(5),
+        ),
+        Paint()..shader = const LinearGradient(
+          colors: [Color(0xffff72cb), Color(0xffbb45ff), Color(0xffff4e72)],
+        ).createShader(bar),
+      );
+    }
+    _drawShip(canvas, center, size.width / 360, bank);
+    // Visible side-mounted rocket pods reinforce the Serkan/upgrade loadout.
+    final podCount = math.min(6, rockets).toInt();
+    for (var i = 0; i < podCount; i++) {
+      final side = i.isEven ? -1.0 : 1.0;
+      final row = i ~/ 2;
+      final podCenter = center.translate(side * (23 + row * 4.5) * unit, 5 * unit + row * 2 * unit);
+      final podRect = Rect.fromCenter(center: podCenter, width: 4.8 * unit, height: 10 * unit);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(podRect, Radius.circular(1.4 * unit)),
+        Paint()..shader = const LinearGradient(
+          colors: [Color(0xfff5f8ff), Color(0xff8896ab), Color(0xff343e54)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ).createShader(podRect),
+      );
+      canvas.drawCircle(
+        podCenter.translate(0, -4.2 * unit),
+        1.1 * unit,
+        Paint()..color = const Color(0xffffa451),
+      );
+    }
+    if (hero == _SpaceHero.cardabok) {
+      final ringR = size.width * .078;
+      canvas.drawCircle(center, ringR, Paint()..color = const Color(0x102bbdff));
+      canvas.drawArc(Rect.fromCircle(center: center, radius: ringR), -math.pi * .82, math.pi * 1.22, false,
+        Paint()..color = const Color(0x9958d8ff)..style = PaintingStyle.stroke..strokeWidth = 1.8);
+      canvas.drawArc(Rect.fromCircle(center: center, radius: ringR * .88), math.pi * .16, math.pi * .85, false,
+        Paint()..color = const Color(0x6688efff)..style = PaintingStyle.stroke..strokeWidth = 1.1);
+    }
     if (shield) {
       canvas.drawCircle(
         center,
@@ -7067,240 +7817,348 @@ class _SpacePainter extends CustomPainter {
   }
 
   void _drawEnemy(Canvas canvas, Size size, _SpaceEnemy enemy) {
-    final scale = .35 + enemy.z * .95;
+    // High z values are distant and small; z falls toward the player, so the
+    // perspective scale grows as the enemy advances down the screen.
+    final depth = (.42 + (1.0 - enemy.z) * .86).clamp(.42, 1.22).toDouble();
     final c = Offset(enemy.x * size.width, enemy.y * size.height);
-    final shadow = Rect.fromCenter(
-      center: Offset(c.dx, c.dy + size.height * .025 * scale),
-      width: size.width * .07 * scale,
-      height: size.height * .018 * scale,
-    );
-    canvas.drawOval(shadow, Paint()..color = Colors.black54);
-    if (enemy.kind == 0) {
-      final r = size.width * .024 * scale;
-      canvas.drawCircle(c, r, Paint()..color = const Color(0xff8b5e3c));
-      canvas.drawCircle(
-        c.translate(-r * .2, -r * .25),
-        r * .35,
-        Paint()..color = const Color(0xffffb36b),
-      );
-      canvas.drawCircle(
-        c,
-        r,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = const Color(0xffff8055),
-      );
-      // meteor crater details
-      canvas.drawCircle(
-        c.translate(r * .3, r * .2),
-        r * .2,
-        Paint()..color = const Color(0xff573d39),
-      );
-    } else {
-      final boss = enemy.kind == 7;
-      final w =
-          size.width *
-          (boss
-              ? .17
-              : enemy.kind == 6
-              ? .11
-              : .085) *
-          scale;
-      final h =
-          size.height *
-          (boss
-              ? .085
-              : enemy.kind == 6
-              ? .06
-              : .047) *
-          scale;
-      final r = Rect.fromCenter(center: c, width: w, height: h);
-      final color = boss
-          ? const Color(0xffb45cff)
-          : enemy.kind == 6
-          ? const Color(0xffffa23d)
-          : enemy.kind == 2 || enemy.kind == 5
-          ? const Color(0xffff536f)
-          : enemy.kind == 4
-          ? const Color(0xff8a78ff)
-          : const Color(0xff63e1e8);
-      canvas.drawOval(r, Paint()..color = color);
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(c.dx, c.dy - h * .24),
-          width: w * .38,
-          height: h * .7,
-        ),
-        Paint()..color = color.withValues(alpha: .65),
-      );
-      canvas.drawRect(
-        Rect.fromCenter(
-          center: Offset(c.dx, c.dy + h * .1),
-          width: w * .7,
-          height: h * .12,
-        ),
-        Paint()..color = const Color(0xffffe88b),
-      );
-      if (enemy.kind == 2 || enemy.kind == 5 || boss) {
-        final wing = Path()
-          ..moveTo(r.left + w * .18, c.dy)
-          ..lineTo(r.left - w * .2, r.top)
-          ..lineTo(r.left + w * .15, r.bottom)
-          ..close();
-        canvas.drawPath(wing, Paint()..color = color.withValues(alpha: .82));
-        final wing2 = Path()
-          ..moveTo(r.right - w * .18, c.dy)
-          ..lineTo(r.right + w * .2, r.top)
-          ..lineTo(r.right - w * .15, r.bottom)
-          ..close();
-        canvas.drawPath(wing2, Paint()..color = color.withValues(alpha: .82));
+    final unit = size.width / 360 * depth;
+    final boss = enemy.kind == 7;
+    final crystal = enemy.kind == 8;
+    final bomber = enemy.kind == 9;
+    final shard = enemy.kind == 10;
+    final prismGuard = enemy.kind == 11;
+    final lance = enemy.kind == 12;
+    if (shard) {
+      final radius = 7.5 * unit;
+      canvas.save();
+      canvas.translate(c.dx, c.dy);
+      canvas.rotate(enemy.phase * 1.4);
+      final shardPath = Path()
+        ..moveTo(0, -radius * 1.65)
+        ..lineTo(radius * .72, -radius * .15)
+        ..lineTo(radius * .44, radius * 1.12)
+        ..lineTo(-radius * .52, radius * .75)
+        ..lineTo(-radius * .82, -radius * .3)
+        ..close();
+      canvas.drawPath(shardPath, Paint()..color = const Color(0x6638f4e6));
+      canvas.drawPath(shardPath, Paint()..shader = const LinearGradient(
+        colors: [Color(0xffe1fffb), Color(0xff5ae0d4), Color(0xff1b5071)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: radius * 1.65)));
+      canvas.drawPath(shardPath, Paint()..color = Colors.white70..style = PaintingStyle.stroke..strokeWidth = .8 * unit);
+      canvas.restore();
+      return;
+    }
+    final shadowW = (enemy.kind == 0 || crystal ? 25 : boss ? 64 : 34) * unit;
+    final shadow = Rect.fromCenter(center: c.translate(0, 8 * unit), width: shadowW, height: 8 * unit);
+    canvas.drawOval(shadow, Paint()..color = Colors.black.withValues(alpha: .48));
+
+    if (enemy.kind == 0 || crystal) {
+      final radius = (enemy.kind == 0 ? 12 : 15) * unit;
+      final rotation = enemy.phase * (crystal ? -.32 : .42);
+      canvas.save();
+      canvas.translate(c.dx, c.dy);
+      canvas.rotate(rotation);
+      // Faceted irregular asteroid silhouette with a volumetric radial shade.
+      final path = Path();
+      const verts = 11;
+      for (var i = 0; i < verts; i++) {
+        final a = i * math.pi * 2 / verts;
+        final fluctuation = .77 + .18 * math.sin(i * 2.31 + enemy.phase * .18) + .08 * math.cos(i * 4.7);
+        final rr = radius * fluctuation;
+        final point = Offset(math.cos(a) * rr, math.sin(a) * rr * .86);
+        if (i == 0) { path.moveTo(point.dx, point.dy); } else { path.lineTo(point.dx, point.dy); }
       }
-      if (enemy.kind == 6 || boss) {
-        for (var i = -1; i <= 1; i++) {
-          canvas.drawCircle(
-            Offset(c.dx + i * w * .3, c.dy + h * .42),
-            h * .09,
-            Paint()..color = const Color(0xffff5f46),
-          );
+      path.close();
+      final base = crystal ? const Color(0xff54e2d0) : const Color(0xff86563f);
+      canvas.drawPath(path, Paint()..color = const Color(0x7758b9ee));
+      canvas.drawPath(path.shift(Offset(0, 2 * unit)), Paint()..color = const Color(0xff332a37));
+      canvas.drawPath(path, Paint()..shader = RadialGradient(
+        center: const Alignment(-.42, -.50), radius: 1.15,
+        colors: crystal
+            ? [const Color(0xffd4fffa), base, const Color(0xff154b65)]
+            : [const Color(0xffd2a17a), base, const Color(0xff302735)],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: radius * 1.25)));
+      if (crystal) {
+        final crystalPath = Path()..moveTo(-radius * .18, -radius * .84)
+          ..lineTo(radius * .38, -radius * .22)..lineTo(radius * .17, radius * .57)
+          ..lineTo(-radius * .4, radius * .36)..close();
+        canvas.drawPath(crystalPath, Paint()..shader = const LinearGradient(
+          colors: [Color(0xffe5fffb), Color(0xff39b6ca), Color(0xff14577c)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+        ).createShader(Rect.fromCircle(center: Offset.zero, radius: radius)));
+        canvas.drawPath(crystalPath, Paint()..color = const Color(0xffc4fffc)..style = PaintingStyle.stroke..strokeWidth = .9 * unit);
+      } else {
+        final craters = [Offset(-.30, -.12), Offset(.30, .20), Offset(-.06, .42)];
+        for (var i = 0; i < craters.length; i++) {
+          final offset = craters[i];
+          canvas.drawCircle(Offset(offset.dx * radius, offset.dy * radius), radius * (.12 + i * .018), Paint()..color = const Color(0xff46343a).withValues(alpha: .72));
+          canvas.drawArc(Rect.fromCircle(center: Offset(offset.dx * radius - radius * .025, offset.dy * radius - radius * .025), radius: radius * (.12 + i * .018)), math.pi, math.pi, false,
+            Paint()..color = const Color(0xffd9a37a).withValues(alpha: .56)..style = PaintingStyle.stroke..strokeWidth = .8 * unit);
         }
+        final crack = Path()..moveTo(radius * .10, -radius * .64)..lineTo(radius * .02, -radius * .23)..lineTo(radius * .22, -radius * .02)..lineTo(radius * .12, radius * .22);
+        canvas.drawPath(crack, Paint()..color = const Color(0xffffb26b).withValues(alpha: .64)..style = PaintingStyle.stroke..strokeWidth = 1.1 * unit);
       }
-      if (enemy.hp > 1) {
-        final percent =
-            (enemy.hp /
-                    (boss
-                        ? math.max(1, 18)
-                        : enemy.kind == 6
-                        ? 7
-                        : 5))
-                .clamp(0.0, 1.0)
-                .toDouble();
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(r.left, r.top - 5, w, 2),
-            const Radius.circular(2),
-          ),
-          Paint()..color = Colors.white24,
-        );
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(r.left, r.top - 5, w * percent, 2),
-            const Radius.circular(2),
-          ),
-          Paint()
-            ..color = boss ? const Color(0xffff4b8b) : const Color(0xff8bffb2),
-        );
+      canvas.restore();
+      if (crystal) {
+        canvas.drawCircle(c, radius * 1.35, Paint()..color = const Color(0x223dfff1));
+        canvas.drawCircle(c, radius * 1.35, Paint()..color = const Color(0x6658fff0)..style = PaintingStyle.stroke..strokeWidth = 1.3 * unit);
       }
+      return;
+    }
+
+    final hullColor = switch (enemy.kind) {
+      1 => const Color(0xff42e1e9),
+      2 => const Color(0xffff536f),
+      3 => const Color(0xffffaa56),
+      4 => const Color(0xffa78bfa),
+      5 => const Color(0xffff4b70),
+      6 => const Color(0xffdd8b43),
+      7 => const Color(0xff9b5cff),
+      9 => const Color(0xffddc0ff),
+      11 => const Color(0xff55f2e3),
+      12 => const Color(0xffff6f91),
+      _ => const Color(0xff67d8e9),
+    };
+    final w = size.width * (boss ? .28 : enemy.kind == 6 || enemy.kind == 3 || prismGuard ? .145 : lance ? .125 : .105) * depth;
+    final h = size.height * (boss ? .14 : enemy.kind == 6 || enemy.kind == 3 || prismGuard ? .072 : lance ? .060 : .054) * depth;
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(math.sin(enemy.phase * .65) * (enemy.kind == 4 || enemy.kind == 5 ? .18 : .035));
+
+    // Engine exhausts and rear glow establish separation from the starfield.
+    for (final side in [-1.0, 1.0]) {
+      final nozzle = Offset(side * w * .31, h * .18);
+      canvas.drawOval(Rect.fromCenter(center: nozzle.translate(0, h * .23), width: w * .12, height: h * .42), Paint()..color = const Color(0xffff793f).withValues(alpha: .62));
+      canvas.drawCircle(nozzle, h * .07, Paint()..color = const Color(0xffffe4a3));
+    }
+
+    if (enemy.kind == 2 || enemy.kind == 5 || enemy.kind == 7 || bomber || lance) {
+      // Angular interceptor / bomber wings.
+      final wingL = Path()..moveTo(-w * .24, -h * .08)..lineTo(-w * .70, h * .28)..lineTo(-w * .43, -h * .45)..lineTo(-w * .12, -h * .24)..close();
+      final wingR = Path()..moveTo(w * .24, -h * .08)..lineTo(w * .70, h * .28)..lineTo(w * .43, -h * .45)..lineTo(w * .12, -h * .24)..close();
+      canvas.drawPath(wingL, Paint()..shader = LinearGradient(colors: [Color.lerp(hullColor, Colors.white, .12)!, hullColor, Color.lerp(hullColor, Colors.black, .55)!], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(Rect.fromCenter(center: Offset(-w * .40, 0), width: w * .55, height: h)));
+      canvas.drawPath(wingR, Paint()..shader = LinearGradient(colors: [Color.lerp(hullColor, Colors.white, .12)!, hullColor, Color.lerp(hullColor, Colors.black, .55)!], begin: Alignment.topRight, end: Alignment.bottomLeft).createShader(Rect.fromCenter(center: Offset(w * .40, 0), width: w * .55, height: h)));
+      canvas.drawPath(wingL, Paint()..color = Colors.white.withValues(alpha: .24)..style = PaintingStyle.stroke..strokeWidth = .8 * unit);
+      canvas.drawPath(wingR, Paint()..color = Colors.white.withValues(alpha: .24)..style = PaintingStyle.stroke..strokeWidth = .8 * unit);
+    }
+
+    // Circular saucer hull, metal rim, upper dome and underside lights.
+    final hull = Rect.fromCenter(center: Offset(0, h * .02), width: w, height: h * .58);
+    canvas.drawOval(hull.inflate(2.2 * unit), Paint()..color = hullColor.withValues(alpha: .22));
+    canvas.drawOval(hull, Paint()..shader = LinearGradient(
+      begin: Alignment.topLeft, end: Alignment.bottomRight,
+      colors: [const Color(0xffeffaff), Color.lerp(hullColor, Colors.white, .38)!, hullColor, Color.lerp(hullColor, Colors.black, .60)!],
+      stops: const [0, .22, .56, 1],
+    ).createShader(hull));
+    canvas.drawOval(hull, Paint()..color = const Color(0xffdbe9f4).withValues(alpha: .78)..style = PaintingStyle.stroke..strokeWidth = 1.1 * unit);
+    canvas.drawOval(Rect.fromCenter(center: Offset(0, h * .03), width: w * .70, height: h * .42), Paint()..shader = RadialGradient(
+      center: const Alignment(-.1, -.7), colors: [Color.lerp(hullColor, Colors.white, .55)!, hullColor, Color.lerp(hullColor, Colors.black, .45)!],
+    ).createShader(Rect.fromCenter(center: Offset(0, 0), width: w * .7, height: h * .48)));
+    final dome = Rect.fromCenter(center: Offset(0, -h * .12), width: w * .32, height: h * .56);
+    canvas.drawOval(dome, Paint()..shader = RadialGradient(
+      center: const Alignment(-.32, -.6), colors: [const Color(0xfff5ffff).withValues(alpha: .95), Color.lerp(hullColor, const Color(0xff9cecff), .45)!, const Color(0xff172840)],
+    ).createShader(dome));
+    canvas.drawArc(dome, math.pi * 1.05, math.pi * .86, false, Paint()..color = Colors.white.withValues(alpha: .78)..style = PaintingStyle.stroke..strokeWidth = .9 * unit);
+
+    // Radial portholes and segmented panels make each UFO feel manufactured.
+    final lampCount = boss ? 11 : enemy.kind == 3 || enemy.kind == 6 ? 7 : 5;
+    for (var i = 0; i < lampCount; i++) {
+      final a = math.pi * (i / (lampCount - 1));
+      final lx = math.cos(a) * w * .39;
+      final ly = h * .12 + math.sin(a) * h * .095;
+      final lampColor = (i + enemy.kind) % 3 == 0 ? const Color(0xffffd166) : const Color(0xff80fff4);
+      canvas.drawCircle(Offset(lx, ly), 1.45 * unit, Paint()..color = lampColor.withValues(alpha: .28));
+      canvas.drawCircle(Offset(lx, ly), .8 * unit, Paint()..color = lampColor);
+      if (enemy.kind == 6 || boss) {
+        canvas.drawLine(Offset(lx * .80, ly - h * .03), Offset(lx * 1.06, ly + h * .02), Paint()..color = Colors.black.withValues(alpha: .32)..strokeWidth = .9 * unit);
+      }
+    }
+    if (enemy.kind == 6 || boss || bomber || prismGuard || lance) {
+      final cannon = Rect.fromCenter(center: Offset(0, h * .28), width: w * .24, height: h * .28);
+      canvas.drawRRect(RRect.fromRectAndRadius(cannon, Radius.circular(h * .07)), Paint()..color = const Color(0xff222b3c));
+      canvas.drawCircle(Offset(0, h * .40), h * .065, Paint()..color = const Color(0xffff516c));
+    }
+    if (enemy.kind == 4) {
+      canvas.drawArc(Rect.fromCenter(center: Offset.zero, width: w * 1.28, height: h * 1.2), math.pi * 1.1, math.pi * 1.55, false,
+        Paint()..color = const Color(0xffbf9bff).withValues(alpha: .78)..style = PaintingStyle.stroke..strokeWidth = 1.6 * unit);
+    }
+    if (prismGuard) {
+      final shieldRect = Rect.fromCenter(center: Offset.zero, width: w * 1.28, height: h * 1.72);
+      canvas.drawOval(shieldRect, Paint()..color = hullColor.withValues(alpha: .13));
+      canvas.drawOval(shieldRect, Paint()..color = hullColor.withValues(alpha: .78)..style = PaintingStyle.stroke..strokeWidth = 1.5 * unit);
+      for (var i = -1; i <= 1; i++) {
+        canvas.drawCircle(Offset(i * w * .24, h * .05), h * .085, Paint()..color = const Color(0xfff6ffff));
+      }
+    }
+    if (lance) {
+      for (final side in [-1.0, 1.0]) {
+        final blade = Path()
+          ..moveTo(side * w * .18, -h * .12)
+          ..lineTo(side * w * .83, -h * .82)
+          ..lineTo(side * w * .65, h * .18)
+          ..close();
+        canvas.drawPath(blade, Paint()..color = const Color(0xffffb0c5).withValues(alpha: .92));
+      }
+    }
+    if (enemy.kind == 7) {
+      // Boss crown, layered armor plates and a multi-node reactor.
+      for (var i = -2; i <= 2; i++) {
+        final xx = i * w * .145;
+        final spike = Path()..moveTo(xx - w * .07, -h * .20)..lineTo(xx, -h * .73)..lineTo(xx + w * .08, -h * .19)..close();
+        canvas.drawPath(spike, Paint()..shader = const LinearGradient(colors: [Color(0xfff0ddff), Color(0xff8b42e9), Color(0xff32145d)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromCenter(center: Offset(xx, -h * .45), width: w * .16, height: h * .6)));
+      }
+      canvas.drawCircle(Offset(0, h * .04), h * .14, Paint()..color = const Color(0xfff7e6ff));
+      canvas.drawCircle(Offset(0, h * .04), h * .095, Paint()..color = const Color(0xffff45e3));
+      canvas.drawCircle(Offset(0, h * .04), h * .16, Paint()..color = const Color(0xffff45e3).withValues(alpha: .32));
+    }
+    if (enemy.hp > 1) {
+      final hpMax = switch (enemy.kind) {
+        7 => 24 + wave * 2,
+        12 => 6 + (wave ~/ 2),
+        11 => 8 + (wave ~/ 2),
+        9 => 7 + (wave ~/ 3),
+        8 => 6 + (wave ~/ 3),
+        6 => 7,
+        3 => 5,
+        _ => 4,
+      };
+      final percent = (enemy.hp / hpMax).clamp(0.0, 1.0).toDouble();
+      final bar = Rect.fromLTWH(-w * .46, -h * .73, w * .92, 2.3 * unit);
+      canvas.drawRRect(RRect.fromRectAndRadius(bar, Radius.circular(unit)), Paint()..color = Colors.black.withValues(alpha: .65));
+      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(bar.left, bar.top, bar.width * percent, bar.height), Radius.circular(unit)), Paint()..color = boss ? const Color(0xffff4b8b) : crystal ? const Color(0xff63fff0) : const Color(0xff8bffb2));
+    }
+    canvas.restore();
+    if (boss || bomber) {
+      final beam = Rect.fromCenter(center: Offset(c.dx, c.dy + h * .65), width: w * .34, height: h * .58);
+      canvas.drawRect(beam, Paint()..shader = LinearGradient(colors: [hullColor.withValues(alpha: .0), hullColor.withValues(alpha: .16), hullColor.withValues(alpha: .0)]).createShader(beam));
     }
   }
 
   void _drawShot(Canvas canvas, Size size, _SpaceShot shot) {
     final c = Offset(shot.x * size.width, shot.y * size.height);
+    final unit = size.width / 360;
     if (shot.hostile) {
-      canvas.drawCircle(
-        c,
-        shot.kind == 7 ? 5 : 3.5,
-        Paint()
-          ..color = shot.kind == 7
-              ? const Color(0xffff55d8)
-              : const Color(0xffff6b8a),
-      );
+      final color = switch (shot.kind) {
+        7 => const Color(0xffff4fe3),
+        9 => const Color(0xffff9f43),
+        8 || 11 => const Color(0xff63fff0),
+        6 => const Color(0xffffb24b),
+        4 => const Color(0xffc4a0ff),
+        12 => const Color(0xffff6f91),
+        _ => const Color(0xffff667e),
+      };
+      final r = (shot.kind == 7 ? 5.6 : shot.kind == 9 || shot.kind == 11 ? 4.8 : 3.6) * unit;
+      canvas.drawCircle(c, r * 2.2, Paint()..color = color.withValues(alpha: .15));
+      if (shot.kind == 9 || shot.kind == 7) {
+        final path = Path()..moveTo(c.dx, c.dy + r * 1.5)..lineTo(c.dx + r, c.dy - r * .8)..lineTo(c.dx, c.dy - r * 1.7)..lineTo(c.dx - r, c.dy - r * .8)..close();
+        canvas.drawPath(path, Paint()..shader = RadialGradient(colors: [Colors.white, color, Color.lerp(color, Colors.black, .45)!]).createShader(Rect.fromCircle(center: c, radius: r * 1.7)));
+      } else {
+        canvas.drawCircle(c, r, Paint()..shader = RadialGradient(colors: [Colors.white, color, Color.lerp(color, Colors.black, .55)!]).createShader(Rect.fromCircle(center: c, radius: r)));
+        canvas.drawLine(c.translate(-r * 1.2, -r * 2.2), c.translate(r * 1.2, -r * 4.4), Paint()..color = color.withValues(alpha: .45)..strokeWidth = unit);
+      }
     } else if (shot.kind == 2) {
-      final p = Path()
-        ..moveTo(c.dx, c.dy - 8)
-        ..lineTo(c.dx + 5, c.dy + 4)
-        ..lineTo(c.dx, c.dy + 2)
-        ..lineTo(c.dx - 5, c.dy + 4)
-        ..close();
-      canvas.drawPath(p, Paint()..color = const Color(0xffff8c42));
-      canvas.drawCircle(
-        c.translate(0, 7),
-        3,
-        Paint()..color = const Color(0xffffe680),
-      );
+      final rocket = Path()..moveTo(c.dx, c.dy - 9 * unit)..lineTo(c.dx + 5 * unit, c.dy + 4 * unit)..lineTo(c.dx, c.dy + 2 * unit)..lineTo(c.dx - 5 * unit, c.dy + 4 * unit)..close();
+      canvas.drawCircle(c.translate(0, 8 * unit), 5 * unit, Paint()..color = const Color(0xffff8c42).withValues(alpha: .22));
+      canvas.drawPath(rocket, Paint()..shader = const LinearGradient(colors: [Color(0xfffff0c1), Color(0xffff8c42), Color(0xffd84031)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromCenter(center: c, width: 10 * unit, height: 15 * unit)));
+      canvas.drawLine(c.translate(0, 3 * unit), c.translate(0, 12 * unit), Paint()..color = const Color(0xffffe680)..strokeWidth = 2.2 * unit);
     } else {
-      final color = shot.kind == 1
-          ? const Color(0xff72fff4)
-          : const Color(0xff81f7ff);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: c,
-            width: shot.kind == 1 ? 7 : 4,
-            height: shot.kind == 1 ? 24 : 14,
-          ),
-          const Radius.circular(3),
-        ),
-        Paint()..color = color,
-      );
+      final color = shot.kind == 1 ? const Color(0xff72fff4) : const Color(0xff81f7ff);
+      final width = shot.kind == 1 ? 7.4 : 4.2;
+      final height = shot.kind == 1 ? 30.0 : 15.0;
+      final bolt = Rect.fromCenter(center: c, width: width * unit, height: height * unit);
+      canvas.drawRRect(RRect.fromRectAndRadius(bolt.inflate(2.4 * unit), Radius.circular(3 * unit)), Paint()..color = color.withValues(alpha: .20));
+      canvas.drawRRect(RRect.fromRectAndRadius(bolt, Radius.circular(3 * unit)), Paint()..shader = LinearGradient(colors: [Colors.white, color, const Color(0xff159ac5)], begin: Alignment.centerLeft, end: Alignment.centerRight).createShader(bolt));
+      if (shot.kind == 1) {
+        canvas.drawLine(c.translate(-6 * unit, -height * .42), c.translate(6 * unit, -height * .42), Paint()..color = Colors.white.withValues(alpha: .8)..strokeWidth = unit);
+      }
     }
   }
 
-  void _drawShip(Canvas canvas, Offset c, double unit) {
+  void _drawShip(Canvas canvas, Offset c, double unit, double bank) {
     final color = switch (hero) {
       _SpaceHero.cardabok => const Color(0xff45bfff),
       _SpaceHero.mivi => const Color(0xffef394c),
       _SpaceHero.berkan => const Color(0xffa9b5c2),
-      _SpaceHero.serkan => const Color(0xffd09862),
+      _SpaceHero.serkan => const Color(0xff3b3f49),
     };
-    final flame = Path()
-      ..moveTo(c.dx - 7 * unit, c.dy + 8 * unit)
-      ..lineTo(c.dx, c.dy + 27 * unit)
-      ..lineTo(c.dx + 7 * unit, c.dy + 8 * unit)
-      ..close();
-    canvas.drawPath(flame, Paint()..color = const Color(0xffff8c42));
-    final ship = Path()
-      ..moveTo(c.dx, c.dy - 22 * unit)
-      ..lineTo(c.dx + 20 * unit, c.dy + 13 * unit)
-      ..lineTo(c.dx + 7 * unit, c.dy + 9 * unit)
-      ..lineTo(c.dx, c.dy + 15 * unit)
-      ..lineTo(c.dx - 7 * unit, c.dy + 9 * unit)
-      ..lineTo(c.dx - 20 * unit, c.dy + 13 * unit)
-      ..close();
-    canvas.drawPath(ship, Paint()..color = color);
-    canvas.drawPath(
-      ship,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = Colors.white,
-    );
-    if (hero == _SpaceHero.cardabok) {
-      canvas.drawCircle(
-        c.translate(0, 1),
-        5 * unit,
-        Paint()..color = const Color(0xffa7eeff),
-      );
+    final isBerkan = hero == _SpaceHero.berkan;
+    final isCardabok = hero == _SpaceHero.cardabok;
+    final isMivi = hero == _SpaceHero.mivi;
+    final isSerkan = hero == _SpaceHero.serkan;
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(bank.clamp(-1.0, 1.0).toDouble() * .16);
+
+    // Engine plume and its soft halo.
+    canvas.drawOval(Rect.fromCenter(center: Offset(0, 17 * unit), width: 22 * unit, height: 19 * unit), Paint()..color = const Color(0xffff7b36).withValues(alpha: .18));
+    final plume = Path()..moveTo(-7 * unit, 8 * unit)..quadraticBezierTo(-2 * unit, 19 * unit, 0, 28 * unit)..quadraticBezierTo(5 * unit, 18 * unit, 7 * unit, 8 * unit)..close();
+    canvas.drawPath(plume, Paint()..shader = const LinearGradient(colors: [Color(0xfffff5b1), Color(0xffff963d), Color(0xfff34467)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromLTWH(-8 * unit, 7 * unit, 16 * unit, 21 * unit)));
+
+    // Silhouette differs per pilot: moonlight escort, red needle, silver bruiser,
+    // or dark hammerhead interceptor. Multi-layer gradients simulate metallic 3D.
+    final hull = Path();
+    if (isCardabok) {
+      hull..moveTo(0, -25 * unit)..lineTo(10 * unit, -4 * unit)..lineTo(24 * unit, 10 * unit)
+        ..lineTo(14 * unit, 11 * unit)..lineTo(7 * unit, 6 * unit)..lineTo(0, 14 * unit)
+        ..lineTo(-7 * unit, 6 * unit)..lineTo(-14 * unit, 11 * unit)..lineTo(-24 * unit, 10 * unit)
+        ..lineTo(-10 * unit, -4 * unit)..close();
+    } else if (isMivi) {
+      hull..moveTo(0, -27 * unit)..lineTo(8 * unit, -9 * unit)..lineTo(23 * unit, 12 * unit)
+        ..lineTo(8 * unit, 8 * unit)..lineTo(0, 14 * unit)..lineTo(-8 * unit, 8 * unit)
+        ..lineTo(-23 * unit, 12 * unit)..lineTo(-8 * unit, -9 * unit)..close();
+    } else if (isBerkan) {
+      hull..moveTo(0, -22 * unit)..lineTo(15 * unit, -7 * unit)..lineTo(25 * unit, 7 * unit)
+        ..lineTo(23 * unit, 13 * unit)..lineTo(8 * unit, 10 * unit)..lineTo(0, 15 * unit)
+        ..lineTo(-8 * unit, 10 * unit)..lineTo(-23 * unit, 13 * unit)..lineTo(-25 * unit, 7 * unit)
+        ..lineTo(-15 * unit, -7 * unit)..close();
+    } else {
+      hull..moveTo(0, -28 * unit)..lineTo(6 * unit, -8 * unit)..lineTo(27 * unit, 6 * unit)
+        ..lineTo(10 * unit, 8 * unit)..lineTo(0, 17 * unit)..lineTo(-10 * unit, 8 * unit)
+        ..lineTo(-27 * unit, 6 * unit)..lineTo(-6 * unit, -8 * unit)..close();
     }
-    if (hero == _SpaceHero.mivi) {
-      canvas.drawCircle(
-        c.translate(0, 2),
-        4 * unit,
-        Paint()..color = const Color(0xffffb7c0),
-      );
+    canvas.drawPath(hull.shift(Offset(0, 3 * unit)), Paint()..color = Colors.black.withValues(alpha: .48));
+    canvas.drawPath(hull, Paint()..shader = LinearGradient(
+      begin: Alignment.topLeft, end: Alignment.bottomRight,
+      colors: [Color.lerp(color, Colors.white, .64)!, color, Color.lerp(color, Colors.black, .62)!],
+      stops: const [0, .47, 1],
+    ).createShader(Rect.fromCenter(center: Offset.zero, width: 58 * unit, height: 65 * unit)));
+    canvas.drawPath(hull, Paint()..color = Colors.white.withValues(alpha: .72)..style = PaintingStyle.stroke..strokeWidth = 1.1 * unit);
+
+    // Engine pods and armor plates.
+    for (final side in [-1.0, 1.0]) {
+      final pod = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(side * (isBerkan ? 17 : 15) * unit, 7 * unit), width: 7 * unit, height: 17 * unit), Radius.circular(2.5 * unit));
+      canvas.drawRRect(pod, Paint()..shader = LinearGradient(colors: [Color.lerp(color, Colors.white, .35)!, color, Color.lerp(color, Colors.black, .5)!], begin: Alignment.centerLeft, end: Alignment.centerRight).createShader(pod.outerRect));
+      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(side * (isBerkan ? 17 : 15) * unit, 12 * unit), width: 3.2 * unit, height: 5.2 * unit), Radius.circular(unit)), Paint()..color = const Color(0xffffa24a));
+      canvas.drawCircle(Offset(side * 7.5 * unit, -4 * unit), 1.4 * unit, Paint()..color = const Color(0xffe7faff));
     }
-    if (hero == _SpaceHero.berkan) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: c.translate(0, 3),
-            width: 9 * unit,
-            height: 6 * unit,
-          ),
-          const Radius.circular(2),
-        ),
-        Paint()..color = const Color(0xff5c6671),
-      );
+    final cockpit = Rect.fromCenter(center: Offset(0, -7 * unit), width: (isBerkan ? 13 : 11) * unit, height: 17 * unit);
+    canvas.drawRRect(RRect.fromRectAndRadius(cockpit, Radius.circular(6 * unit)), Paint()..shader = const LinearGradient(colors: [Color(0xffd7fbff), Color(0xff56d7ff), Color(0xff18456b)], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(cockpit));
+    canvas.drawLine(cockpit.topCenter + Offset(-1 * unit, 2 * unit), cockpit.bottomCenter + Offset(-1 * unit, -3 * unit), Paint()..color = Colors.white.withValues(alpha: .72)..strokeWidth = 1.1 * unit);
+
+    if (isCardabok) {
+      // Bunny-inspired twin stabilizers and soft blue protective reactor.
+      for (final side in [-1.0, 1.0]) {
+        canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(side * 10 * unit, -12 * unit), width: 4 * unit, height: 11 * unit), Radius.circular(2 * unit)), Paint()..color = const Color(0xffd7f6ff));
+      }
+      canvas.drawCircle(Offset.zero, 5.2 * unit, Paint()..color = const Color(0xffbbf3ff));
+      canvas.drawCircle(Offset.zero, 3 * unit, Paint()..color = const Color(0xff278bd1));
+    } else if (isMivi) {
+      // Two red missile rails and a book-shaped cockpit stripe.
+      canvas.drawLine(Offset(-19 * unit, 4 * unit), Offset(-10 * unit, 0), Paint()..color = const Color(0xffffd2d9)..strokeWidth = 1.7 * unit);
+      canvas.drawLine(Offset(19 * unit, 4 * unit), Offset(10 * unit, 0), Paint()..color = const Color(0xffffd2d9)..strokeWidth = 1.7 * unit);
+      canvas.drawLine(Offset(-3 * unit, -7 * unit), Offset(3 * unit, -7 * unit), Paint()..color = Colors.white.withValues(alpha: .86)..strokeWidth = unit);
+    } else if (isBerkan) {
+      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(0, 3 * unit), width: 16 * unit, height: 10 * unit), Radius.circular(3 * unit)), Paint()..color = const Color(0xff596b7a));
+      canvas.drawLine(Offset(-7 * unit, 4 * unit), Offset(7 * unit, 4 * unit), Paint()..color = const Color(0xffd3ecff)..strokeWidth = 1.2 * unit);
+      canvas.drawCircle(Offset(0, 0), 4.2 * unit, Paint()..color = const Color(0xffdce6eb));
+    } else if (isSerkan) {
+      canvas.drawLine(Offset(-21 * unit, 4 * unit), Offset(21 * unit, 4 * unit), Paint()..color = const Color(0xffffc076)..strokeWidth = 1.8 * unit);
+      canvas.drawCircle(Offset(0, 0), 4.8 * unit, Paint()..color = const Color(0xfff0a34a));
+      canvas.drawCircle(Offset(0, 0), 2.4 * unit, Paint()..color = const Color(0xff532d20));
     }
-    if (hero == _SpaceHero.serkan) {
-      canvas.drawLine(
-        c.translate(-10 * unit, 8 * unit),
-        c.translate(10 * unit, 8 * unit),
-        Paint()
-          ..color = const Color(0xffffd28c)
-          ..strokeWidth = 2 * unit,
-      );
-    }
+    canvas.restore();
   }
 
   @override
